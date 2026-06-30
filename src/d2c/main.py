@@ -30,6 +30,7 @@ from d2c.tools.pool import Config as PoolConfig
 from d2c.tools.pool import assembleToolPool
 from d2c.plugins.loader import PluginLoader
 from d2c.hooks import HookDefinition, HookEvent, HookType
+from d2c.file_history import FileHistory
 from d2c.history import PromptHistory
 
 
@@ -43,6 +44,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume", default=None, help="Session ID to resume")
     parser.add_argument("--fork", default=None, help="Session ID to fork from")
     parser.add_argument("--list-models", action="store_true", help="List available DeepSeek models and exit")
+    parser.add_argument("--rewind-files", default=None, metavar="SESSION_ID",
+                        help="Revert all filesystem changes from the given session")
     return parser.parse_args()
 
 
@@ -372,6 +375,20 @@ async def run_interactive(args: argparse.Namespace) -> None:
 
 def main() -> None:
     args = parse_args()
+
+    # Phase 23: Handle --rewind-files
+    if args.rewind_files:
+        base_dir = Path.home() / ".d2c"
+        restored = FileHistory.rewind_session(
+            base_dir, args.rewind_files, cwd=args.cwd,
+        )
+        if restored:
+            print(f"Restored {len(restored)} file(s) from session {args.rewind_files}:")
+            for p in restored:
+                print(f"  {p}")
+        else:
+            print(f"No checkpoints found for session {args.rewind_files}.")
+        return
 
     if args.list_models:
         from d2c.config import DEEPSEEK_MODEL_DEFAULTS, DEEPSEEK_MODEL_ALIASES

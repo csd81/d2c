@@ -57,3 +57,18 @@ class Tool(ABC):
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__}>"
+
+
+# ── Phase 23: File history tracker integration ────────────────────────
+
+_file_history_tracker: Any = None
+
+
+def set_file_history_tracker(tracker: Any) -> None:
+    """Set the global file history tracker for write/EDIT operations."""
+    global _file_history_tracker
+    _file_history_tracker = tracker
+
+
+def get_file_history_tracker() -> Any:
+    return _file_history_tracker

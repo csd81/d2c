@@ -57,6 +57,12 @@ class FileEditTool(Tool):
     ) -> ToolResult:
         path = Path(file_path)
 
+        # Phase 23: Checkpoint before modification
+        from d2c.tools import get_file_history_tracker
+        tracker = get_file_history_tracker()
+        if tracker:
+            tracker.before_write(path)
+
         if not path.is_absolute():
             return ToolResult(
                 output=f"Error: file_path must be an absolute path, got: {file_path}",
