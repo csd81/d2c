@@ -95,13 +95,13 @@ async def applyFullContextShapers(
     if checkPressure(messages, compact_config):
         messages = applySnip(messages, compact_config)
 
-    # Shaper 3: Microcompact (gated by pressure, cache-aware)
+    # Shaper 3: Microcompact (gated by pressure, Phase 29: LLM summarization)
     if checkPressure(messages, compact_config):
-        messages = applyMicrocompact(messages, compact_config)
+        messages = await applyMicrocompact(messages, loop_config)
 
-    # Shaper 4: Context collapse (gated by pressure, read-time projection)
+    # Shaper 4: Context collapse (gated by pressure, Phase 29: LLM summarization)
     if checkPressure(messages, compact_config):
-        messages = applyContextCollapse(messages, compact_config)
+        messages = await applyContextCollapse(messages, loop_config)
 
     # Shaper 5: Auto-compact (last resort, model-generated)
     if checkPressure(messages, compact_config):
@@ -179,36 +179,108 @@ def applySnip(
     return result
 
 
-# ── Shaper 3: Microcompact ────────────────────────────────────────────
+# ── Phase 29: LLM-based summarization helper ───────────────────────────
 
-def applyMicrocompact(
-    messages: list[dict],
-    config: CompactConfig,
-) -> list[dict]:
-    """Cache-aware compression of tool-result pairs into brief summaries.
+# Semaphore to limit concurrent summarization calls (avoid rate limits)
+_summarize_semaphore = asyncio.Semaphore(3)
 
-    Paper: "The cache-aware behavior of microcompact adds further opacity,
-    as compression decisions are influenced by prompt caching."
 
-    Groups consecutive tool-result pairs between cache-safe breakpoints
-    (system messages, non-tool user messages) and replaces them with
-    compact summaries. Avoids breaking the Anthropic prompt cache prefix
-    by respecting natural message boundaries.
+async def _summarize_segment_content(
+    segment_text: str,
+    loop_config: Any,
+    summary_type: str = "tools",
+) -> str:
+    """Invoke a fast model to summarize a context segment.
+
+    Falls back to character slicing if the LLM call fails, times out,
+    or rate limits are hit.
+
+    Args:
+        segment_text: Raw text to summarize.
+        loop_config: LoopConfig with API key, base URL, model.
+        summary_type: "tools" for tool-result pairs, "history" for conversation.
     """
-    if len(messages) < 4:
-        return messages  # Too few messages to compact meaningfully
+    if not segment_text.strip():
+        return "(empty)"
+
+    compact_model = (
+        loop_config.compact_config.compact_model
+        if getattr(loop_config, 'compact_config', None)
+        else None
+    )
+    model = compact_model or getattr(loop_config, 'model', 'deepseek-chat')
+
+    if summary_type == "tools":
+        prompt = (
+            "Summarize the following developer agent tool interaction. "
+            "Keep it under 300 characters. Preserve all relevant compile errors, "
+            "failing test names, parameters, file paths, and return codes:\n\n"
+            f"{segment_text}"
+        )
+        max_chars = 300
+    else:
+        prompt = (
+            "Summarize the conversations, tasks discussed, and decisions made in the "
+            "following log. Keep it under 400 characters. Preserve file paths, "
+            "tool names used, and key outcomes:\n\n"
+            f"{segment_text}"
+        )
+        max_chars = 400
+
+    try:
+        async with _summarize_semaphore:
+            client = anthropic.AsyncAnthropic(
+                api_key=loop_config.deepseek_api_key,
+                base_url=loop_config.deepseek_base_url,
+            )
+            response = await asyncio.wait_for(
+                client.messages.create(
+                    model=model,
+                    max_tokens=150,
+                    system="You are a context compression assistant. Be extremely concise.",
+                    messages=[{"role": "user", "content": prompt}],
+                ),
+                timeout=15.0,
+            )
+            # Extract text from response
+            text = ""
+            for block in response.content:
+                if hasattr(block, 'text'):
+                    text += block.text
+            return text.strip() or f"[summary: {segment_text[:max_chars]}]"
+    except Exception:
+        # Fallback: character slicing
+        if len(segment_text) > max_chars:
+            return segment_text[:max_chars] + "... [heuristic fallback]"
+        return segment_text
+
+
+# ── Shaper 3: Microcompact (Phase 29: LLM summarization) ────────────────
+
+async def applyMicrocompact(
+    messages: list[dict],
+    loop_config: Any,
+) -> list[dict]:
+    """Phase 29: LLM-based compression of tool-result pairs into summaries.
+
+    Groups consecutive tool-result pairs and asynchronously summarizes
+    each group using a fast model. Falls back to character slicing on failure.
+    Uses asyncio.Semaphore to limit concurrent API calls.
+    """
+    config = getattr(loop_config, 'compact_config', None)
+    if config is None or len(messages) < 4:
+        return messages
 
     max_summary = config.microcompact_summary_max_chars
     result: list[dict] = []
 
-    # Identify safe break points: messages where cache would naturally break
-    # (system messages, non-tool user/assistant messages without preceding tool calls)
+    # Collect tool-result pair groups and schedule summaries
+    summary_tasks: list[tuple[int, asyncio.Task]] = []
     i = 0
     while i < len(messages):
         msg = messages[i]
         role = msg.get("role", "")
 
-        # System messages and non-tool messages are cache-safe boundaries
         if role == "system":
             result.append(msg)
             i += 1
@@ -218,12 +290,11 @@ def applyMicrocompact(
         if role == "user" and i + 2 < len(messages):
             nxt = messages[i + 1]
             nnxt = messages[i + 2]
-            # assistant with tool_use followed by tool result
             if nxt.get("role") == "assistant" and _has_tool_use(nxt):
                 if nnxt.get("role") == "tool":
-                    # Found at least one tool-result pair — collect contiguous pairs
+                    # Collect contiguous pairs into a text segment
                     pair_count = 0
-                    pair_summaries: list[str] = []
+                    pair_texts: list[str] = []
                     j = i
                     while j < len(messages):
                         um = messages[j]
@@ -240,7 +311,7 @@ def applyMicrocompact(
 
                         tool_names = _get_tool_names(am)
                         tool_result_text = _content_str(tm)[:max_summary]
-                        pair_summaries.append(
+                        pair_texts.append(
                             f"[User: {_content_str(um)[:200]}] "
                             f"→ tools: {', '.join(tool_names)} → "
                             f"results: {tool_result_text}"
@@ -249,39 +320,53 @@ def applyMicrocompact(
                         j += 3
 
                     if pair_count > 0:
-                        summary = f"[Microcompact: {pair_count} tool interaction(s)]\n" + \
-                                  "\n".join(pair_summaries)
-                        result.append({"role": "user", "content": summary})
+                        segment_text = "\n".join(pair_texts)
+                        # Placeholder slot — will be filled after summaries complete
+                        placeholder_idx = len(result)
+                        result.append({"role": "user", "content": ""})
+                        # Schedule async summarization
+                        task = asyncio.create_task(
+                            _summarize_segment_content(
+                                segment_text, loop_config, summary_type="tools",
+                            )
+                        )
+                        summary_tasks.append((placeholder_idx, task))
                         i = j
                         continue
 
         result.append(msg)
         i += 1
 
+    # Await all summarization tasks concurrently
+    if summary_tasks:
+        indices, tasks = zip(*summary_tasks)
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+        for idx, summary_or_exc in zip(indices, results_list):
+            if isinstance(summary_or_exc, BaseException):
+                # Fallback: use char-sliced version
+                summary_or_exc = ""
+            prefix = f"[Microcompact: summarized]\n"
+            result[idx]["content"] = prefix + (str(summary_or_exc) or "(summary unavailable)")
+
     return result
 
 
 # ── Shaper 4: Context Collapse ────────────────────────────────────────
 
-def applyContextCollapse(
+async def applyContextCollapse(
     messages: list[dict],
-    config: CompactConfig,
+    loop_config: Any,
 ) -> list[dict]:
-    """Read-time projection: segment history into summaries, preserving recent context.
+    """Phase 29: LLM-based read-time projection over conversation history.
 
-    Paper: "context collapse substitutes messages with a summary
-    (described in the source as 'a read-time projection over the REPL's
-    full history')."
-
-    Unlike auto-compact which replaces the actual history, context collapse
-    creates a read-time view. The full transcript on disk (session_store)
-    is preserved — only what the model sees is collapsed.
-
-    Segments the conversation into logical chunks by task boundaries and
-    generates per-segment summaries.
+    Segments middle conversation turns and asynchronously summarizes
+    each segment using a fast model. Preserves system messages, the
+    first user message (task), and recent context.
+    Falls back to char-sliced summaries on failure.
     """
-    if len(messages) < config.collapse_min_turns * 2:
-        return messages  # Too few turns for meaningful collapse
+    config = getattr(loop_config, 'compact_config', None)
+    if config is None or len(messages) < config.collapse_min_turns * 2:
+        return messages
 
     segment_size = config.collapse_segment_size
     result: list[dict] = []
@@ -303,7 +388,6 @@ def applyContextCollapse(
         result.append(first_user)
 
     # Collapse middle messages into segments
-    # Skip system messages and first user message when segmenting
     skip_indices = set(range(len(system_msgs)))
     if first_user_idx >= 0:
         skip_indices.add(first_user_idx)
@@ -319,9 +403,33 @@ def applyContextCollapse(
 
     if middle:
         segments = _segment_messages(middle, segment_size)
+        # Schedule LLM summarization for each segment concurrently
+        summary_tasks: list[tuple[int, asyncio.Task]] = []
+        placeholder_indices: list[int] = []
+
         for seg_idx, segment in enumerate(segments):
-            summary = _summarize_segment(segment, seg_idx)
-            result.append({"role": "user", "content": summary})
+            segment_text = _summarize_segment(segment, seg_idx)
+            placeholder_idx = len(result)
+            placeholder_indices.append(placeholder_idx)
+            result.append({"role": "user", "content": ""})
+            task = asyncio.create_task(
+                _summarize_segment_content(
+                    segment_text, loop_config, summary_type="history",
+                )
+            )
+            summary_tasks.append((placeholder_idx, task))
+
+        # Await all summarization tasks
+        if summary_tasks:
+            indices, tasks = zip(*summary_tasks)
+            results_list = await asyncio.gather(*tasks, return_exceptions=True)
+            for idx, summary_or_exc in zip(indices, results_list):
+                if isinstance(summary_or_exc, BaseException):
+                    summary_or_exc = ""
+                prefix = f"[Context collapse: summarized]\n"
+                content = str(summary_or_exc) or "(summary unavailable)"
+                if idx < len(result):
+                    result[idx]["content"] = prefix + content
 
     # Append recent messages
     recent = messages[recent_start:]

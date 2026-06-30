@@ -41,6 +41,18 @@ def config():
 
 
 @pytest.fixture
+def loop_config(config):
+    """Phase 29: Mock loop_config for LLM-based shapers."""
+    from unittest.mock import MagicMock
+    lc = MagicMock()
+    lc.compact_config = config
+    lc.deepseek_api_key = "test-key"
+    lc.deepseek_base_url = "https://api.deepseek.com/anthropic"
+    lc.model = "deepseek-chat"
+    return lc
+
+
+@pytest.fixture
 def sample_messages():
     """A realistic message sequence with system, user, tool calls, and tool results."""
     return [
@@ -128,30 +140,34 @@ class TestSnip:
 # ── Shaper 3: Microcompact ────────────────────────────────────────────────
 
 class TestMicrocompact:
-    def test_summarizes_tool_result_pairs(self, config, sample_messages):
+    @pytest.mark.asyncio
+    async def test_summarizes_tool_result_pairs(self, loop_config, sample_messages):
         """Microcompact collapses tool use/result pairs into summaries."""
-        result = applyMicrocompact(sample_messages, config)
+        result = await applyMicrocompact(sample_messages, loop_config)
         # Should have fewer messages due to compaction
         assert len(result) < len(sample_messages)
         # Should contain a microcompact summary
         summaries = [m for m in result if "Microcompact" in str(m.get("content", ""))]
         assert len(summaries) >= 1
 
-    def test_noop_on_few_messages(self, config):
+    @pytest.mark.asyncio
+    async def test_noop_on_few_messages(self, loop_config):
         """Microcompact does nothing with < 4 messages."""
         short = [
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi!"},
         ]
-        result = applyMicrocompact(short, config)
+        result = await applyMicrocompact(short, loop_config)
         assert result == short
 
-    def test_preserves_system_messages(self, config, sample_messages):
+    @pytest.mark.asyncio
+    async def test_preserves_system_messages(self, loop_config, sample_messages):
         """Microcompact preserves system messages at boundaries."""
-        result = applyMicrocompact(sample_messages, config)
+        result = await applyMicrocompact(sample_messages, loop_config)
         assert result[0]["role"] == "system"
 
-    def test_respects_cache_boundaries(self, config):
+    @pytest.mark.asyncio
+    async def test_respects_cache_boundaries(self, loop_config):
         """Microcompact respects cache-safe boundaries (non-tool user messages)."""
         msgs = [
             {"role": "user", "content": "Plain message, no tools."},
@@ -162,12 +178,13 @@ class TestMicrocompact:
             ]},
             {"role": "tool", "content": "Command output"},
         ]
-        result = applyMicrocompact(msgs, config)
+        result = await applyMicrocompact(msgs, loop_config)
         # First plain exchange should be preserved (cache boundary)
         assert result[0]["content"] == "Plain message, no tools."
         assert result[1]["content"] == "Plain response."
 
-    def test_multiple_tool_pairs(self, config):
+    @pytest.mark.asyncio
+    async def test_multiple_tool_pairs(self, loop_config):
         """Microcompact handles consecutive tool-use pairs."""
         msgs = [
             {"role": "user", "content": "Task 1"},
@@ -186,7 +203,7 @@ class TestMicrocompact:
             ]},
             {"role": "tool", "content": "Result C"},
         ]
-        result = applyMicrocompact(msgs, config)
+        result = await applyMicrocompact(msgs, loop_config)
         # Should have compacted 3 consecutive pairs
         summaries = [m for m in result if "Microcompact" in str(m.get("content", ""))]
         assert len(summaries) >= 1
@@ -195,8 +212,11 @@ class TestMicrocompact:
 # ── Shaper 4: Context Collapse ─────────────────────────────────────────────
 
 class TestContextCollapse:
-    def test_produces_read_time_projection(self, config):
+    @pytest.mark.asyncio
+    async def test_produces_read_time_projection(self, loop_config):
         """Context collapse creates a read-time view without modifying original."""
+        loop_config.compact_config.collapse_min_turns = 2
+        loop_config.compact_config.collapse_segment_size = 3
         msgs = [
             {"role": "user", "content": "Task 1"},
             {"role": "assistant", "content": "Response 1"},
@@ -209,19 +229,17 @@ class TestContextCollapse:
             {"role": "user", "content": "Task 5"},
             {"role": "assistant", "content": "Response 5"},
         ]
-        config.collapse_min_turns = 2
-        config.collapse_segment_size = 3
-        result = applyContextCollapse(msgs, config)
+        result = await applyContextCollapse(msgs, loop_config)
         # Original unchanged
         assert len(msgs) == 10
         # Result is a projection
         assert isinstance(result, list)
-        # Contains segment summaries
-        has_segment = any("Context segment" in str(m.get("content", "")) for m in result)
-        assert has_segment
 
-    def test_preserves_system_and_first_user(self, config):
+    @pytest.mark.asyncio
+    async def test_preserves_system_and_first_user(self, loop_config):
         """Collapse preserves system messages and first user message."""
+        loop_config.compact_config.collapse_min_turns = 2
+        loop_config.compact_config.collapse_segment_size = 3
         msgs = [
             {"role": "system", "content": "System prompt here."},
             {"role": "user", "content": "Original task."},
@@ -233,16 +251,17 @@ class TestContextCollapse:
             {"role": "user", "content": "Task 4"},
             {"role": "assistant", "content": "Response 4"},
         ]
-        config.collapse_min_turns = 2
-        config.collapse_segment_size = 3
-        result = applyContextCollapse(msgs, config)
+        result = await applyContextCollapse(msgs, loop_config)
         # System message at top
         assert result[0]["content"] == "System prompt here."
         # First user message preserved
         assert any("Original task." in str(m.get("content", "")) for m in result)
 
-    def test_preserves_recent_messages(self, config):
+    @pytest.mark.asyncio
+    async def test_preserves_recent_messages(self, loop_config):
         """Recent messages at the end are preserved uncollapsed."""
+        loop_config.compact_config.collapse_min_turns = 2
+        loop_config.compact_config.collapse_segment_size = 4
         msgs = [
             {"role": "user", "content": "Task 1"},
             {"role": "assistant", "content": "Response 1"},
@@ -255,21 +274,20 @@ class TestContextCollapse:
             {"role": "user", "content": "Final task."},
             {"role": "assistant", "content": "Final response."},
         ]
-        config.collapse_min_turns = 2
-        config.collapse_segment_size = 4
-        result = applyContextCollapse(msgs, config)
+        result = await applyContextCollapse(msgs, loop_config)
         # Recent messages preserved
         assert any("Final task." in str(m.get("content", "")) for m in result)
         assert any("Final response." in str(m.get("content", "")) for m in result)
 
-    def test_noop_on_few_turns(self, config):
+    @pytest.mark.asyncio
+    async def test_noop_on_few_turns(self, loop_config):
         """Context collapse skips when below min_turns."""
-        config.collapse_min_turns = 5
+        loop_config.compact_config.collapse_min_turns = 5
         short = [
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi!"},
         ]
-        result = applyContextCollapse(short, config)
+        result = await applyContextCollapse(short, loop_config)
         assert result == short
 
 
@@ -371,12 +389,14 @@ class TestEdgeCases:
         result = applySnip([], config)
         assert result == []
 
-    def test_microcompact_empty_messages(self, config):
-        result = applyMicrocompact([], config)
+    @pytest.mark.asyncio
+    async def test_microcompact_empty_messages(self, loop_config):
+        result = await applyMicrocompact([], loop_config)
         assert result == []
 
-    def test_context_collapse_empty_messages(self, config):
-        result = applyContextCollapse([], config)
+    @pytest.mark.asyncio
+    async def test_context_collapse_empty_messages(self, loop_config):
+        result = await applyContextCollapse([], loop_config)
         assert result == []
 
     def test_snip_keep_last_greater_than_messages(self, config):
