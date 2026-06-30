@@ -49,6 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--session", default=None, help="Session ID to use")
     parser.add_argument("--resume", default=None, help="Session ID to resume")
     parser.add_argument("--fork", default=None, help="Session ID to fork from")
+    parser.add_argument("--mcp", action="store_true", help="Start as an MCP server (stdio JSON-RPC) for IDE integration")
     parser.add_argument("--list-models", action="store_true", help="List available DeepSeek models and exit")
     parser.add_argument("--rewind-files", default=None, metavar="SESSION_ID",
                         help="Revert all filesystem changes from the given session")
@@ -686,6 +687,11 @@ def main() -> None:
                 print(f"  {p}")
         else:
             print(f"No checkpoints found for session {args.rewind_files}.")
+        return
+
+    if args.mcp:
+        from d2c.mcp.server import run_mcp_server
+        asyncio.run(run_mcp_server(args))
         return
 
     if args.list_models:
