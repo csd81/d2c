@@ -30,6 +30,7 @@ from d2c.compact import (
     CompactConfig,
 )
 from d2c.hooks import HookEvent, HookRegistry, HookResult
+from d2c.streaming_executor import StreamingToolExecutor, StreamToolParser
 
 
 # ── Loop events (yielded by the async generator) ────────────────────
@@ -455,10 +456,16 @@ async def queryLoop(
         text = ""
         tool_uses: list[ToolUse] = []
 
+        stream_executor: StreamingToolExecutor | None = None
+
         try:
             if loop_config.stream:
-                # Streaming: yield TextDelta as chunks arrive
+                # Streaming: yield TextDelta as chunks arrive.
+                # Phase 19: Start tool execution during streaming via
+                # StreamingToolExecutor to reduce latency for multi-tool responses.
                 accumulated = ""
+                parser = StreamToolParser()
+
                 async with client.messages.stream(
                     model=loop_config.model,
                     max_tokens=8192,
@@ -466,16 +473,46 @@ async def queryLoop(
                     messages=anthropic_messages,
                     tools=tool_schemas,
                 ) as stream:
+                    # Lazy-init executor on first tool_use start
                     async for event in stream:
-                        if hasattr(event, "type"):
-                            if event.type == "text_delta":
-                                accumulated += event.text
-                                yield TextDelta(text=event.text)
-                            elif event.type == "content_block_start":
-                                if hasattr(event.content_block, "type") and event.content_block.type == "tool_use":
-                                    pass  # tool_use start — handled in final message
-                            elif event.type == "input_json_delta":
-                                pass  # tool input — handled in final message
+                        if not hasattr(event, "type"):
+                            continue
+
+                        if event.type == "text_delta":
+                            accumulated += event.text
+                            yield TextDelta(text=event.text)
+
+                        elif event.type == "content_block_start":
+                            if (hasattr(event.content_block, "type")
+                                    and event.content_block.type == "tool_use"):
+                                block_id = getattr(event.content_block, "id", "")
+                                block_name = getattr(event.content_block, "name", "")
+                                idx = getattr(event, "index", -1)
+                                if idx >= 0 and block_name:
+                                    parser.feed_start(idx, block_name, block_id)
+
+                        elif event.type == "content_block_delta":
+                            if (hasattr(event.delta, "type")
+                                    and event.delta.type == "input_json_delta"):
+                                idx = getattr(event, "index", -1)
+                                partial = getattr(event.delta, "partial_json", "")
+                                if idx >= 0 and partial:
+                                    parser.feed_delta(idx, partial)
+
+                        elif event.type == "content_block_stop":
+                            idx = getattr(event, "index", -1)
+                            if idx >= 0:
+                                tool_use = parser.feed_stop(idx)
+                                if tool_use is not None:
+                                    # Lazy-init executor and submit
+                                    if stream_executor is None:
+                                        stream_executor = StreamingToolExecutor(
+                                            tools_map=tools_map,
+                                            permission_engine=loop_config.permission_engine,
+                                            hooks=loop_config.hooks,
+                                            session_store=loop_config.session_store,
+                                        )
+                                    stream_executor.submit(tool_use)
 
                 # Get the complete final message from the stream
                 try:
@@ -486,6 +523,13 @@ async def queryLoop(
                     # Fallback: use accumulated text
                     text = accumulated
                     tool_uses = []
+
+                # Submit any tool_uses from final_message not already submitted during stream
+                if stream_executor is not None and tool_uses:
+                    submitted_ids = parser.submitted_ids
+                    for tu in tool_uses:
+                        if tu.id not in submitted_ids:
+                            stream_executor.submit(tu)
             else:
                 # Non-streaming fallback
                 response = await client.messages.create(
@@ -572,16 +616,36 @@ async def queryLoop(
         _record(loop_config.session_store, "assistant",
                 assistant_content if len(assistant_content) > 1 else text)
 
-        async for event in dispatchTools(tool_uses, tools_map, state, loop_config.permission_engine, loop_config.session_store, loop_config.hooks):
-            yield event
+        if stream_executor is not None:
+            # Phase 19: Collect results from streaming executor.
+            # Tools were already submitted during the stream or right after
+            # get_final_message(). Collect results in original order.
+            executor_results = await stream_executor.get_results()
+            for tu, result in executor_results:
+                state.messages.append(_tool_result_message(tu, result))
+                _record(loop_config.session_store, "tool", result.output,
+                        tool_name=tu.name, tool_use_id=tu.id,
+                        error=result.error)
+                event = ToolExecutionEvent(tool_use=tu, result=result)
+                yield event
 
-            # Phase 7: Hook intervention check (hook_stopped_continuation)
-            if event.stop_continuation:
-                state.stopped = True
-                state.stop_reason = "hook_intervention"
-                _record(loop_config.session_store, "system", "",
-                        event="session_stop", stop_reason="hook_intervention")
-                break
+                if event.stop_continuation:
+                    state.stopped = True
+                    state.stop_reason = "hook_intervention"
+                    _record(loop_config.session_store, "system", "",
+                            event="session_stop", stop_reason="hook_intervention")
+                    break
+        else:
+            async for event in dispatchTools(tool_uses, tools_map, state, loop_config.permission_engine, loop_config.session_store, loop_config.hooks):
+                yield event
+
+                # Phase 7: Hook intervention check (hook_stopped_continuation)
+                if event.stop_continuation:
+                    state.stopped = True
+                    state.stop_reason = "hook_intervention"
+                    _record(loop_config.session_store, "system", "",
+                            event="session_stop", stop_reason="hook_intervention")
+                    break
 
         # --- Turn limit ---
         state.turn_count += 1
