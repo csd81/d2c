@@ -170,7 +170,8 @@ def test_estimate_tokens():
         {"role": "assistant", "content": "hi there"},
     ]
     tokens = estimate_tokens(messages)
-    assert 5 <= tokens <= 15
+    # BPE: ~2+2 content tokens + ~13 overhead ≈ 17
+    assert 5 <= tokens <= 25
 
 
 # ── Message format tests ─────────────────────────────────────────────

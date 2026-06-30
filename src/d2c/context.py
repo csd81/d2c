@@ -150,15 +150,102 @@ def prependUserContext(messages: list[dict], user_context: str) -> list[dict]:
     return [{"role": "user", "content": user_context}] + messages
 
 
-# ── Token estimation ─────────────────────────────────────────────────
+# ── Token estimation (Phase 28: BPE tokenizer) ─────────────────────────
+
+# Module-level cache for the tiktoken encoding — loaded once on first use.
+_bpe_encoding = None
+_bpe_init_error: Exception | None = None
+
+
+def _get_bpe_encoding():
+    """Lazy-load the cl100k_base encoding. Cached after first successful load."""
+    global _bpe_encoding, _bpe_init_error
+    if _bpe_encoding is not None:
+        return _bpe_encoding
+    if _bpe_init_error is not None:
+        raise _bpe_init_error
+    try:
+        import tiktoken
+        _bpe_encoding = tiktoken.get_encoding("cl100k_base")
+        return _bpe_encoding
+    except Exception as e:
+        _bpe_init_error = e
+        raise
+
 
 def estimate_tokens(messages: list[dict], chars_per_token: float = 3.5) -> int:
-    """Rough token estimate: total chars / chars_per_token."""
-    import json
+    """Precise BPE token counting using cl100k_base encoding.
+
+    Falls back to character-based heuristic if tiktoken is unavailable.
+    Anthropic message structure overhead is included (~4 tokens/message
+    for role metadata, +3 for conversation framing).
+    """
+    try:
+        enc = _get_bpe_encoding()
+    except Exception:
+        return _fallback_estimate_tokens(messages, chars_per_token)
+
+    num_tokens = 0
+    for message in messages:
+        # Anthropic message structure overhead (~4 tokens per message)
+        num_tokens += 4
+
+        role = message.get("role", "")
+        content = message.get("content", "")
+
+        num_tokens += len(enc.encode(role))
+
+        if isinstance(content, str):
+            num_tokens += len(enc.encode(content))
+        elif isinstance(content, list):
+            # Structured content blocks (text, tool_use, tool_result, etc.)
+            for block in content:
+                if isinstance(block, dict):
+                    block_type = block.get("type", "")
+                    num_tokens += len(enc.encode(block_type))
+
+                    if block_type == "text":
+                        num_tokens += len(enc.encode(block.get("text", "")))
+                    elif block_type == "tool_use":
+                        num_tokens += len(enc.encode(block.get("name", "")))
+                        import json as _json
+                        num_tokens += len(enc.encode(
+                            _json.dumps(block.get("input", {}))
+                        ))
+                    elif block_type == "tool_result":
+                        num_tokens += len(enc.encode(
+                            block.get("tool_use_id", "")
+                        ))
+                        result_content = block.get("content", "")
+                        if isinstance(result_content, str):
+                            num_tokens += len(enc.encode(result_content))
+                        else:
+                            num_tokens += len(enc.encode(str(result_content)))
+                    else:
+                        import json as _json
+                        num_tokens += len(enc.encode(_json.dumps(block)))
+                else:
+                    num_tokens += len(enc.encode(str(block)))
+        else:
+            num_tokens += len(enc.encode(str(content)))
+
+    # Conversation framing overhead (~3 tokens)
+    num_tokens += 3
+    return num_tokens
+
+
+def _fallback_estimate_tokens(
+    messages: list[dict], chars_per_token: float = 3.5,
+) -> int:
+    """Character-based fallback when tiktoken is unavailable."""
+    import json as _json
     total = 0
     for m in messages:
-        if isinstance(m.get("content"), list):
-            total += len(json.dumps(m["content"]))
+        content = m.get("content", "")
+        if isinstance(content, str):
+            total += len(content)
+        elif isinstance(content, list):
+            total += len(_json.dumps(content))
         else:
-            total += len(str(m.get("content", "")))
+            total += len(str(content))
     return int(total / chars_per_token)

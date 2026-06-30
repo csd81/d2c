@@ -427,21 +427,17 @@ def _content_str(msg: dict) -> str:
     return str(content)
 
 
-# ── Token estimation ───────────────────────────────────────────────────
+# ── Token estimation (Phase 28: BPE tokenizer) ─────────────────────────
 
 def estimate_tokens(messages: list[dict], config: CompactConfig | None = None) -> int:
-    """Rough token estimate: total chars / chars_per_token."""
+    """Precise token count using BPE tokenizer (cl100k_base).
+
+    Delegates to context.estimate_tokens for the actual computation.
+    Falls back to character-based heuristic if tiktoken is unavailable.
+    """
+    from d2c.context import estimate_tokens as _bpe_estimate
     chars_per_token = config.chars_per_token if config else 3.5
-    total_chars = 0
-    for m in messages:
-        content = m.get("content", "")
-        if isinstance(content, str):
-            total_chars += len(content)
-        elif isinstance(content, list):
-            total_chars += len(json.dumps(content))
-        else:
-            total_chars += len(str(content))
-    return int(total_chars / chars_per_token)
+    return _bpe_estimate(messages, chars_per_token)
 
 
 def compute_pressure_limit(config: CompactConfig) -> int:
