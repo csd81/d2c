@@ -71,6 +71,7 @@ def applyContextShapers(
 async def applyFullContextShapers(
     messages: list[dict],
     loop_config: Any,  # LoopConfig
+    system_tokens: int | None = None,
 ) -> list[dict]:
     """Run the full 5-layer compaction pipeline, gating each layer by pressure.
 
@@ -83,6 +84,8 @@ async def applyFullContextShapers(
 
     Each shaper is gated by the pressure threshold; the pipeline
     short-circuits as soon as pressure is relieved.
+
+    Phase 30: system_tokens enables cache-aligned snip/collapse boundaries.
     """
     compact_config = getattr(loop_config, 'compact_config', None)
     if compact_config is None:
@@ -91,17 +94,17 @@ async def applyFullContextShapers(
     # Shaper 1: Budget reduction (always applied)
     messages = applyBudgetReduction(messages, compact_config)
 
-    # Shaper 2: Snip (gated by pressure)
+    # Shaper 2: Snip (gated by pressure, Phase 30: cache-aligned)
     if checkPressure(messages, compact_config):
-        messages = applySnip(messages, compact_config)
+        messages = applySnip(messages, compact_config, system_tokens=system_tokens)
 
     # Shaper 3: Microcompact (gated by pressure, Phase 29: LLM summarization)
     if checkPressure(messages, compact_config):
         messages = await applyMicrocompact(messages, loop_config)
 
-    # Shaper 4: Context collapse (gated by pressure, Phase 29: LLM summarization)
+    # Shaper 4: Context collapse (gated by pressure, Phase 29+30: LLM + cache-aligned)
     if checkPressure(messages, compact_config):
-        messages = await applyContextCollapse(messages, loop_config)
+        messages = await applyContextCollapse(messages, loop_config, system_tokens=system_tokens)
 
     # Shaper 5: Auto-compact (last resort, model-generated)
     if checkPressure(messages, compact_config):
@@ -148,6 +151,7 @@ def applyBudgetReduction(
 def applySnip(
     messages: list[dict],
     config: CompactConfig,
+    system_tokens: int | None = None,
 ) -> list[dict]:
     """Trim oldest non-system messages while preserving task and recent context.
 
@@ -157,6 +161,10 @@ def applySnip(
     - System messages (always at top)
     - First user message (the task/question)
     - Last N non-system messages (configurable via snip_keep_last)
+
+    Phase 30: When system_tokens is provided, the cut point is adjusted
+    to align with 1024-token cache block boundaries and cache_control is
+    injected at the boundary.
     """
     if len(messages) <= config.snip_keep_last:
         return messages  # Nothing to snip
@@ -171,7 +179,47 @@ def applySnip(
             first_user = m
             break
 
-    result: list[dict] = list(keep_system)
+    # Phase 30: Cache-aligned snipping
+    if system_tokens is not None:
+        # Build the candidate preserved prefix: system + first user
+        prefix: list[dict] = list(keep_system)
+        if first_user and first_user not in keep_recent:
+            prefix.append(first_user)
+
+        # Messages between prefix and keep_recent are the "middle" we trim
+        # Find alignment in the preserved set (prefix + keep_recent)
+        # We want to split such that prefix stays and the rest aligns to 1024
+        prefix_len = len(prefix)
+        # Work with the part that could be trimmed: prefix + middle
+        preserveable = messages[prefix_len:]
+
+        # Walk through preserveable to find cache-aligned split
+        cumulative = system_tokens
+        for m in prefix:
+            cumulative += estimate_tokens([m], config)
+
+        split_rel: int | None = None
+        best_distance = CACHE_BLOCK_SIZE
+        for i, m in enumerate(preserveable):
+            cumulative += estimate_tokens([m], config)
+            remainder = cumulative % CACHE_BLOCK_SIZE
+            distance = min(remainder, CACHE_BLOCK_SIZE - remainder)
+            if distance < best_distance:
+                best_distance = distance
+                split_rel = i
+
+        # If we found an alignment point and there are enough tokens
+        if split_rel is not None and cumulative >= CACHE_BLOCK_SIZE:
+            result = list(prefix)
+            kept = preserveable[split_rel:]
+            if kept:
+                # Inject cache_control at the alignment boundary
+                kept[0] = _inject_cache_control(kept[0])
+            result.extend(kept)
+            return result
+
+    # Fallback: standard snip (no alignment or alignment not applicable)
+    result = list(keep_system)
     if first_user and first_user not in keep_recent:
         result.append(first_user)
     result.extend(keep_recent)
@@ -356,6 +404,7 @@ async def applyMicrocompact(
 async def applyContextCollapse(
     messages: list[dict],
     loop_config: Any,
+    system_tokens: int | None = None,
 ) -> list[dict]:
     """Phase 29: LLM-based read-time projection over conversation history.
 
@@ -363,6 +412,10 @@ async def applyContextCollapse(
     each segment using a fast model. Preserves system messages, the
     first user message (task), and recent context.
     Falls back to char-sliced summaries on failure.
+
+    Phase 30: When system_tokens is provided, the boundary between
+    collapsed middle and recent messages is aligned to 1024-token
+    cache blocks, and cache_control is injected at the boundary.
     """
     config = getattr(loop_config, 'compact_config', None)
     if config is None or len(messages) < config.collapse_min_turns * 2:
@@ -395,6 +448,30 @@ async def applyContextCollapse(
     # Keep last segment_size messages uncollapsed (recent context)
     keep_recent = min(segment_size, len(messages) // 3)
     recent_start = max(len(messages) - keep_recent, 0)
+
+    # Phase 30: Cache-aligned boundary adjustment
+    if system_tokens is not None:
+        # Compute prefix tokens (system + first user)
+        cumulative = system_tokens
+        for m in result:
+            cumulative += estimate_tokens([m], config)
+
+        # Walk backwards from recent_start to find best 1024-token alignment
+        best_recent_start = recent_start
+        best_distance = CACHE_BLOCK_SIZE
+        temp_cumulative = cumulative
+        for i in range(first_user_idx + 1, len(messages)):
+            if i in skip_indices:
+                continue
+            temp_cumulative += estimate_tokens([messages[i]], config)
+            if i >= recent_start:
+                remainder = temp_cumulative % CACHE_BLOCK_SIZE
+                distance = min(remainder, CACHE_BLOCK_SIZE - remainder)
+                if distance < best_distance:
+                    best_distance = distance
+                    best_recent_start = i + 1  # cut after this message
+        if best_distance < CACHE_BLOCK_SIZE // 4:
+            recent_start = best_recent_start
 
     middle = [
         m for i, m in enumerate(messages)
@@ -431,8 +508,10 @@ async def applyContextCollapse(
                 if idx < len(result):
                     result[idx]["content"] = prefix + content
 
-    # Append recent messages
+    # Append recent messages with cache_control injection if aligned
     recent = messages[recent_start:]
+    if system_tokens is not None and recent and recent_start > 0:
+        recent[0] = _inject_cache_control(recent[0])
     result.extend(recent)
 
     return result
@@ -696,6 +775,90 @@ def buildPostCompactMessages(
     result.extend(recent)
 
     return result
+
+
+# ── Phase 30: Cache-aligned compaction boundaries ──────────────────────
+
+CACHE_BLOCK_SIZE = 1024  # Anthropic prompt cache block size in tokens
+
+
+def _find_cache_alignment_point(
+    messages: list[dict],
+    config: CompactConfig,
+    system_tokens: int = 0,
+) -> int | None:
+    """Find the message index closest to a 1024-token boundary.
+
+    Walks through messages accumulating token counts. Returns the index
+    where cumulative tokens are closest to a multiple of CACHE_BLOCK_SIZE,
+    or None if the total context is below the minimum cacheable size.
+
+    Args:
+        messages: Message list to scan.
+        config: CompactConfig for token estimation parameters.
+        system_tokens: Token count of system prompt + tool definitions
+                       (the static prefix before messages).
+    """
+    cumulative = system_tokens
+    best_idx: int | None = None
+    best_distance = CACHE_BLOCK_SIZE  # worst possible distance
+
+    for i, msg in enumerate(messages):
+        cumulative += estimate_tokens([msg], config)
+        remainder = cumulative % CACHE_BLOCK_SIZE
+        distance = min(remainder, CACHE_BLOCK_SIZE - remainder)
+        if distance < best_distance:
+            best_distance = distance
+            best_idx = i
+
+    if cumulative < CACHE_BLOCK_SIZE:
+        return None  # Not enough tokens to trigger caching
+
+    return best_idx
+
+
+def _inject_cache_control(msg: dict) -> dict:
+    """Attach cache_control ephemeral to the last content block of a message.
+
+    Returns a shallow copy with cache_control injected. If content is a
+    string, it is wrapped in a single-element content-block list.
+    """
+    msg = dict(msg)  # shallow copy
+    content = msg.get("content", "")
+    if isinstance(content, list) and content:
+        last = dict(content[-1])
+        last["cache_control"] = {"type": "ephemeral"}
+        msg["content"] = content[:-1] + [last]
+    elif isinstance(content, str):
+        msg["content"] = [
+            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
+        ]
+    return msg
+
+
+def _compute_system_tools_tokens(
+    system_prompt: str,
+    tool_schemas: list[dict],
+    config: CompactConfig,
+) -> int:
+    """Estimate token count for system prompt + tool definitions.
+
+    This is the static prefix (S) that sits before the message history
+    in every API request. Knowing its size lets us align the message
+    cut-points to 1024-token cache block boundaries.
+    """
+    tokens = 0
+    # System prompt: role overhead + content
+    if system_prompt:
+        tokens += 4  # role overhead
+        tokens += int(len(system_prompt) / config.chars_per_token)
+    # Tool definitions: approximate
+    for tool in tool_schemas:
+        tokens += 4  # per-tool overhead
+        tokens += int(len(str(tool)) / config.chars_per_token)
+    # +3 framing overhead
+    tokens += 3
+    return tokens
 
 
 # ── Helpers ────────────────────────────────────────────────────────────

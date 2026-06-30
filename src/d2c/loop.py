@@ -28,6 +28,7 @@ from d2c.compact import (
     autoCompact,
     checkPressure,
     CompactConfig,
+    _compute_system_tools_tokens,
 )
 from d2c.hooks import HookEvent, HookRegistry, HookResult
 from d2c.streaming_executor import StreamingToolExecutor, StreamToolParser
@@ -438,6 +439,14 @@ async def queryLoop(
     tools_map: dict[str, Tool] = {t.name: t for t in loop_config.tools}
     tool_schemas = [t.to_api_format() for t in loop_config.tools]
 
+    # Phase 30: Pre-compute system+tools token count for cache alignment
+    compact_config = getattr(loop_config, 'compact_config', None)
+    system_tools_tokens: int | None = None
+    if compact_config:
+        system_tools_tokens = _compute_system_tools_tokens(
+            loop_config.system_prompt, tool_schemas, compact_config,
+        )
+
     # Build Anthropic client pointed at DeepSeek
     api_key = loop_config.deepseek_api_key or loop_config.config.deepseek_api_key
     if not api_key:
@@ -459,12 +468,21 @@ async def queryLoop(
             messages_for_query = applyContextShapers(state.messages, compact_config)
 
             # Shapers 2-4: progressive read-time shaping (gated by pressure)
+            # Phase 30: pass system_tools_tokens for cache-aligned boundaries
             if checkPressure(messages_for_query, compact_config):
-                messages_for_query = applySnip(messages_for_query, compact_config)
+                messages_for_query = applySnip(
+                    messages_for_query, compact_config,
+                    system_tokens=system_tools_tokens,
+                )
             if checkPressure(messages_for_query, compact_config):
-                messages_for_query = applyMicrocompact(messages_for_query, compact_config)
+                messages_for_query = await applyMicrocompact(
+                    messages_for_query, loop_config,
+                )
             if checkPressure(messages_for_query, compact_config):
-                messages_for_query = applyContextCollapse(messages_for_query, compact_config)
+                messages_for_query = await applyContextCollapse(
+                    messages_for_query, loop_config,
+                    system_tokens=system_tools_tokens,
+                )
 
             # Shaper 5: Auto-compact (destructive — mutates state, once per session)
             if checkPressure(messages_for_query, compact_config):
