@@ -519,6 +519,17 @@ async def autoCompact(
                 break
         loop_config.session_store.append_compact_boundary(last_id)
 
+    # Phase 15: Fire PostCompact hook
+    hooks = getattr(loop_config, 'hooks', None)
+    if hooks is not None:
+        try:
+            await hooks.fire(HookEvent.POST_COMPACT, {
+                "pre_count": len(messages),
+                "post_count": len(post_compact),
+            })
+        except Exception:
+            pass  # Hook failure is non-fatal
+
     return post_compact
 
 

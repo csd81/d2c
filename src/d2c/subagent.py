@@ -145,6 +145,14 @@ async def spawn_subagent(
     # Isolated hooks: SubagentStop instead of Stop
     subagent_hooks = HookRegistry()
 
+    # Phase 15: Fire SubagentStart on parent hooks
+    if parent_hooks:
+        await parent_hooks.fire(HookEvent.SUBAGENT_START, {
+            "subagent_id": subagent_id,
+            "subagent_type": definition.subagent_type,
+            "task": task_prompt[:500],
+        })
+
     # Build loop config
     loop_config = LoopConfig(
         system_prompt=definition.system_prompt,

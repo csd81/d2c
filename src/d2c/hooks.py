@@ -1,8 +1,17 @@
 """Hook registry & lifecycle events. Paper Section 6.1.
 
-8 core hook events implemented (paper defines 27):
-  SessionStart, UserPromptSubmit, PreToolUse, PostToolUse,
-  PostToolUseFailure, PermissionDenied, Stop, PreCompact, SubagentStop
+27 hook events (paper Section 6.1):
+  Session events: SessionStart, Setup, SessionEnd, Stop, StopFailure
+  Tool events: PreToolUse, PostToolUse, PostToolUseFailure
+  Permission events: PermissionDenied, PermissionRequest
+  Compact events: PreCompact, PostCompact
+  Subagent events: SubagentStart, SubagentStop, TeammateIdle
+  Task events: TaskCreated, TaskCompleted
+  Elicitation events: Elicitation, ElicitationResult
+  Notification events: Notification
+  Config/State: InstructionsLoaded, ConfigChange, CwdChanged, FileChanged
+  Worktree: WorktreeCreate, WorktreeRemove
+  User: UserPromptSubmit
 
 Hook types: command (shell), prompt (LLM), callback (SDK/internal).
 Hooks consume zero context — they run externally or as lightweight callbacks.
@@ -24,15 +33,54 @@ if TYPE_CHECKING:
 # ── Event types ───────────────────────────────────────────────────────
 
 class HookEvent(Enum):
+    # Session lifecycle
     SESSION_START = "SessionStart"
-    USER_PROMPT_SUBMIT = "UserPromptSubmit"
+    SETUP = "Setup"
+    SESSION_END = "SessionEnd"
+    STOP = "Stop"
+    STOP_FAILURE = "StopFailure"
+
+    # Tool lifecycle
     PRE_TOOL_USE = "PreToolUse"
     POST_TOOL_USE = "PostToolUse"
     POST_TOOL_USE_FAILURE = "PostToolUseFailure"
+
+    # Permission
     PERMISSION_DENIED = "PermissionDenied"
-    STOP = "Stop"
+    PERMISSION_REQUEST = "PermissionRequest"
+
+    # Compaction
     PRE_COMPACT = "PreCompact"
+    POST_COMPACT = "PostCompact"
+
+    # Subagent lifecycle
+    SUBAGENT_START = "SubagentStart"
     SUBAGENT_STOP = "SubagentStop"
+    TEAMMATE_IDLE = "TeammateIdle"
+
+    # Task tracking
+    TASK_CREATED = "TaskCreated"
+    TASK_COMPLETED = "TaskCompleted"
+
+    # Elicitation (model asks user for clarification)
+    ELICITATION = "Elicitation"
+    ELICITATION_RESULT = "ElicitationResult"
+
+    # Notification (generic event for plugins/extensions)
+    NOTIFICATION = "Notification"
+
+    # User interaction
+    USER_PROMPT_SUBMIT = "UserPromptSubmit"
+
+    # Config / State changes
+    INSTRUCTIONS_LOADED = "InstructionsLoaded"
+    CONFIG_CHANGE = "ConfigChange"
+    CWD_CHANGED = "CwdChanged"
+    FILE_CHANGED = "FileChanged"
+
+    # Worktree operations
+    WORKTREE_CREATE = "WorktreeCreate"
+    WORKTREE_REMOVE = "WorktreeRemove"
 
 
 class HookType(Enum):

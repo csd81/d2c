@@ -225,21 +225,33 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
     )
     loop_config.system_prompt = full_prompt
 
+    # Phase 15: Fire Setup hook after initialization
+    await hook_registry.fire(HookEvent.SETUP, {
+        "session_id": session_store.session_id if session_store else None,
+        "model": config.model,
+    })
+
     # Run loop
-    async for event in queryLoop(loop_config, messages):
-        if isinstance(event, TextDelta):
-            print(event.text, end="", flush=True)
-        elif isinstance(event, LoopTextResponse):
-            print(event.text)
-        elif isinstance(event, ToolExecutionEvent):
-            print(f"\n  [{event.tool_use.name}] {event.result.output[:300]}", end="")
-            if len(event.result.output) > 300:
-                print("...")
-            else:
-                print()
-        elif isinstance(event, StopEvent):
-            if event.reason != "model_finished":
-                print(f"\n[stopped: {event.reason}]")
+    try:
+        async for event in queryLoop(loop_config, messages):
+            if isinstance(event, TextDelta):
+                print(event.text, end="", flush=True)
+            elif isinstance(event, LoopTextResponse):
+                print(event.text)
+            elif isinstance(event, ToolExecutionEvent):
+                print(f"\n  [{event.tool_use.name}] {event.result.output[:300]}", end="")
+                if len(event.result.output) > 300:
+                    print("...")
+                else:
+                    print()
+            elif isinstance(event, StopEvent):
+                if event.reason != "model_finished":
+                    print(f"\n[stopped: {event.reason}]")
+    finally:
+        # Phase 15: Fire SessionEnd hook
+        await hook_registry.fire(HookEvent.SESSION_END, {
+            "session_id": session_store.session_id if session_store else None,
+        })
 
 
 async def run_interactive(args: argparse.Namespace) -> None:
@@ -276,65 +288,77 @@ async def run_interactive(args: argparse.Namespace) -> None:
     print("Type 'exit' or press Ctrl+C to quit.")
     print()
 
-    while True:
-        try:
-            prompt_text = input("> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
+    # Phase 15: Fire Setup hook after initialization
+    await hook_registry.fire(HookEvent.SETUP, {
+        "session_id": session_store.session_id if session_store else None,
+        "model": config.model,
+    })
 
-        if not prompt_text:
-            continue
-        if prompt_text.lower() in ("exit", "quit", "q"):
-            break
+    try:
+        while True:
+            try:
+                prompt_text = input("> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
 
-        loop_config = LoopConfig(
-            system_prompt=system_prompt,
-            user_context=getUserContext(config),
-            model=config.model,
-            max_turns=config.max_turns,
-            tools=tools,
-            permission_engine=PermissionEngine.from_config(config),
-            hooks=hook_registry,
-            config=config,
-            deepseek_api_key=config.deepseek_api_key,
-            deepseek_base_url=config.deepseek_base_url,
-            session_store=session_store,
-            compact_config=compact_config,
-            stream=True,  # Phase 10: streaming enabled
-        )
+            if not prompt_text:
+                continue
+            if prompt_text.lower() in ("exit", "quit", "q"):
+                break
 
-        full_prompt, messages = assembleMessages(
-            loop_config.system_prompt,
-            system_context,
-            loop_config.user_context,
-            [{"role": "user", "content": prompt_text}],
-        )
-        loop_config.system_prompt = full_prompt
-        # Record user message
-        if session_store:
-            session_store.append(SessionEntry(
-                role="user", content=prompt_text,
-                timestamp=_utc_now(), entry_type="message",
-            ))
+            loop_config = LoopConfig(
+                system_prompt=system_prompt,
+                user_context=getUserContext(config),
+                model=config.model,
+                max_turns=config.max_turns,
+                tools=tools,
+                permission_engine=PermissionEngine.from_config(config),
+                hooks=hook_registry,
+                config=config,
+                deepseek_api_key=config.deepseek_api_key,
+                deepseek_base_url=config.deepseek_base_url,
+                session_store=session_store,
+                compact_config=compact_config,
+                stream=True,  # Phase 10: streaming enabled
+            )
 
-        try:
-            async for event in queryLoop(loop_config, messages):
-                if isinstance(event, TextDelta):
-                    print(event.text, end="", flush=True)
-                elif isinstance(event, LoopTextResponse):
-                    print(f"\n{event.text}\n")
-                elif isinstance(event, ToolExecutionEvent):
-                    print(f"  [{event.tool_use.name}] {event.result.output[:200]}", end="")
-                    if len(event.result.output) > 200:
-                        print("...")
-                    else:
-                        print()
-                elif isinstance(event, StopEvent):
-                    if event.reason not in ("model_finished",):
-                        print(f"  [stopped: {event.reason}]")
-        except Exception as e:
-            print(f"Error: {e}")
+            full_prompt, messages = assembleMessages(
+                loop_config.system_prompt,
+                system_context,
+                loop_config.user_context,
+                [{"role": "user", "content": prompt_text}],
+            )
+            loop_config.system_prompt = full_prompt
+            # Record user message
+            if session_store:
+                session_store.append(SessionEntry(
+                    role="user", content=prompt_text,
+                    timestamp=_utc_now(), entry_type="message",
+                ))
+
+            try:
+                async for event in queryLoop(loop_config, messages):
+                    if isinstance(event, TextDelta):
+                        print(event.text, end="", flush=True)
+                    elif isinstance(event, LoopTextResponse):
+                        print(f"\n{event.text}\n")
+                    elif isinstance(event, ToolExecutionEvent):
+                        print(f"  [{event.tool_use.name}] {event.result.output[:200]}", end="")
+                        if len(event.result.output) > 200:
+                            print("...")
+                        else:
+                            print()
+                    elif isinstance(event, StopEvent):
+                        if event.reason not in ("model_finished",):
+                            print(f"  [stopped: {event.reason}]")
+            except Exception as e:
+                print(f"Error: {e}")
+    finally:
+        # Phase 15: Fire SessionEnd hook
+        await hook_registry.fire(HookEvent.SESSION_END, {
+            "session_id": session_store.session_id if session_store else None,
+        })
 
 
 def main() -> None:
