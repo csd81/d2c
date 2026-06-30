@@ -38,6 +38,13 @@ class TextResponse:
 
 
 @dataclass
+class TextDelta:
+    """Incremental text chunk from streaming response."""
+    text: str
+    first: bool = False  # First chunk in a turn
+
+
+@dataclass
 class ToolExecutionEvent:
     """A tool was executed."""
     tool_use: ToolUse
@@ -52,7 +59,7 @@ class StopEvent:
     metadata: dict = field(default_factory=dict)
 
 
-LoopEvent = TextResponse | ToolExecutionEvent | StopEvent
+LoopEvent = TextResponse | TextDelta | ToolExecutionEvent | StopEvent
 
 
 # ── Loop state ───────────────────────────────────────────────────────
@@ -105,6 +112,7 @@ class LoopConfig:
     deepseek_base_url: str = "https://api.deepseek.com/anthropic"
     compact_config: Any = None  # Phase 5
     session_store: Any = None   # Phase 4
+    stream: bool = False       # Phase 10: streaming responses (opt-in)
 
 
 # ── Anthropic message format helpers ─────────────────────────────────
@@ -431,21 +439,71 @@ async def queryLoop(
         # Build Anthropic-format messages
         anthropic_messages = _build_anthropic_messages(messages_for_query)
 
-        # --- Model call ---
+        # --- Model call (Phase 10: streaming) ---
+        text = ""
+        tool_uses: list[ToolUse] = []
+
         try:
-            response = await client.messages.create(
-                model=loop_config.model,
-                max_tokens=8192,
-                system=loop_config.system_prompt,
-                messages=anthropic_messages,
-                tools=tool_schemas,
-            )
+            if loop_config.stream:
+                # Streaming: yield TextDelta as chunks arrive
+                accumulated = ""
+                async with client.messages.stream(
+                    model=loop_config.model,
+                    max_tokens=8192,
+                    system=loop_config.system_prompt,
+                    messages=anthropic_messages,
+                    tools=tool_schemas,
+                ) as stream:
+                    async for event in stream:
+                        if hasattr(event, "type"):
+                            if event.type == "text_delta":
+                                accumulated += event.text
+                                yield TextDelta(text=event.text)
+                            elif event.type == "content_block_start":
+                                if hasattr(event.content_block, "type") and event.content_block.type == "tool_use":
+                                    pass  # tool_use start — handled in final message
+                            elif event.type == "input_json_delta":
+                                pass  # tool input — handled in final message
+
+                # Get the complete final message from the stream
+                try:
+                    final_msg = await stream.get_final_message()
+                    text = _response_text(final_msg)
+                    tool_uses = _extract_tool_uses(final_msg)
+                except Exception:
+                    # Fallback: use accumulated text
+                    text = accumulated
+                    tool_uses = []
+            else:
+                # Non-streaming fallback
+                response = await client.messages.create(
+                    model=loop_config.model,
+                    max_tokens=8192,
+                    system=loop_config.system_prompt,
+                    messages=anthropic_messages,
+                    tools=tool_schemas,
+                )
+                text = _response_text(response)
+                tool_uses = _extract_tool_uses(response)
+        except anthropic.AuthenticationError as e:
+            yield TextResponse(text=f"Authentication failed: {e}\nCheck your DEEPSEEK_API_KEY.")
+            state.stopped = True
+            state.stop_reason = "auth_error"
+            _record(loop_config.session_store, "system", "",
+                    event="session_stop", stop_reason="auth_error")
+            break
+        except anthropic.RateLimitError as e:
+            yield TextResponse(text=f"Rate limited: {e}\nWait and try again.")
+            state.stopped = True
+            state.stop_reason = "rate_limited"
+            _record(loop_config.session_store, "system", "",
+                    event="session_stop", stop_reason="rate_limited")
+            break
         except anthropic.BadRequestError as e:
             if "prompt too long" in str(e).lower() or "too many tokens" in str(e).lower():
                 if not state.has_attempted_reactive_compact:
                     # Phase 5: reactive compact
                     state.has_attempted_reactive_compact = True
-                    # For now: truncate old messages
                     if len(state.messages) > 10:
                         state.messages = state.messages[:2] + [
                             {"role": "user", "content": "[Earlier conversation truncated due to length]"}
@@ -472,9 +530,7 @@ async def queryLoop(
             break
 
         # --- Check for text-only response (primary stop condition) ---
-        tool_uses = _extract_tool_uses(response)
         if not tool_uses:
-            text = _response_text(response)
             state.messages.append({"role": "assistant", "content": text})
             _record(loop_config.session_store, "assistant", text)
 
@@ -496,7 +552,6 @@ async def queryLoop(
             break
 
         # --- Tool dispatch ---
-        text = _response_text(response)
         state.messages.append(_assistant_message_with_tools(text, tool_uses))
         # Record assistant response with tool_use blocks
         assistant_content = [{"type": "text", "text": text}] if text else []

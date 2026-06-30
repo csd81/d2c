@@ -20,7 +20,7 @@ from d2c.context import (
     getUserContext,
 )
 from d2c.loop import LoopConfig, queryLoop
-from d2c.loop import TextResponse as LoopTextResponse
+from d2c.loop import TextDelta, TextResponse as LoopTextResponse
 from d2c.loop import ToolExecutionEvent, StopEvent
 from d2c.compact import CompactConfig
 from d2c.hooks import HookRegistry
@@ -33,12 +33,13 @@ from d2c.tools.pool import assembleToolPool
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="d2c — an interactive CLI coding agent")
     parser.add_argument("prompt", nargs="?", help="Single-shot prompt (omit for interactive REPL)")
-    parser.add_argument("--model", default="deepseek-v4-pro", help="Model to use")
+    parser.add_argument("--model", default=None, help="DeepSeek model to use (v4-pro, chat/v3, reasoner/r1)")
     parser.add_argument("--max-turns", type=int, default=25, help="Maximum agent turns")
     parser.add_argument("--cwd", type=Path, default=None, help="Working directory")
     parser.add_argument("--session", default=None, help="Session ID to use")
     parser.add_argument("--resume", default=None, help="Session ID to resume")
     parser.add_argument("--fork", default=None, help="Session ID to fork from")
+    parser.add_argument("--list-models", action="store_true", help="List available DeepSeek models and exit")
     return parser.parse_args()
 
 
@@ -80,6 +81,10 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
         config.model = args.model
     config.max_turns = args.max_turns
 
+    # Validate config (Phase 10)
+    for warning in config.validate():
+        print(f"Warning: {warning}", file=sys.stderr)
+
     # Setup session
     session_store, resume_messages = _setup_session(args, config)
 
@@ -106,6 +111,7 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
         deepseek_base_url=config.deepseek_base_url,
         session_store=session_store,
         compact_config=compact_config,
+        stream=True,  # Phase 10: streaming enabled
     )
 
     # Assemble context
@@ -122,7 +128,9 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
 
     # Run loop
     async for event in queryLoop(loop_config, messages):
-        if isinstance(event, LoopTextResponse):
+        if isinstance(event, TextDelta):
+            print(event.text, end="", flush=True)
+        elif isinstance(event, LoopTextResponse):
             print(event.text)
         elif isinstance(event, ToolExecutionEvent):
             print(f"\n  [{event.tool_use.name}] {event.result.output[:300]}", end="")
@@ -140,6 +148,10 @@ async def run_interactive(args: argparse.Namespace) -> None:
     config = Config.load(args.cwd)
     config.model = args.model or config.model
     config.max_turns = args.max_turns
+
+    # Validate config (Phase 10)
+    for warning in config.validate():
+        print(f"Warning: {warning}", file=sys.stderr)
 
     # Setup session
     session_store, _ = _setup_session(args, config)
@@ -180,12 +192,13 @@ async def run_interactive(args: argparse.Namespace) -> None:
             max_turns=config.max_turns,
             tools=tools,
             permission_engine=PermissionEngine.from_config(config),
-            hooks=StubHookRegistry(),
+            hooks=HookRegistry.from_config(config),
             config=config,
             deepseek_api_key=config.deepseek_api_key,
             deepseek_base_url=config.deepseek_base_url,
             session_store=session_store,
             compact_config=compact_config,
+            stream=True,  # Phase 10: streaming enabled
         )
 
         full_prompt, messages = assembleMessages(
@@ -204,7 +217,9 @@ async def run_interactive(args: argparse.Namespace) -> None:
 
         try:
             async for event in queryLoop(loop_config, messages):
-                if isinstance(event, LoopTextResponse):
+                if isinstance(event, TextDelta):
+                    print(event.text, end="", flush=True)
+                elif isinstance(event, LoopTextResponse):
                     print(f"\n{event.text}\n")
                 elif isinstance(event, ToolExecutionEvent):
                     print(f"  [{event.tool_use.name}] {event.result.output[:200]}", end="")
@@ -221,6 +236,17 @@ async def run_interactive(args: argparse.Namespace) -> None:
 
 def main() -> None:
     args = parse_args()
+
+    if args.list_models:
+        from d2c.config import DEEPSEEK_MODEL_DEFAULTS, DEEPSEEK_MODEL_ALIASES
+        print("Available DeepSeek models (via Anthropic-compatible API):")
+        for model_id, defaults in DEEPSEEK_MODEL_DEFAULTS.items():
+            aliases = [k for k, v in DEEPSEEK_MODEL_ALIASES.items() if v == model_id and k != model_id]
+            alias_str = f" (aliases: {', '.join(aliases)})" if aliases else ""
+            print(f"  {model_id}{alias_str}")
+            print(f"    context: {defaults['context_window']:,} tokens, max_tokens: {defaults['max_tokens']}")
+        return
+
     if args.prompt:
         asyncio.run(run_headless(args.prompt, args))
     else:
