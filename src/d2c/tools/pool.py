@@ -23,6 +23,7 @@ from d2c.tools.notebook_edit import NotebookEditTool
 from d2c.tools.read_tool import FileReadTool
 from d2c.tools.skill_tool import SkillTool
 from d2c.tools.task_tools import TaskCreateTool, TaskListTool, TaskUpdateTool
+from d2c.tools.tool_search import DeferredToolSchema, ToolSearchTool
 from d2c.tools.web_fetch import WebFetchTool
 from d2c.tools.web_search import WebSearchTool
 from d2c.tools.write_tool import FileWriteTool
@@ -62,6 +63,7 @@ class Config:
     permission_rules: list[Rule] = field(default_factory=list)
     deny_rules: list[Rule] = field(default_factory=list)
     os: str = field(default="")
+    deferred_tools: bool = field(default=False)
 
     def __post_init__(self):
         import platform
@@ -97,7 +99,27 @@ def getAllBaseTools(config: Config) -> list[Tool]:
         TaskCreateTool(),
         TaskUpdateTool(),
         TaskListTool(),
+        # Tool search (Phase 20: deferred schemas)
+        ToolSearchTool(),
     ]
+
+    # Filter disabled tools before wrapping (Phase 20 compatibility)
+    tools = [t for t in tools if t.is_enabled()]
+
+    # Phase 20: Wrap large-schema tools in DeferredToolSchema
+    # when deferred_tools is enabled. Tools with input_schema > 500 chars
+    # get abbreviated schemas in initial context, loaded on demand.
+    if config.deferred_tools:
+        DEFERRED_THRESHOLD = 500
+        result: list[Tool] = []
+        for t in tools:
+            schema_size = len(str(t.input_schema))
+            if schema_size > DEFERRED_THRESHOLD and t.name != "ToolSearch":
+                result.append(DeferredToolSchema(t))
+            else:
+                result.append(t)
+        return result
+
     return tools
 
 
@@ -161,7 +183,6 @@ async def assembleToolPool(
     extra_tools: list[Tool] | None = None,
 ) -> list[Tool]:
     tools = getAllBaseTools(config)
-    tools = [t for t in tools if t.is_enabled()]
     tools = filterToolsByDenyRules(tools, config.deny_rules)
 
     # Phase 11: MCP tools — discovered, connected, merged
@@ -179,4 +200,14 @@ async def assembleToolPool(
     seen: dict[str, Tool] = {}
     for t in tools:
         seen[t.name] = t
-    return list(seen.values())
+
+    deduped = list(seen.values())
+
+    # Phase 20: Give ToolSearchTool access to the full registry
+    # so it can search deferred tools and load their schemas.
+    for t in deduped:
+        if t.name == "ToolSearch":
+            t.set_registry(deduped)
+            break
+
+    return deduped
