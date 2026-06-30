@@ -27,6 +27,8 @@ class PermissionMode(Enum):
     DEFAULT = "default"
     ACCEPT_EDITS = "acceptEdits"
     DONT_ASK = "dontAsk"
+    AUTO = "auto"              # ML classifier: 2-stage fast-filter + CoT
+    BYPASS = "bypass"          # Trust operator: skip prompts, safety-critical checks remain
 
 
 class PermissionDecision(Enum):
@@ -79,15 +81,18 @@ class PermissionEngine:
     """Deny-first rule evaluation (paper Section 5.1).
 
     Core invariant: DENY rules ALWAYS win, even under dontAsk mode.
+    Supports 6 modes: plan, default, acceptEdits, dontAsk, auto, bypass.
     """
 
     def __init__(
         self,
         mode: PermissionMode,
         rules: list[PermissionRule] | None = None,
+        classifier: Any | None = None,  # AutoClassifier for AUTO mode
     ):
         self.mode = mode
         self.rules = rules or []
+        self._classifier = classifier
 
     def evaluate(self, request: PermissionRequest) -> PermissionResult:
         # Step 1: Deny rules first (ALWAYS)
@@ -107,6 +112,33 @@ class PermissionEngine:
                 )
 
         # Step 3: Mode-based defaults
+        return self._mode_default(request)
+
+    async def evaluate_async(self, request: PermissionRequest) -> PermissionResult:
+        """Async evaluation with classifier support for AUTO mode."""
+        # Step 1: Deny rules first (ALWAYS)
+        for rule in self.rules:
+            if rule.rule_type == RuleType.DENY and rule.matches(request.tool_name, request.tool_input):
+                return PermissionResult(
+                    PermissionDecision.DENY,
+                    reason=rule.reason or f"Denied by rule: {rule.pattern}",
+                )
+
+        # Step 2: Allow rules
+        for rule in self.rules:
+            if rule.rule_type == RuleType.ALLOW and rule.matches(request.tool_name, request.tool_input):
+                return PermissionResult(
+                    PermissionDecision.ALLOW,
+                    reason=rule.reason or f"Allowed by rule: {rule.pattern}",
+                )
+
+        # Step 3: Mode-based defaults (async for AUTO)
+        if self.mode == PermissionMode.AUTO and self._classifier:
+            try:
+                return await self._classifier.evaluate(request)
+            except Exception:
+                # Classifier failure → fall back to DEFAULT (ask)
+                return PermissionResult(PermissionDecision.ASK, reason="classifier unavailable")
         return self._mode_default(request)
 
     def _mode_default(self, request: PermissionRequest) -> PermissionResult:
@@ -129,6 +161,20 @@ class PermissionEngine:
                 return PermissionResult(PermissionDecision.ASK)
             return PermissionResult(PermissionDecision.ALLOW)
 
+        if self.mode == PermissionMode.BYPASS:
+            # Trust operator: auto-approve, but safety-critical checks remain
+            if self._is_safety_critical(request):
+                return PermissionResult(
+                    PermissionDecision.ASK,
+                    reason="Safety-critical operation despite bypass mode",
+                )
+            return PermissionResult(PermissionDecision.ALLOW)
+
+        if self.mode == PermissionMode.AUTO:
+            # AUTO without classifier → fall back to DEFAULT
+            if self._classifier is None:
+                return PermissionResult(PermissionDecision.ASK, reason="auto mode: no classifier")
+
         # DEFAULT: ask for everything not explicitly allowed
         return PermissionResult(PermissionDecision.ASK)
 
@@ -143,6 +189,46 @@ class PermissionEngine:
         if first_word in SAFE_COMMANDS:
             return PermissionResult(PermissionDecision.ALLOW)
         return PermissionResult(PermissionDecision.ASK)
+
+    def _is_safety_critical(self, request: PermissionRequest) -> bool:
+        """Check if an operation is safety-critical even under BYPASS mode.
+
+        Paper: "BypassPermissions: Skips most prompts but safety-critical
+        checks remain."
+
+        Safety-critical operations:
+        - Destructive bash commands (rm -rf, format, dd, chmod 777, etc.)
+        - Agent/subagent invocations
+        - Operations outside the project directory
+        """
+        if request.tool_name == "Bash":
+            cmd = request.tool_input.get("command", "").strip().lower()
+            # Destructive patterns
+            destructive = [
+                "rm -rf /", "rm -rf ~", "rm -rf .",
+                "dd if=", "mkfs.", ":(){ :|:& };:",  # fork bomb
+                "chmod 777 /", "chmod -R 777 /",
+                "> /dev/sda", "format c:",
+            ]
+            for pattern in destructive:
+                if pattern in cmd:
+                    return True
+            # Pattern-based checks
+            if cmd.startswith("rm -rf ") and not cmd.startswith("rm -rf ./"):
+                if "/" in cmd.split("rm -rf ")[-1].lstrip():
+                    return True
+
+        if request.tool_name in ("Agent", "Task", "Skill"):
+            # Agent operations could spawn subprocesses — safety check
+            return True
+
+        if request.tool_category == PermissionCategory.WRITE:
+            # Write outside project directory is safety-critical
+            file_path = request.tool_input.get("file_path", "")
+            if file_path and ".." in file_path:
+                return True
+
+        return False
 
     @classmethod
     def from_config(cls, config: "Config") -> "PermissionEngine":

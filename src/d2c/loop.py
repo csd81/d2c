@@ -279,7 +279,7 @@ async def _execute_one_tool(
     )
 
     try:
-        perm_result = permission_engine.evaluate(perm_request)
+        perm_result = await permission_engine.evaluate_async(perm_request)
     except Exception:
         # If permission engine fails, default to allow (fail-open for safety)
         perm_result = None

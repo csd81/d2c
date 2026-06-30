@@ -487,6 +487,8 @@ class TestPermissionMode:
         assert PermissionMode.DEFAULT.value == "default"
         assert PermissionMode.ACCEPT_EDITS.value == "acceptEdits"
         assert PermissionMode.DONT_ASK.value == "dontAsk"
+        assert PermissionMode.AUTO.value == "auto"
+        assert PermissionMode.BYPASS.value == "bypass"
 
 
 # ── PermissionRequest tests ─────────────────────────────────────────────
@@ -550,3 +552,561 @@ class TestEdgeCases:
         )
         assert engine.evaluate(read_req).decision == PermissionDecision.DENY
         assert engine.evaluate(write_req).decision == PermissionDecision.DENY
+
+
+# ── Phase 14: AutoClassifier Fast-Filter tests ───────────────────────────
+
+class TestAutoClassifierFastFilter:
+    """Stage 1 heuristic filter: safe reads, destructive commands, known-safe shell."""
+
+    def test_safe_read_tools_approved(self):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier()
+        for tool_name in ("Read", "Glob", "Grep", "FileRead"):
+            req = PermissionRequest(
+                tool_name=tool_name,
+                tool_input={"file_path": "foo.py"},
+                tool_category=PermissionCategory.READ,
+            )
+            result = classifier._fast_filter(req)
+            assert result is not None
+            assert result.decision == PermissionDecision.ALLOW
+
+    def test_web_operations_safe(self):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier()
+        for tool_name in ("WebFetch", "WebSearch", "TaskList"):
+            req = PermissionRequest(
+                tool_name=tool_name,
+                tool_input={},
+                tool_category=PermissionCategory.READ,
+            )
+            result = classifier._fast_filter(req)
+            assert result is not None
+            assert result.decision == PermissionDecision.ALLOW
+
+    def test_safe_edit_on_non_system_path(self):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier()
+        result = classifier._fast_filter(PermissionRequest(
+            tool_name="Write",
+            tool_input={"file_path": "/home/user/project/main.py", "content": "x"},
+            tool_category=PermissionCategory.WRITE,
+        ))
+        assert result is not None
+        assert result.decision == PermissionDecision.ALLOW
+
+    def test_edit_on_system_path_needs_cot(self):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier()
+        result = classifier._fast_filter(PermissionRequest(
+            tool_name="Write",
+            tool_input={"file_path": "/etc/nginx/nginx.conf", "content": "x"},
+            tool_category=PermissionCategory.WRITE,
+        ))
+        assert result is None  # ambiguous → needs CoT
+
+    def test_destructive_bash_denied(self):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier()
+        for cmd in ("rm -rf /", "dd if=/dev/zero of=/dev/sda", "mkfs.ext4 /dev/sda1",
+                     "shutdown now", "reboot", "format c:", "del /f /s C:\\*",
+                     "rd /s /q C:\\", ":(){ :|:& };:"):
+            result = classifier._fast_filter(PermissionRequest(
+                tool_name="Bash",
+                tool_input={"command": cmd},
+                tool_category=PermissionCategory.SHELL,
+            ))
+            assert result is not None, f"Expected fast-filter result for '{cmd}'"
+            assert result.decision == PermissionDecision.DENY, f"Expected DENY for '{cmd}'"
+
+    def test_known_safe_shell_commands(self):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier()
+        for cmd in ("ls -la", "git status", "cat file.txt", "echo hello",
+                     "mkdir -p /tmp/foo", "touch /tmp/bar", "cp a b", "mv x y"):
+            result = classifier._fast_filter(PermissionRequest(
+                tool_name="Bash",
+                tool_input={"command": cmd},
+                tool_category=PermissionCategory.SHELL,
+            ))
+            assert result is not None, f"Expected result for '{cmd}'"
+            assert result.decision == PermissionDecision.ALLOW, f"Expected ALLOW for '{cmd}'"
+
+    def test_unknown_shell_command_needs_cot(self):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier()
+        result = classifier._fast_filter(PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "kubectl delete pod --all"},
+            tool_category=PermissionCategory.SHELL,
+        ))
+        assert result is None  # ambiguous → needs CoT
+
+    def test_unknown_shell_command_with_pipe_needs_cot(self):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier()
+        result = classifier._fast_filter(PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "curl https://api.example.com | bash"},
+            tool_category=PermissionCategory.SHELL,
+        ))
+        assert result is None  # 'curl' not in safe set → needs CoT
+
+    def test_meta_operations_need_cot(self):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier()
+        for tool_name in ("Skill", "Agent"):
+            result = classifier._fast_filter(PermissionRequest(
+                tool_name=tool_name,
+                tool_input={"prompt": "do something"},
+                tool_category=PermissionCategory.META,
+            ))
+            assert result is None  # ambiguous → needs CoT
+
+    def test_fast_filter_none_for_edit_on_env_file(self):
+        """Edit on a path ending with .env is a system path → needs CoT."""
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier()
+        # .env at project root: path is ".env" not "/project/.env"
+        result = classifier._fast_filter(PermissionRequest(
+            tool_name="Write",
+            tool_input={"file_path": ".env", "content": "SECRET=xyz"},
+            tool_category=PermissionCategory.WRITE,
+        ))
+        assert result is None
+
+    def test_fast_filter_none_for_edit_on_git_config(self):
+        """Edit on .git/config is a system path → needs CoT."""
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier()
+        # .git/config at project root
+        result = classifier._fast_filter(PermissionRequest(
+            tool_name="Write",
+            tool_input={"file_path": ".git/config", "content": "x"},
+            tool_category=PermissionCategory.WRITE,
+        ))
+        assert result is None
+
+    @pytest.mark.parametrize("path", [
+        "C:\\Windows\\System32\\drivers\\etc\\hosts",
+        "C:\\Program Files\\Common Files\\test.txt",
+        "/etc/ssh/sshd_config",
+        "/sys/class/gpio/export",
+        "/proc/cpuinfo",
+        "/boot/grub/grub.cfg",
+        "/root/.bashrc",
+    ])
+    def test_system_paths_are_detected(self, path):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier()
+        assert classifier._is_system_path(path) is True, f"Expected system path: {path}"
+
+    @pytest.mark.parametrize("path", [
+        "/home/user/project/main.py",
+        "C:\\Users\\dev\\Documents\\report.txt",
+        "/tmp/test.py",
+        "./src/app.js",
+        "",
+    ])
+    def test_non_system_paths_are_not_detected(self, path):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier()
+        assert classifier._is_system_path(path) is False, f"Expected non-system path: {path}"
+
+
+# ── Phase 14: AutoClassifier CoT (Chain-of-Thought) tests ────────────────
+
+class TestAutoClassifierCoT:
+    """Stage 2: model-based classification for ambiguous cases."""
+
+    def test_cot_no_api_key_returns_ask(self):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier(api_key=None)
+        req = PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "kubectl get pods"},
+            tool_category=PermissionCategory.SHELL,
+        )
+        # Call the evaluate() which should try _fast_filter first, then _cot_classify
+        # _cot_classify should return ASK when no API key
+        async def run():
+            result = await classifier.evaluate(req)
+            assert result.decision == PermissionDecision.ASK
+            assert "no api key" in result.reason.lower()
+
+        asyncio.run(run())
+
+    def test_cot_classify_calls_api(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from d2c.permissions.classifier import AutoClassifier
+
+        classifier = AutoClassifier(api_key="sk-test")
+
+        # Fast-filter should return None for ambiguous command
+        req = PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "kubectl delete pod my-pod"},
+            tool_category=PermissionCategory.SHELL,
+        )
+
+        # Mock the Anthropic client
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text='{"decision": "unsafe", "reason": "destructive k8s operation"}')]
+
+        mock_client = MagicMock()
+        mock_client.messages = MagicMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+        async def run():
+            with patch("anthropic.AsyncAnthropic", return_value=mock_client):
+                result = await classifier.evaluate(req)
+                assert result.decision == PermissionDecision.DENY
+                assert "destructive k8s operation" in result.reason
+                # Verify API was called
+                mock_client.messages.create.assert_called_once()
+
+        asyncio.run(run())
+
+    @pytest.mark.parametrize("decision_str,expected", [
+        ("safe", PermissionDecision.ALLOW),
+        ("unsafe", PermissionDecision.DENY),
+        ("review", PermissionDecision.ASK),
+    ])
+    def test_cot_classifier_result_respected(self, decision_str, expected):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from d2c.permissions.classifier import AutoClassifier
+
+        classifier = AutoClassifier(api_key="sk-test")
+        req = PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "some-ambiguous-command"},
+            tool_category=PermissionCategory.SHELL,
+        )
+
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text=f'{{"decision": "{decision_str}", "reason": "test reason"}}')]
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+        async def run():
+            with patch("anthropic.AsyncAnthropic", return_value=mock_client):
+                result = await classifier.evaluate(req)
+                assert result.decision == expected
+
+        asyncio.run(run())
+
+    def test_cot_timeout_returns_ask(self):
+        import asyncio as aio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from d2c.permissions.classifier import AutoClassifier
+
+        classifier = AutoClassifier(api_key="sk-test", timeout_ms=1)
+        req = PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "kubectl delete pod"},
+            tool_category=PermissionCategory.SHELL,
+        )
+
+        async def slow_response(*args, **kwargs):
+            await aio.sleep(10)  # long delay
+            return MagicMock()
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(side_effect=slow_response)
+
+        async def run():
+            with patch("anthropic.AsyncAnthropic", return_value=mock_client):
+                result = await classifier.evaluate(req)
+                assert result.decision == PermissionDecision.ASK
+                assert "timed out" in result.reason.lower()
+
+        asyncio.run(run())
+
+    def test_cot_error_falls_back_to_ask(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from d2c.permissions.classifier import AutoClassifier
+
+        classifier = AutoClassifier(api_key="sk-test")
+        req = PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "kubectl delete pod"},
+            tool_category=PermissionCategory.SHELL,
+        )
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(side_effect=RuntimeError("API connection failed"))
+
+        async def run():
+            with patch("anthropic.AsyncAnthropic", return_value=mock_client):
+                result = await classifier.evaluate(req)
+                assert result.decision == PermissionDecision.ASK
+                assert "auto classifier unavailable" in result.reason.lower()
+
+        asyncio.run(run())
+
+    def test_cot_parse_fallback_for_invalid_json(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from d2c.permissions.classifier import AutoClassifier
+
+        classifier = AutoClassifier(api_key="sk-test")
+        req = PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "unknown-command"},
+            tool_category=PermissionCategory.SHELL,
+        )
+
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text="Not JSON at all")]
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+        async def run():
+            with patch("anthropic.AsyncAnthropic", return_value=mock_client):
+                result = await classifier.evaluate(req)
+                assert result.decision == PermissionDecision.ASK
+                assert "could not parse" in result.reason.lower()
+
+        asyncio.run(run())
+
+
+# ── Phase 14: PermissionEngine AUTO mode tests ────────────────────────────
+
+class TestAutoModeEngine:
+    """AUTO mode integration with PermissionEngine."""
+
+    @pytest.mark.asyncio
+    async def test_auto_mode_read_is_approved(self):
+        """AUTO mode with classifier approves reads via fast-filter."""
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier(api_key=None)
+        engine = PermissionEngine(mode=PermissionMode.AUTO, classifier=classifier)
+        result = await engine.evaluate_async(PermissionRequest(
+            tool_name="Read",
+            tool_input={"file_path": "test.py"},
+            tool_category=PermissionCategory.READ,
+        ))
+        assert result.decision == PermissionDecision.ALLOW
+
+    def test_auto_mode_without_classifier_asks(self):
+        """AUTO mode without a classifier falls back to ASK (not auto-approve)."""
+        engine = PermissionEngine(mode=PermissionMode.AUTO)
+        result = engine.evaluate(PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "ls"},
+            tool_category=PermissionCategory.SHELL,
+        ))
+        # 'ls' is in SAFE_SHELL_COMMANDS in classifier, but without
+        # classifier, engine._mode_default returns ASK for AUTO mode
+        assert result.decision == PermissionDecision.ASK
+
+    def test_auto_mode_deny_still_wins(self):
+        engine = PermissionEngine(
+            mode=PermissionMode.AUTO,
+            rules=[PermissionRule(RuleType.DENY, "Read")],
+        )
+        result = engine.evaluate(PermissionRequest(
+            tool_name="Read",
+            tool_input={"file_path": "test.py"},
+            tool_category=PermissionCategory.READ,
+        ))
+        assert result.decision == PermissionDecision.DENY
+
+    def test_auto_mode_allow_rule_wins(self):
+        engine = PermissionEngine(
+            mode=PermissionMode.AUTO,
+            rules=[PermissionRule(RuleType.ALLOW, "Bash")],
+        )
+        result = engine.evaluate(PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "kubectl delete pod"},
+            tool_category=PermissionCategory.SHELL,
+        ))
+        assert result.decision == PermissionDecision.ALLOW
+
+    @pytest.mark.asyncio
+    async def test_auto_mode_with_classifier_delegates(self):
+        """AUTO mode with a classifier calls evaluate_async and uses classifier."""
+        from d2c.permissions.classifier import AutoClassifier
+
+        classifier = AutoClassifier(api_key=None)  # No API key → fast-filter only
+        engine = PermissionEngine(mode=PermissionMode.AUTO, classifier=classifier)
+
+        # Fast-filter: known-safe shell command
+        result = await engine.evaluate_async(PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "ls -la"},
+            tool_category=PermissionCategory.SHELL,
+        ))
+        assert result.decision == PermissionDecision.ALLOW
+
+    @pytest.mark.asyncio
+    async def test_auto_mode_classifier_error_fallthrough(self):
+        """Classifier exception in evaluate_async → fallback to ASK."""
+        class BrokenClassifier:
+            async def evaluate(self, request):
+                raise RuntimeError("boom")
+
+        engine = PermissionEngine(mode=PermissionMode.AUTO, classifier=BrokenClassifier())
+        result = await engine.evaluate_async(PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "ls"},
+            tool_category=PermissionCategory.SHELL,
+        ))
+        assert result.decision == PermissionDecision.ASK
+
+
+# ── Phase 14: PermissionEngine BYPASS mode tests ─────────────────────────
+
+class TestBypassMode:
+    """BYPASS mode: trust operator, auto-approves most operations."""
+
+    def test_bypass_auto_approves_read(self):
+        engine = PermissionEngine(mode=PermissionMode.BYPASS)
+        result = engine.evaluate(PermissionRequest(
+            tool_name="Read",
+            tool_input={"file_path": "test.py"},
+            tool_category=PermissionCategory.READ,
+        ))
+        assert result.decision == PermissionDecision.ALLOW
+
+    def test_bypass_auto_approves_write(self):
+        engine = PermissionEngine(mode=PermissionMode.BYPASS)
+        result = engine.evaluate(PermissionRequest(
+            tool_name="Write",
+            tool_input={"file_path": "src/main.py", "content": "x"},
+            tool_category=PermissionCategory.WRITE,
+        ))
+        assert result.decision == PermissionDecision.ALLOW
+
+    def test_bypass_auto_approves_safe_shell(self):
+        engine = PermissionEngine(mode=PermissionMode.BYPASS)
+        result = engine.evaluate(PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "git status"},
+            tool_category=PermissionCategory.SHELL,
+        ))
+        assert result.decision == PermissionDecision.ALLOW
+
+    def test_bypass_asks_for_destructive_rm_rf(self):
+        engine = PermissionEngine(mode=PermissionMode.BYPASS)
+        result = engine.evaluate(PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "rm -rf /"},
+            tool_category=PermissionCategory.SHELL,
+        ))
+        assert result.decision == PermissionDecision.ASK
+        assert "Safety-critical" in result.reason
+
+    def test_bypass_asks_for_dd(self):
+        engine = PermissionEngine(mode=PermissionMode.BYPASS)
+        result = engine.evaluate(PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "dd if=/dev/zero of=/dev/sda"},
+            tool_category=PermissionCategory.SHELL,
+        ))
+        assert result.decision == PermissionDecision.ASK
+
+    def test_bypass_asks_for_fork_bomb(self):
+        engine = PermissionEngine(mode=PermissionMode.BYPASS)
+        result = engine.evaluate(PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": ":(){ :|:& };:"},
+            tool_category=PermissionCategory.SHELL,
+        ))
+        assert result.decision == PermissionDecision.ASK
+
+    def test_bypass_asks_for_agent_tool(self):
+        engine = PermissionEngine(mode=PermissionMode.BYPASS)
+        result = engine.evaluate(PermissionRequest(
+            tool_name="Agent",
+            tool_input={"prompt": "do something"},
+            tool_category=PermissionCategory.META,
+        ))
+        assert result.decision == PermissionDecision.ASK
+
+    def test_bypass_asks_for_task(self):
+        engine = PermissionEngine(mode=PermissionMode.BYPASS)
+        result = engine.evaluate(PermissionRequest(
+            tool_name="Task",
+            tool_input={"subject": "test"},
+            tool_category=PermissionCategory.META,
+        ))
+        assert result.decision == PermissionDecision.ASK
+
+    def test_bypass_deny_still_wins(self):
+        engine = PermissionEngine(
+            mode=PermissionMode.BYPASS,
+            rules=[PermissionRule(RuleType.DENY, "Bash")],
+        )
+        result = engine.evaluate(PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "ls"},
+            tool_category=PermissionCategory.SHELL,
+        ))
+        assert result.decision == PermissionDecision.DENY
+
+    def test_bypass_asks_for_write_outside_project(self):
+        """Write with .. traversal is safety-critical."""
+        engine = PermissionEngine(mode=PermissionMode.BYPASS)
+        result = engine.evaluate(PermissionRequest(
+            tool_name="Write",
+            tool_input={"file_path": "../../etc/passwd", "content": "x"},
+            tool_category=PermissionCategory.WRITE,
+        ))
+        assert result.decision == PermissionDecision.ASK
+
+
+# ── Phase 14: from_config with new modes ─────────────────────────────────
+
+class TestFromConfigNewModes:
+    def test_auto_mode_from_config(self):
+        from d2c.config import Config
+        config = Config(permission_mode="auto")
+        engine = PermissionEngine.from_config(config)
+        assert engine.mode == PermissionMode.AUTO
+
+    def test_bypass_mode_from_config(self):
+        from d2c.config import Config
+        config = Config(permission_mode="bypass")
+        engine = PermissionEngine.from_config(config)
+        assert engine.mode == PermissionMode.BYPASS
+
+
+# ── Phase 14: AutoClassifier evaluate integration ────────────────────────
+
+class TestAutoClassifierIntegration:
+    """Full evaluate() pipeline: fast-filter short-circuits or falls through to CoT."""
+
+    def test_evaluate_uses_fast_filter_first(self):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier(api_key="sk-test")
+        # Destructive command → fast-filter DENY (no API call)
+        req = PermissionRequest(
+            tool_name="Bash",
+            tool_input={"command": "rm -rf /"},
+            tool_category=PermissionCategory.SHELL,
+        )
+        async def run():
+            result = await classifier.evaluate(req)
+            assert result.decision == PermissionDecision.DENY
+            assert "fast-filter" in result.reason
+
+        asyncio.run(run())
+
+    def test_evaluate_safe_read_no_api_call(self):
+        from d2c.permissions.classifier import AutoClassifier
+        classifier = AutoClassifier(api_key="sk-test")
+        req = PermissionRequest(
+            tool_name="Read",
+            tool_input={"file_path": "test.py"},
+            tool_category=PermissionCategory.READ,
+        )
+        async def run():
+            result = await classifier.evaluate(req)
+            assert result.decision == PermissionDecision.ALLOW
+            assert "fast-filter" in result.reason
+
+        asyncio.run(run())
