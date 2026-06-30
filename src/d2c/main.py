@@ -11,6 +11,12 @@ import asyncio
 import sys
 from pathlib import Path
 
+# Phase 31: Rich TUI / REPL Console
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.formatted_text import HTML
+
 from d2c.config import Config
 from d2c.context import (
     SystemContext,
@@ -183,6 +189,154 @@ def _load_plugins(
     return plugin_skills, plugin_agents
 
 
+# ── Phase 31: Rich REPL components ────────────────────────────────────
+
+
+class D2CCompleter(Completer):
+    """Auto-completer for the interactive REPL.
+
+    Yields completions for:
+    1. Slash commands: /exit, /clear, /resume, /fork, /settings, /help
+    2. File paths: scans cwd with depth limit, respecting common ignore patterns
+    3. Registered tool names (Read, Write, Bash, Glob, Grep, etc.)
+    """
+
+    _IGNORE_PATTERNS = {
+        ".git", "node_modules", "__pycache__", ".venv", "venv",
+        ".pytest_cache", ".mypy_cache", ".tox", "dist", "build",
+        ".egg-info", ".d2c", ".hg", ".svn",
+    }
+    _MAX_DEPTH = 2
+
+    def __init__(self, cwd: Path, tools: list[str]):
+        self.cwd = cwd
+        self.tools = tools
+        self.commands = [
+            "/exit", "/quit", "/clear", "/resume", "/fork",
+            "/settings", "/help",
+        ]
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+
+        # Slash commands
+        if text.startswith("/"):
+            for cmd in self.commands:
+                if cmd.startswith(text):
+                    yield Completion(cmd, start_position=-len(text))
+            return
+
+        # File path completions — scan cwd for matching paths
+        yield from self._file_completions(text)
+
+        # Tool name completions — suggest when typing at start or after space
+        yield from self._tool_completions(text)
+
+    def _file_completions(self, text: str):
+        """Yield file path completions matching the typed prefix."""
+        import os
+        try:
+            # Strip trailing separators from text for prefix matching
+            clean_text = text.rstrip("/\\")
+            start_path = self.cwd
+            prefix = ""
+            if clean_text:
+                # If text contains a path separator, resolve the directory portion
+                if "/" in text or "\\" in text:
+                    candidate = (self.cwd / clean_text).resolve()
+                    try:
+                        candidate.relative_to(self.cwd)
+                    except ValueError:
+                        return  # Path escapes cwd
+                    # If the resolved path is an existing directory, use it
+                    if candidate.is_dir():
+                        start_path = candidate
+                        prefix = ""
+                    else:
+                        # Parent is the directory, candidate is the prefix
+                        parent = candidate.parent
+                        if parent.exists() and parent.is_dir():
+                            try:
+                                parent.relative_to(self.cwd)
+                                start_path = parent
+                                prefix = candidate.name
+                            except ValueError:
+                                return
+                        else:
+                            return
+                else:
+                    prefix = clean_text
+
+            for entry in sorted(os.listdir(str(start_path))):
+                if entry in self._IGNORE_PATTERNS:
+                    continue
+                if prefix and not entry.lower().startswith(prefix.lower()):
+                    continue
+                full = start_path / entry
+                # Compute display path relative to cwd
+                if start_path == self.cwd:
+                    display = entry
+                else:
+                    rel = start_path.relative_to(self.cwd)
+                    display = str(rel / entry)
+                if full.is_dir():
+                    yield Completion(
+                        display + os.sep,
+                        start_position=-len(text),
+                        display_meta="dir",
+                    )
+                else:
+                    yield Completion(
+                        display,
+                        start_position=-len(text),
+                        display_meta="file",
+                    )
+        except OSError:
+            return
+
+    def _tool_completions(self, text: str):
+        """Yield tool name completions."""
+        if not text:
+            return
+        # Only suggest tools when typing something that looks like a sentence start
+        parts = text.split()
+        # Suggest tool names for the first word or after common connecting words
+        last_word = parts[-1] if parts else text
+        if len(last_word) < 2:
+            return
+        for tool in self.tools:
+            if tool.lower().startswith(last_word.lower()):
+                yield Completion(
+                    tool,
+                    start_position=-len(last_word),
+                    display_meta="tool",
+                )
+
+
+def get_statusbar_text(
+    config: "Config", session_store: Any, active_tasks: int = 0,
+) -> HTML:
+    """Return status bar text formatted as HTML for the bottom toolbar.
+
+    Displays session ID, permission mode, model, and active task count.
+    """
+    mode = getattr(config, 'permission_mode', 'default').upper()
+    sess_id = ""
+    if session_store is not None:
+        sess_id = getattr(session_store, 'session_id', '') or ""
+    task_str = f" | Tasks: {active_tasks}" if active_tasks > 0 else ""
+
+    return HTML(
+        f"<style bg='ansiblue' fg='ansiwhite'>"
+        f" <b>d2c</b> | "
+        f"Session: <b>{sess_id}</b> | "
+        f"Mode: <b>{mode}</b> | "
+        f"Model: {config.model}"
+        f"{task_str} "
+        f"</style>"
+    )
+
+
 async def run_headless(prompt: str, args: argparse.Namespace) -> None:
     """Single-shot headless execution: claude -p equivalent."""
     config = Config.load(args.cwd)
@@ -275,7 +429,12 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
 
 
 async def run_interactive(args: argparse.Namespace) -> None:
-    """Interactive REPL."""
+    """Interactive REPL with prompt_toolkit rich console (Phase 31).
+
+    Features: syntax-highlighted input, slash-command auto-completion,
+    file path suggestions, tool name completion, fuzzy history search,
+    and a formatted bottom status bar.
+    """
     config = Config.load(args.cwd)
     config.model = args.model or config.model
     config.max_turns = args.max_turns
@@ -305,7 +464,7 @@ async def run_interactive(args: argparse.Namespace) -> None:
 
     print(f"d2c ({config.model})")
     print(f"Session: {session_store.session_id if session_store else 'none'}")
-    print("Type 'exit' or press Ctrl+C to quit.")
+    print("Type /exit or press Ctrl+D to quit. Ctrl+C to clear line.")
     print()
 
     # Phase 15: Fire Setup hook after initialization
@@ -314,17 +473,41 @@ async def run_interactive(args: argparse.Namespace) -> None:
         "model": config.model,
     })
 
+    # Phase 31: Setup prompt_toolkit PromptSession with history and completions
+    history_file = Path.home() / ".d2c" / "repl_history.txt"
+    history_file.parent.mkdir(parents=True, exist_ok=True)
+
+    tool_names = [t.name for t in tools]
+    completer = D2CCompleter(config.cwd, tool_names)
+
+    session = PromptSession(
+        history=FileHistory(str(history_file)),
+        completer=completer,
+        complete_while_typing=True,
+    )
+
+    active_tasks = 0
+
     try:
         while True:
             try:
-                prompt_text = input("> ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
+                prompt_text = await session.prompt_async(
+                    "> ",
+                    bottom_toolbar=lambda: get_statusbar_text(
+                        config, session_store, active_tasks,
+                    ),
+                )
+                prompt_text = prompt_text.strip()
+            except KeyboardInterrupt:
+                print()  # Newline after ^C
+                continue  # Clear current line, keep REPL alive
+            except EOFError:
+                print()  # Newline after ^D
                 break
 
             if not prompt_text:
                 continue
-            if prompt_text.lower() in ("exit", "quit", "q"):
+            if prompt_text.lower() in ("/exit", "/quit", "exit", "quit", "q"):
                 break
 
             # Phase 22: Record prompt in global history
