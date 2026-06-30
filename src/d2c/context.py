@@ -104,9 +104,19 @@ def _get_git_status(cwd: Path) -> str | None:
 # ── User context ─────────────────────────────────────────────────────
 
 def getUserContext(config: "Config") -> str:
-    """Load CLAUDE.md hierarchy + current date. Phase 6 expands this."""
+    """Load CLAUDE.md hierarchy + current date.
+
+    Phase 6: 4-level memory hierarchy loaded eagerly at session start.
+    Phase 7: Managed/user policies added here.
+    """
+    from d2c.memory import loadClaudeMdHierarchy
+
     parts = [f"Today's date: {datetime.now().strftime('%Y-%m-%d')}"]
-    return "\n".join(parts)
+    cwd = getattr(config, 'cwd', Path.cwd())
+    memory = loadClaudeMdHierarchy(cwd)
+    if memory:
+        parts.append(memory)
+    return "\n\n".join(parts)
 
 
 # ── Message assembly ─────────────────────────────────────────────────

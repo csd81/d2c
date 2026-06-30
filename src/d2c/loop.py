@@ -13,7 +13,20 @@ from typing import Any, AsyncGenerator, Callable
 
 import anthropic
 
-from d2c.tools import Tool, ToolResult, ToolUse
+from d2c.tools import PermissionCategory, Tool, ToolResult, ToolUse
+from d2c.permissions import (
+    PermissionDecision,
+    PermissionEngine,
+    PermissionRequest,
+)
+from d2c.persistence import SessionEntry, _utc_now
+from d2c.compact import (
+    applyContextShapers,
+    autoCompact,
+    checkPressure,
+    CompactConfig,
+)
+from d2c.hooks import HookEvent, HookRegistry, HookResult
 
 
 # ── Loop events (yielded by the async generator) ────────────────────
@@ -58,26 +71,23 @@ class LoopState:
 
 # ── Loop config ──────────────────────────────────────────────────────
 
-class StubHookRegistry:
-    """No-op hook registry for Phase 2. Phase 7 replaces this."""
+class StubHookRegistry(HookRegistry):
+    """Legacy stub — extends HookRegistry with no hooks registered.
 
-    async def fire(self, event: str, *args: Any, **kwargs: Any) -> "StubHookResult":
-        return StubHookResult()
-
-
-class StubHookResult:
-    decision: str | None = None
-    updated_input: dict | None = None
-    additional_context: str | None = None
-    veto: bool = False
-    error: str | None = None
+    Still used by tests that predate Phase 7 hook integration.
+    Inherits fire() from HookRegistry but has empty hook lists.
+    """
 
 
 class StubPermissionEngine:
-    """Allow-all permission engine for Phase 2. Phase 3 replaces this."""
+    """Legacy stub — prefer PermissionEngine in dontAsk mode for tests.
 
-    async def authorize(self, tool_name: str, tool_input: dict, tool_category: str) -> str:
-        return "allow"
+    Still used by tests that predate Phase 3 permission integration.
+    """
+
+    def evaluate(self, request):
+        from d2c.permissions import PermissionResult
+        return PermissionResult(PermissionDecision.ALLOW, reason="stub: allow all")
 
 
 @dataclass
@@ -223,8 +233,10 @@ def partitionToolCalls(tool_uses: list[ToolUse], tools_map: dict[str, Tool]) -> 
 async def _execute_one_tool(
     tu: ToolUse,
     tools_map: dict[str, Tool],
+    permission_engine: Any,
+    hooks: Any = None,
 ) -> ToolResult:
-    """Execute a single tool. Permission checking added in Phase 3."""
+    """Execute a single tool with permission gating (Phase 3) and hooks (Phase 7)."""
     tool = tools_map.get(tu.name)
     if not tool:
         return ToolResult(
@@ -233,20 +245,90 @@ async def _execute_one_tool(
             metadata={"unknown_tool": True},
         )
 
+    # Phase 7: PreToolUse hook
+    if hooks:
+        pre_result = await hooks.fire(HookEvent.PRE_TOOL_USE, {
+            "tool_name": tu.name,
+            "tool_input": tu.input,
+        })
+        if pre_result.decision == "deny":
+            return ToolResult(
+                output=f"Hook denied: {pre_result.error or 'PreToolUse hook denied'}",
+                error=True,
+                metadata={"hook_denied": True},
+            )
+        if pre_result.updated_input:
+            tu.input = pre_result.updated_input
+
+    # Phase 3: Permission gate
+    perm_request = PermissionRequest(
+        tool_name=tu.name,
+        tool_input=tu.input,
+        tool_category=tool.category,
+    )
+
     try:
-        return await tool.execute(**tu.input)
+        perm_result = permission_engine.evaluate(perm_request)
+    except Exception:
+        # If permission engine fails, default to allow (fail-open for safety)
+        perm_result = None
+
+    if perm_result and perm_result.decision == PermissionDecision.DENY:
+        result = ToolResult(
+            output=f"Permission denied: {perm_result.reason}",
+            error=True,
+            metadata={"denied": True},
+        )
+        # Phase 7: PermissionDenied hook
+        if hooks:
+            await hooks.fire(HookEvent.PERMISSION_DENIED, {
+                "tool_name": tu.name,
+                "reason": perm_result.reason,
+            })
+        return result
+
+    try:
+        result = await tool.execute(**tu.input)
+
+        # Phase 7: PostToolUse hook
+        if hooks:
+            post_result = await hooks.fire(HookEvent.POST_TOOL_USE, {
+                "tool_name": tu.name,
+                "tool_input": tu.input,
+                "tool_result": result.output,
+                "error": result.error,
+            })
+            if post_result.updated_output:
+                result.output = post_result.updated_output
+            if post_result.additional_context:
+                result.output += f"\n[Hook context: {post_result.additional_context}]"
+
+        return result
     except Exception as e:
-        return ToolResult(
+        error_result = ToolResult(
             output=f"Error executing tool '{tu.name}': {e}",
             error=True,
             metadata={"exception": str(e)},
         )
+
+        # Phase 7: PostToolUseFailure hook
+        if hooks:
+            await hooks.fire(HookEvent.POST_TOOL_USE_FAILURE, {
+                "tool_name": tu.name,
+                "tool_input": tu.input,
+                "error": str(e),
+            })
+
+        return error_result
 
 
 async def dispatchTools(
     tool_uses: list[ToolUse],
     tools_map: dict[str, Tool],
     state: LoopState,
+    permission_engine: Any = None,
+    session_store: Any = None,
+    hooks: Any = None,
 ) -> AsyncGenerator[ToolExecutionEvent, None]:
     """Execute tools in partitions. Within each partition, tools run concurrently.
 
@@ -265,7 +347,7 @@ async def dispatchTools(
 
         tasks = []
         for tu in partition:
-            task = asyncio.create_task(_execute_one_tool(tu, tools_map))
+            task = asyncio.create_task(_execute_one_tool(tu, tools_map, permission_engine, hooks))
             tasks.append((tu, task))
 
         for tu, task in tasks:
@@ -283,10 +365,26 @@ async def dispatchTools(
     # Emit in original order
     for tu, result in results:
         state.messages.append(_tool_result_message(tu, result))
+        _record(session_store, "tool", result.output,
+                tool_name=tu.name, tool_use_id=tu.id,
+                error=result.error)
         yield ToolExecutionEvent(tool_use=tu, result=result)
 
 
 # ── Main query loop ──────────────────────────────────────────────────
+
+def _record(store, role: str, content, **metadata) -> None:
+    """Record a session entry if store is available."""
+    if store is None:
+        return
+    store.append(SessionEntry(
+        role=role,
+        content=content,
+        timestamp=_utc_now(),
+        entry_type="message",
+        metadata=metadata,
+    ))
+
 
 async def queryLoop(
     loop_config: LoopConfig,
@@ -316,9 +414,19 @@ async def queryLoop(
     )
 
     while not state.stopped:
-        # --- Context shaping ---
-        # Phase 5 will add compaction pipeline here
-        messages_for_query = state.messages
+        # --- Context shaping (Phase 5: compaction pipeline) ---
+        # Shaper 1: Budget reduction (always applied)
+        # Shaper 2: Auto-compact (gated by pressure threshold)
+        compact_config = getattr(loop_config, 'compact_config', None)
+        if compact_config:
+            messages_for_query = applyContextShapers(state.messages, compact_config)
+            if checkPressure(messages_for_query, compact_config):
+                if not state.has_attempted_reactive_compact:
+                    state.messages = await autoCompact(state.messages, loop_config)
+                    state.has_attempted_reactive_compact = True
+                    messages_for_query = state.messages
+        else:
+            messages_for_query = state.messages
 
         # Build Anthropic-format messages
         anthropic_messages = _build_anthropic_messages(messages_for_query)
@@ -345,40 +453,67 @@ async def queryLoop(
                     continue
                 state.stopped = True
                 state.stop_reason = "prompt_too_long"
+                _record(loop_config.session_store, "system", "",
+                        event="session_stop", stop_reason="prompt_too_long")
                 yield StopEvent(reason="prompt_too_long")
                 break
             yield TextResponse(text=f"API error: {e}")
             state.stopped = True
             state.stop_reason = "api_error"
+            _record(loop_config.session_store, "system", "",
+                    event="session_stop", stop_reason="api_error")
             break
         except Exception as e:
             yield TextResponse(text=f"Error calling model: {e}")
             state.stopped = True
             state.stop_reason = "api_error"
+            _record(loop_config.session_store, "system", "",
+                    event="session_stop", stop_reason="api_error")
             break
 
         # --- Check for text-only response (primary stop condition) ---
         tool_uses = _extract_tool_uses(response)
         if not tool_uses:
-            # Paper: run stop hooks; stub for now
             text = _response_text(response)
             state.messages.append({"role": "assistant", "content": text})
+            _record(loop_config.session_store, "assistant", text)
+
+            # Phase 7: Fire stop hooks; if vetoed, inject context and continue
+            stop_result = await loop_config.hooks.fire(HookEvent.STOP, {
+                "response_text": text,
+                "turn_count": state.turn_count,
+            })
+            if stop_result.additional_context:
+                state.messages.append({"role": "user", "content": stop_result.additional_context})
+            if stop_result.veto:
+                continue  # Hook says keep going
+
             state.stopped = True
             state.stop_reason = "model_finished"
+            _record(loop_config.session_store, "system", "",
+                    event="session_stop", stop_reason="model_finished")
             yield TextResponse(text=text)
             break
 
         # --- Tool dispatch ---
         text = _response_text(response)
         state.messages.append(_assistant_message_with_tools(text, tool_uses))
+        # Record assistant response with tool_use blocks
+        assistant_content = [{"type": "text", "text": text}] if text else []
+        for tu in tool_uses:
+            assistant_content.append({"type": "tool_use", "id": tu.id, "name": tu.name, "input": tu.input})
+        _record(loop_config.session_store, "assistant",
+                assistant_content if len(assistant_content) > 1 else text)
 
-        async for event in dispatchTools(tool_uses, tools_map, state):
+        async for event in dispatchTools(tool_uses, tools_map, state, loop_config.permission_engine, loop_config.session_store, loop_config.hooks):
             yield event
 
             # Phase 7: Hook intervention check (hook_stopped_continuation)
             if event.stop_continuation:
                 state.stopped = True
                 state.stop_reason = "hook_intervention"
+                _record(loop_config.session_store, "system", "",
+                        event="session_stop", stop_reason="hook_intervention")
                 break
 
         # --- Turn limit ---
@@ -386,4 +521,6 @@ async def queryLoop(
         if state.turn_count >= loop_config.max_turns:
             state.stopped = True
             state.stop_reason = "max_turns"
+            _record(loop_config.session_store, "system", "",
+                    event="session_stop", stop_reason="max_turns")
             yield StopEvent(reason="max_turns")

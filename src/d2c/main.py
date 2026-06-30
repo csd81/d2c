@@ -19,9 +19,13 @@ from d2c.context import (
     getSystemPrompt,
     getUserContext,
 )
-from d2c.loop import LoopConfig, StubHookRegistry, StubPermissionEngine, queryLoop
+from d2c.loop import LoopConfig, queryLoop
 from d2c.loop import TextResponse as LoopTextResponse
 from d2c.loop import ToolExecutionEvent, StopEvent
+from d2c.compact import CompactConfig
+from d2c.hooks import HookRegistry
+from d2c.permissions import PermissionEngine
+from d2c.persistence import SessionEntry, SessionManager, SessionStore, _utc_now
 from d2c.tools.pool import Config as PoolConfig
 from d2c.tools.pool import assembleToolPool
 
@@ -32,7 +36,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default="deepseek-v4-pro", help="Model to use")
     parser.add_argument("--max-turns", type=int, default=25, help="Maximum agent turns")
     parser.add_argument("--cwd", type=Path, default=None, help="Working directory")
+    parser.add_argument("--session", default=None, help="Session ID to use")
+    parser.add_argument("--resume", default=None, help="Session ID to resume")
+    parser.add_argument("--fork", default=None, help="Session ID to fork from")
     return parser.parse_args()
+
+
+def _setup_session(args: argparse.Namespace, config: Config) -> tuple[SessionStore | None, list[dict] | None]:
+    """Create/resume/fork session. Returns (store, resume_messages_or_None)."""
+    manager = SessionManager()
+    cwd = args.cwd or config.cwd
+
+    if args.resume:
+        store, messages = manager.resume_session(args.resume, cwd)
+        print(f"Session: {store.session_id} (resumed from {args.resume})")
+        return store, messages
+    elif args.fork:
+        store = manager.fork_session(args.fork, cwd)
+        print(f"Session: {store.session_id} (forked from {args.fork})")
+        return store, None
+    elif args.session:
+        store = SessionStore(manager.base_dir, args.session, cwd)
+        store.append(SessionEntry(
+            role="system", content="",
+            timestamp=_utc_now(),
+            entry_type="message",
+            metadata={"event": "session_start", "cwd": str(cwd)},
+        ))
+        print(f"Session: {store.session_id}")
+        return store, None
+    else:
+        store = manager.create_session(cwd)
+        print(f"Session: {store.session_id}")
+        return store, None
 
 
 async def run_headless(prompt: str, args: argparse.Namespace) -> None:
@@ -44,31 +80,43 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
         config.model = args.model
     config.max_turns = args.max_turns
 
+    # Setup session
+    session_store, resume_messages = _setup_session(args, config)
+
     # Assemble tools
     pool_config = PoolConfig(cwd=config.cwd)
     tools = await assembleToolPool(pool_config)
 
     # Build loop config (with stubs for not-yet-implemented phases)
+    compact_config = CompactConfig(
+        tool_result_max_chars=config.tool_result_max_chars,
+        pressure_threshold=config.pressure_threshold,
+        context_window_tokens=config.context_window_tokens,
+    )
     loop_config = LoopConfig(
         system_prompt=getSystemPrompt(),
         user_context=getUserContext(config),
         model=config.model,
         max_turns=config.max_turns,
         tools=tools,
-        permission_engine=StubPermissionEngine(),
-        hooks=StubHookRegistry(),
+        permission_engine=PermissionEngine.from_config(config),
+        hooks=HookRegistry.from_config(config),
         config=config,
         deepseek_api_key=config.deepseek_api_key,
         deepseek_base_url=config.deepseek_base_url,
+        session_store=session_store,
+        compact_config=compact_config,
     )
 
     # Assemble context
     system_context = getSystemContext(config)
+    history = resume_messages if resume_messages else []
+    history.append({"role": "user", "content": prompt})
     full_prompt, messages = assembleMessages(
         loop_config.system_prompt,
         system_context,
         loop_config.user_context,
-        [{"role": "user", "content": prompt}],
+        history,
     )
     loop_config.system_prompt = full_prompt
 
@@ -93,6 +141,15 @@ async def run_interactive(args: argparse.Namespace) -> None:
     config.model = args.model or config.model
     config.max_turns = args.max_turns
 
+    # Setup session
+    session_store, _ = _setup_session(args, config)
+
+    compact_config = CompactConfig(
+        tool_result_max_chars=config.tool_result_max_chars,
+        pressure_threshold=config.pressure_threshold,
+        context_window_tokens=config.context_window_tokens,
+    )
+
     pool_config = PoolConfig(cwd=config.cwd)
     tools = await assembleToolPool(pool_config)
 
@@ -100,19 +157,20 @@ async def run_interactive(args: argparse.Namespace) -> None:
     system_prompt = getSystemPrompt()
 
     print(f"d2c ({config.model})")
+    print(f"Session: {session_store.session_id if session_store else 'none'}")
     print("Type 'exit' or press Ctrl+C to quit.")
     print()
 
     while True:
         try:
-            prompt = input("> ").strip()
+            prompt_text = input("> ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
 
-        if not prompt:
+        if not prompt_text:
             continue
-        if prompt.lower() in ("exit", "quit", "q"):
+        if prompt_text.lower() in ("exit", "quit", "q"):
             break
 
         loop_config = LoopConfig(
@@ -121,20 +179,28 @@ async def run_interactive(args: argparse.Namespace) -> None:
             model=config.model,
             max_turns=config.max_turns,
             tools=tools,
-            permission_engine=StubPermissionEngine(),
+            permission_engine=PermissionEngine.from_config(config),
             hooks=StubHookRegistry(),
             config=config,
             deepseek_api_key=config.deepseek_api_key,
             deepseek_base_url=config.deepseek_base_url,
+            session_store=session_store,
+            compact_config=compact_config,
         )
 
         full_prompt, messages = assembleMessages(
             loop_config.system_prompt,
             system_context,
             loop_config.user_context,
-            [{"role": "user", "content": prompt}],
+            [{"role": "user", "content": prompt_text}],
         )
         loop_config.system_prompt = full_prompt
+        # Record user message
+        if session_store:
+            session_store.append(SessionEntry(
+                role="user", content=prompt_text,
+                timestamp=_utc_now(), entry_type="message",
+            ))
 
         try:
             async for event in queryLoop(loop_config, messages):

@@ -10,9 +10,13 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from d2c.tools.agent_tool import AgentTool
 from d2c.tools.bash_tool import BashTool
 from d2c.tools.edit_tool import FileEditTool
 from d2c.tools.read_tool import FileReadTool
+from d2c.tools.skill_tool import SkillTool
+from d2c.tools.web_fetch import WebFetchTool
+from d2c.tools.web_search import WebSearchTool
 from d2c.tools.write_tool import FileWriteTool
 
 if TYPE_CHECKING:
@@ -60,11 +64,17 @@ class Config:
 
 
 def getAllBaseTools(config: Config) -> list[Tool]:
+    from d2c.skills.loader import load_all_skills
+    skills = load_all_skills(config.cwd)
     tools: list[Tool] = [
         FileReadTool(),
         FileWriteTool(),
         FileEditTool(),
         BashTool(cwd=config.cwd),
+        AgentTool(),
+        SkillTool(skills=skills),
+        WebFetchTool(),
+        WebSearchTool(),
     ]
     return tools
 
