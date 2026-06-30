@@ -1,10 +1,14 @@
 """Tool pool assembly — the single source of truth for combining tools.
 
 Pipeline: enumerate → is_enabled() filter → deny-rule pre-filter → return.
+
+Phase 11: MCP tools are discovered and merged into the pool.
+MCP tools override built-ins with the same name.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -21,6 +25,8 @@ from d2c.tools.write_tool import FileWriteTool
 
 if TYPE_CHECKING:
     from d2c.tools import Tool
+
+logger = logging.getLogger(__name__)
 
 
 class RuleType(Enum):
@@ -85,6 +91,55 @@ def filterToolsByDenyRules(tools: list[Tool], rules: list[Rule]) -> list[Tool]:
     )]
 
 
+async def assembleMCPTools(cwd: Path | None = None) -> list[Tool]:
+    """Discover and connect MCP servers, returning MCPTool instances.
+
+    Paper: "Each MCP server is connected at session start; its tools are
+    listed and wrapped as MCPTool instances."
+
+    Connection failures are logged but do not prevent session startup.
+    """
+    from d2c.mcp import MCPTool, MCPServerConfig
+    from d2c.mcp.discovery import discover_servers
+    from d2c.mcp.client import MCPClient
+
+    servers = discover_servers(cwd)
+    mcp_tools: list[Tool] = []
+
+    for server_config in servers:
+        try:
+            client = MCPClient(server_config)
+            await client.connect()
+            server_tools = await client.list_tools()
+
+            for tool_def in server_tools:
+                mcp_tool = MCPTool(
+                    name=tool_def.get("name", "unknown"),
+                    description=tool_def.get("description", ""),
+                    input_schema=tool_def.get("inputSchema", {"type": "object", "properties": {}}),
+                    server_name=server_config.name,
+                    server_config=server_config,
+                )
+                mcp_tools.append(mcp_tool)
+
+            logger.info(
+                "MCP server '%s': %d tools discovered",
+                server_config.name, len(server_tools),
+            )
+        except Exception as e:
+            logger.warning(
+                "MCP server '%s' connection failed: %s. Continuing without it.",
+                server_config.name, e,
+            )
+            # Try to close partial connection
+            try:
+                await client.close()
+            except Exception:
+                pass
+
+    return mcp_tools
+
+
 async def assembleToolPool(
     config: Config,
     extra_tools: list[Tool] | None = None,
@@ -92,6 +147,14 @@ async def assembleToolPool(
     tools = getAllBaseTools(config)
     tools = [t for t in tools if t.is_enabled()]
     tools = filterToolsByDenyRules(tools, config.deny_rules)
+
+    # Phase 11: MCP tools — discovered, connected, merged
+    # MCP tools override built-ins with the same name (user explicitly configured them)
+    try:
+        mcp_tools = await assembleMCPTools(config.cwd)
+        tools = mcp_tools + tools  # MCP first → overrides built-ins with same name
+    except Exception as e:
+        logger.warning("MCP tool assembly failed: %s", e)
 
     if extra_tools:
         extra = filterToolsByDenyRules(extra_tools, config.deny_rules)
