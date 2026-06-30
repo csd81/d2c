@@ -44,15 +44,32 @@ class BashTool(Tool):
                 "type": "boolean",
                 "description": "Set to true to run the command in the background.",
             },
+            "dangerouslyDisableSandbox": {
+                "type": "boolean",
+                "description": "Set to true to dangerously override sandbox mode and run commands without sandboxing.",
+            },
         },
         "required": ["command"],
     }
     category: ClassVar[PermissionCategory] = PermissionCategory.SHELL
     is_concurrent_safe: ClassVar[bool] = False
 
-    def __init__(self, cwd: Path | None = None):
+    def __init__(
+        self,
+        cwd: Path | None = None,
+        sandbox_config: "SandboxConfig | None" = None,
+    ):
         self._cwd = cwd or Path.cwd()
         self._background_tasks: dict[str, asyncio.Task] = {}
+        self._sandbox_config = sandbox_config
+        self._sandbox_executor = None
+
+    def _get_sandbox_executor(self) -> "SandboxExecutor":
+        """Lazy init sandbox executor."""
+        if self._sandbox_executor is None:
+            from d2c.sandbox import SandboxExecutor
+            self._sandbox_executor = SandboxExecutor()
+        return self._sandbox_executor
 
     async def execute(
         self,
@@ -60,11 +77,53 @@ class BashTool(Tool):
         timeout: int = 120_000,
         description: str = "",
         run_in_background: bool = False,
+        dangerouslyDisableSandbox: bool = False,
     ) -> ToolResult:
+        # Phase 17: Sandbox check
+        sandbox_config = self._sandbox_config
+        if sandbox_config and sandbox_config.enabled:
+            executor = self._get_sandbox_executor()
+
+            # Skip sandbox if dangerouslyDisableSandbox is set
+            if not dangerouslyDisableSandbox and executor.should_use_sandbox(
+                command, sandbox_config,
+            ):
+                return await self._execute_sandboxed(
+                    command, timeout, sandbox_config,
+                )
+
         if platform.system() == "Windows":
             return await self._execute_windows(command, timeout, run_in_background)
         else:
             return await self._execute_unix(command, timeout, run_in_background)
+
+    async def _execute_sandboxed(
+        self,
+        command: str,
+        timeout: int,
+        config: "SandboxConfig",
+    ) -> ToolResult:
+        """Execute a command through the sandbox."""
+        from d2c.sandbox import SandboxResult
+
+        result: SandboxResult = await self._get_sandbox_executor().execute_sandboxed(
+            command=command,
+            config=config,
+            cwd=self._cwd,
+            timeout_ms=timeout,
+        )
+
+        return ToolResult(
+            output=result.output,
+            error=result.error,
+            metadata={
+                "exit_code": result.exit_code,
+                "command": command,
+                "sandboxed": result.sandboxed,
+                "timed_out": result.timed_out,
+                "sandbox_backend": result.backend,
+            },
+        )
 
     async def _execute_unix(
         self,
