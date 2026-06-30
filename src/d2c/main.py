@@ -30,6 +30,7 @@ from d2c.tools.pool import Config as PoolConfig
 from d2c.tools.pool import assembleToolPool
 from d2c.plugins.loader import PluginLoader
 from d2c.hooks import HookDefinition, HookEvent, HookType
+from d2c.history import PromptHistory
 
 
 def parse_args() -> argparse.Namespace:
@@ -225,6 +226,10 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
     )
     loop_config.system_prompt = full_prompt
 
+    # Phase 22: Record prompt in global history
+    prompt_history = PromptHistory()
+    prompt_history.append(prompt)
+
     # Phase 15: Fire Setup hook after initialization
     await hook_registry.fire(HookEvent.SETUP, {
         "session_id": session_store.session_id if session_store else None,
@@ -306,6 +311,10 @@ async def run_interactive(args: argparse.Namespace) -> None:
                 continue
             if prompt_text.lower() in ("exit", "quit", "q"):
                 break
+
+            # Phase 22: Record prompt in global history
+            prompt_history = PromptHistory()
+            prompt_history.append(prompt_text)
 
             loop_config = LoopConfig(
                 system_prompt=system_prompt,
