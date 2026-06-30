@@ -87,8 +87,8 @@ class TestEnvLoading:
 
     def test_load_dotenv_no_files(self, tmp_path):
         """No .env files — does nothing, no error."""
-        from d2c.config import _load_dotenv
-        _load_dotenv(tmp_path)  # Should not raise
+        from d2c.config import _load_project_dotenv
+        _load_project_dotenv(tmp_path)  # Should not raise
 
     def test_load_dotenv_reads_project_env(self, tmp_path, monkeypatch):
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
@@ -96,8 +96,8 @@ class TestEnvLoading:
         env_file = tmp_path / ".env"
         env_file.write_text("DEEPSEEK_API_KEY=sk-project\n")
 
-        from d2c.config import _load_dotenv
-        _load_dotenv(tmp_path)
+        from d2c.config import _load_project_dotenv
+        _load_project_dotenv(tmp_path)
         assert os.environ["DEEPSEEK_API_KEY"] == "sk-project"
 
 

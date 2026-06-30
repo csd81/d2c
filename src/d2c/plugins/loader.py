@@ -54,10 +54,12 @@ class PluginLoader:
         for m in self._discover_from_dir(self._user_dir, "user"):
             manifests[m.name] = m
 
-        # Tier 3: Project (highest precedence)
-        project_plugins_dir = project_dir / self._project_dir_name
-        for m in self._discover_from_dir(project_plugins_dir, "project"):
-            manifests[m.name] = m
+        # Tier 3: Project (highest precedence) — only if trusted
+        from d2c.trust import get_trust_gate
+        if get_trust_gate().is_project_trusted:
+            project_plugins_dir = project_dir / self._project_dir_name
+            for m in self._discover_from_dir(project_plugins_dir, "project"):
+                manifests[m.name] = m
 
         logger.info(
             "Discovered %d plugin(s): %s",

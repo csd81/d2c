@@ -84,7 +84,10 @@ def load_user_skills(cwd: Path) -> list[SkillDefinition]:
 def load_all_skills(cwd: Path | None = None) -> list[SkillDefinition]:
     """Load bundled + user skills. User skills override bundled with same name."""
     bundled = load_bundled_skills()
-    user = load_user_skills(cwd or Path.cwd())
+
+    cwd_resolved = cwd or Path.cwd()
+    from d2c.trust import get_trust_gate
+    user = load_user_skills(cwd_resolved) if get_trust_gate().is_project_trusted else []
 
     seen: dict[str, SkillDefinition] = {}
     for s in bundled:

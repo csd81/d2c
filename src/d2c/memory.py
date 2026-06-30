@@ -69,37 +69,40 @@ def loadClaudeMdHierarchy(cwd: Path) -> str:
             priority += 1
 
     # Level 3 & 4: Project + Local (traverse root → cwd)
-    cwd = cwd.resolve()
-    root = Path(cwd.anchor)
+    # Only loaded if workspace is trusted
+    from d2c.trust import get_trust_gate
+    if get_trust_gate().is_project_trusted:
+        cwd = cwd.resolve()
+        root = Path(cwd.anchor)
 
-    dirs_to_check = _collect_dirs(cwd, root)
+        dirs_to_check = _collect_dirs(cwd, root)
 
-    for d in reversed(dirs_to_check):
-        # Project memory
-        for name in ["CLAUDE.md", ".d2c/CLAUDE.md"]:
-            p = d / name
-            if p.exists() and p.is_file():
-                content = _read_file_safe(p)
+        for d in reversed(dirs_to_check):
+            # Project memory
+            for name in ["CLAUDE.md", ".d2c/CLAUDE.md"]:
+                p = d / name
+                if p.exists() and p.is_file():
+                    content = _read_file_safe(p)
+                    if content:
+                        files.append(MemoryFile(p, MemoryLevel.PROJECT, content, priority))
+                        priority += 1
+
+            # Path-scoped rules (paper: .d2c/rules/*.md)
+            rules_dir = d / ".d2c" / "rules"
+            if rules_dir.is_dir():
+                for rule_file in sorted(rules_dir.glob("*.md")):
+                    content = _read_file_safe(rule_file)
+                    if content:
+                        files.append(MemoryFile(rule_file, MemoryLevel.PROJECT, content, priority))
+                        priority += 1
+
+            # Local memory (gitignored)
+            local_path = d / "CLAUDE.local.md"
+            if local_path.exists() and local_path.is_file():
+                content = _read_file_safe(local_path)
                 if content:
-                    files.append(MemoryFile(p, MemoryLevel.PROJECT, content, priority))
+                    files.append(MemoryFile(local_path, MemoryLevel.LOCAL, content, priority))
                     priority += 1
-
-        # Path-scoped rules (paper: .d2c/rules/*.md)
-        rules_dir = d / ".d2c" / "rules"
-        if rules_dir.is_dir():
-            for rule_file in sorted(rules_dir.glob("*.md")):
-                content = _read_file_safe(rule_file)
-                if content:
-                    files.append(MemoryFile(rule_file, MemoryLevel.PROJECT, content, priority))
-                    priority += 1
-
-        # Local memory (gitignored)
-        local_path = d / "CLAUDE.local.md"
-        if local_path.exists() and local_path.is_file():
-            content = _read_file_safe(local_path)
-            if content:
-                files.append(MemoryFile(local_path, MemoryLevel.LOCAL, content, priority))
-                priority += 1
 
     return assembleMemoryContent(files, processed_includes)
 
@@ -300,6 +303,11 @@ class LazyMemoryLoader:
         Side effect: Populates PathScopedRules (if configured) with any
         path-scoped permission rules from .d2c/rules/*.md files.
         """
+        # Skip project-level lazy loading if workspace is not trusted
+        from d2c.trust import get_trust_gate
+        if not get_trust_gate().is_project_trusted:
+            return None
+
         parent = file_path.resolve().parent
 
         # Only trigger for directories at or below cwd

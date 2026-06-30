@@ -46,6 +46,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--list-models", action="store_true", help="List available DeepSeek models and exit")
     parser.add_argument("--rewind-files", default=None, metavar="SESSION_ID",
                         help="Revert all filesystem changes from the given session")
+
+    # Trust gate flags (mutually exclusive)
+    trust_group = parser.add_mutually_exclusive_group()
+    trust_group.add_argument(
+        "--trust", action="store_true",
+        help="Trust the workspace and load all project-local features",
+    )
+    trust_group.add_argument(
+        "--no-trust", action="store_true",
+        help="Run without trusting the workspace (skip project-local .env, plugins, skills, MCP, memory)",
+    )
+
     return parser.parse_args()
 
 
@@ -373,10 +385,59 @@ async def run_interactive(args: argparse.Namespace) -> None:
         })
 
 
+def _resolve_trust(args: argparse.Namespace) -> "WorkSpaceTrustGate":
+    """Determine trust decision and initialize the global trust gate.
+
+    Must run BEFORE Config.load() because Config.load reads .env files.
+
+    Resolution order:
+      1. --trust flag        → trust + persist
+      2. --no-trust flag     → deny
+      3. TrustStore lookup   → trust (previously trusted)
+      4. Headless mode       → warn to stderr + deny
+      5. Interactive mode    → prompt user
+    """
+    from d2c.trust import TrustStore, WorkSpaceTrustGate, set_trust_gate
+
+    cwd = (args.cwd or Path.cwd()).resolve()
+    store = TrustStore()
+    gate = WorkSpaceTrustGate(cwd, store)
+
+    if args.trust:
+        gate.decide(True)
+        store.trust(cwd)
+    elif args.no_trust:
+        gate.decide(False)
+    elif store.is_trusted(cwd):
+        gate.decide(True)
+    elif args.prompt:
+        # Headless: untrusted workspace
+        gate.decide(False)
+        print(
+            "Warning: untrusted workspace. Project-local features disabled "
+            "(.env, plugins, skills, MCP, CLAUDE.md). Use --trust to enable.",
+            file=sys.stderr,
+        )
+    else:
+        # Interactive: prompt the user
+        print(f"Workspace: {cwd}")
+        print(
+            "Project-local files (.env, plugins, skills, MCP, CLAUDE.md) "
+            "will be loaded. Only trust workspaces you control."
+        )
+        trusted = gate.prompt_trust()
+        gate.decide(trusted)
+        if trusted:
+            store.trust(cwd)
+
+    set_trust_gate(gate)
+    return gate
+
+
 def main() -> None:
     args = parse_args()
 
-    # Phase 23: Handle --rewind-files
+    # Phase 23: Handle --rewind-files (no project config needed)
     if args.rewind_files:
         base_dir = Path.home() / ".d2c"
         restored = FileHistory.rewind_session(
@@ -399,6 +460,9 @@ def main() -> None:
             print(f"  {model_id}{alias_str}")
             print(f"    context: {defaults['context_window']:,} tokens, max_tokens: {defaults['max_tokens']}")
         return
+
+    # Trust gate (must run before Config.load — reads project .env)
+    _resolve_trust(args)
 
     if args.prompt:
         asyncio.run(run_headless(args.prompt, args))

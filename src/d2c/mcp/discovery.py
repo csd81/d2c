@@ -166,22 +166,26 @@ def discover_servers(cwd: Path | None = None) -> list[MCPServerConfig]:
                 seen_names.add(cfg.name)
                 all_configs.append(cfg)
 
-    # 1. Project mcp.json
-    project_mcp_json = project_dir / ".d2c" / "mcp.json"
-    add_configs(_load_from_json_file(project_mcp_json))
+    from d2c.trust import get_trust_gate
+    trusted = get_trust_gate().is_project_trusted
 
-    # Walk up from cwd looking for mcp.json (like .env loading)
-    current = project_dir.resolve()
-    root = Path(current.anchor)
-    dirs = [current]
-    while current != root.parent:
-        current = current.parent
-        if current not in dirs:
-            dirs.append(current)
-    for d in reversed(dirs):
-        mcp_json = d / ".d2c" / "mcp.json"
-        if mcp_json.exists() and mcp_json != project_mcp_json:
-            add_configs(_load_from_json_file(mcp_json))
+    if trusted:
+        # 1. Project mcp.json
+        project_mcp_json = project_dir / ".d2c" / "mcp.json"
+        add_configs(_load_from_json_file(project_mcp_json))
+
+        # Walk up from cwd looking for mcp.json (like .env loading)
+        current = project_dir.resolve()
+        root = Path(current.anchor)
+        dirs = [current]
+        while current != root.parent:
+            current = current.parent
+            if current not in dirs:
+                dirs.append(current)
+        for d in reversed(dirs):
+            mcp_json = d / ".d2c" / "mcp.json"
+            if mcp_json.exists() and mcp_json != project_mcp_json:
+                add_configs(_load_from_json_file(mcp_json))
 
     # 2. Home mcp.json
     home_mcp_json = Path.home() / ".d2c" / "mcp.json"

@@ -68,17 +68,16 @@ def get_model_defaults(model: str) -> dict:
 
 # ── .env loading ───────────────────────────────────────────────────────
 
-def _load_dotenv(cwd: Path) -> None:
-    """Load .env file from project directory and home directory.
-
-    Project .env overrides home .env. Does NOT override existing env vars.
-    """
-    env_files = []
-
-    # Home directory .env
+def _load_home_dotenv() -> None:
+    """Load ~/.d2c/.env only. Always safe — the user controls their home dir."""
     home_env = Path.home() / ".d2c" / ".env"
     if home_env.exists():
-        env_files.append(home_env)
+        _parse_env_file(home_env)
+
+
+def _load_project_dotenv(cwd: Path) -> None:
+    """Load project .env and parent .env files. Only called if workspace is trusted."""
+    env_files: list[Path] = []
 
     # Project directory .env
     project_env = cwd / ".env"
@@ -200,8 +199,13 @@ class Config:
         """
         project_dir = cwd or Path.cwd()
 
-        # Load .env files (won't override existing env vars)
-        _load_dotenv(project_dir)
+        # Always load home .env
+        _load_home_dotenv()
+
+        # Only load project .env if workspace is trusted
+        from d2c.trust import get_trust_gate
+        if get_trust_gate().is_project_trusted:
+            _load_project_dotenv(project_dir)
 
         # Read from environment
         api_key = os.environ.get("DEEPSEEK_API_KEY")
