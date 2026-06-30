@@ -393,7 +393,7 @@ async def test_assemble_tool_pool():
     config = Config()
     tools = await assembleToolPool(config)
     names = {t.name for t in tools}
-    assert names == {"Read", "Write", "Edit", "Bash", "Agent", "Skill", "WebFetch", "WebSearch"}
+    assert names == {"Read", "Write", "Edit", "Bash", "Agent", "Skill", "WebFetch", "WebSearch", "Glob", "Grep", "NotebookEdit", "TaskCreate", "TaskUpdate", "TaskList"}
 
 
 @pytest.mark.asyncio

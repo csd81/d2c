@@ -17,8 +17,12 @@ from typing import TYPE_CHECKING
 from d2c.tools.agent_tool import AgentTool
 from d2c.tools.bash_tool import BashTool
 from d2c.tools.edit_tool import FileEditTool
+from d2c.tools.glob_tool import GlobTool
+from d2c.tools.grep_tool import GrepTool
+from d2c.tools.notebook_edit import NotebookEditTool
 from d2c.tools.read_tool import FileReadTool
 from d2c.tools.skill_tool import SkillTool
+from d2c.tools.task_tools import TaskCreateTool, TaskListTool, TaskUpdateTool
 from d2c.tools.web_fetch import WebFetchTool
 from d2c.tools.web_search import WebSearchTool
 from d2c.tools.write_tool import FileWriteTool
@@ -73,14 +77,26 @@ def getAllBaseTools(config: Config) -> list[Tool]:
     from d2c.skills.loader import load_all_skills
     skills = load_all_skills(config.cwd)
     tools: list[Tool] = [
+        # Read tools
         FileReadTool(),
+        GlobTool(),
+        GrepTool(),
+        # Write tools
         FileWriteTool(),
         FileEditTool(),
+        NotebookEditTool(),
+        # Shell tools
         BashTool(cwd=config.cwd),
+        # Meta/agent tools
         AgentTool(),
         SkillTool(skills=skills),
+        # Web tools
         WebFetchTool(),
         WebSearchTool(),
+        # Task tracking
+        TaskCreateTool(),
+        TaskUpdateTool(),
+        TaskListTool(),
     ]
     return tools
 
