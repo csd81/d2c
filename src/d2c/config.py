@@ -169,6 +169,9 @@ class Config:
     # --- Hooks (Phase 7) ---
     hooks: list[dict] = field(default_factory=list)
 
+    # --- KAIROS (Phase 25) ---
+    kairos_enabled: bool = False  # Feature-gated, off by default
+
     # --- OS ---
     os: str = field(default="")
 
