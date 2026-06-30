@@ -28,6 +28,8 @@ from d2c.permissions import PermissionEngine
 from d2c.persistence import SessionEntry, SessionManager, SessionStore, _utc_now
 from d2c.tools.pool import Config as PoolConfig
 from d2c.tools.pool import assembleToolPool
+from d2c.plugins.loader import PluginLoader
+from d2c.hooks import HookDefinition, HookEvent, HookType
 
 
 def parse_args() -> argparse.Namespace:
@@ -72,6 +74,99 @@ def _setup_session(args: argparse.Namespace, config: Config) -> tuple[SessionSto
         return store, None
 
 
+def _load_plugins(
+    config: Config, hook_registry: HookRegistry,
+) -> tuple[list, list[dict]]:
+    """Load plugins from all sources and register hooks/skills/agents.
+
+    Paper Section 6: "Hook sources include settings.json, plugins, and
+    managed policy at startup; skill hooks register dynamically on invocation."
+
+    Returns (plugin_skills, plugin_agents) for tool registration.
+    Plugin hooks are registered directly into the provided HookRegistry.
+    """
+    loader = PluginLoader()
+    loaded = loader.discover_and_load(config.cwd)
+
+    plugin_skills: list = []
+    plugin_agents: list[dict] = []
+
+    for plugin in loaded:
+        if not plugin.is_valid:
+            for err in plugin.errors:
+                print(f"Warning: Plugin '{plugin.manifest.name}': {err}", file=sys.stderr)
+            continue
+
+        # Register hooks
+        for hook_def in plugin.manifest.hooks:
+            try:
+                event = HookEvent(hook_def["event"])
+                definition = HookDefinition(
+                    event=event,
+                    hook_type=HookType(hook_def.get("type", "command")),
+                    command=hook_def.get("command"),
+                    prompt=hook_def.get("prompt"),
+                    source=f"plugin:{plugin.manifest.name}",
+                    timeout_ms=hook_def.get("timeout", 30_000),
+                )
+                hook_registry.register(definition)
+                plugin.hooks_registered += 1
+            except (ValueError, KeyError) as e:
+                print(
+                    f"Warning: Plugin '{plugin.manifest.name}': "
+                    f"invalid hook definition: {e}",
+                    file=sys.stderr,
+                )
+
+        # Load skills from plugin directory
+        if plugin.manifest.skills:
+            from d2c.skills.loader import SkillDefinition, parse_frontmatter
+            plugin_dir = Path(plugin.manifest.source_path)
+            for skill_file_name in plugin.manifest.skills:
+                skill_path = plugin_dir / skill_file_name
+                if skill_path.exists() and skill_path.suffix == ".md":
+                    try:
+                        frontmatter, body = parse_frontmatter(
+                            skill_path.read_text(encoding="utf-8")
+                        )
+                        skill_def = SkillDefinition(
+                            name=skill_path.stem,
+                            description=frontmatter.get("description", ""),
+                            prompt=body,
+                            args_schema=frontmatter.get("args"),
+                            source=f"plugin:{plugin.manifest.name}",
+                        )
+                        plugin_skills.append(skill_def)
+                        plugin.skills_loaded += 1
+                    except OSError as e:
+                        print(
+                            f"Warning: Plugin '{plugin.manifest.name}': "
+                            f"cannot read skill '{skill_file_name}': {e}",
+                            file=sys.stderr,
+                        )
+                else:
+                    print(
+                        f"Warning: Plugin '{plugin.manifest.name}': "
+                        f"skill file not found: {skill_file_name}",
+                        file=sys.stderr,
+                    )
+
+        # Collect agent definitions
+        if plugin.manifest.agents:
+            plugin_dir = Path(plugin.manifest.source_path)
+            for agent_file_name in plugin.manifest.agents:
+                agent_path = plugin_dir / agent_file_name
+                if agent_path.exists():
+                    plugin_agents.append({
+                        "name": agent_path.stem,
+                        "path": str(agent_path),
+                        "source": f"plugin:{plugin.manifest.name}",
+                    })
+                    plugin.agents_loaded += 1
+
+    return plugin_skills, plugin_agents
+
+
 async def run_headless(prompt: str, args: argparse.Namespace) -> None:
     """Single-shot headless execution: claude -p equivalent."""
     config = Config.load(args.cwd)
@@ -87,6 +182,10 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
 
     # Setup session
     session_store, resume_messages = _setup_session(args, config)
+
+    # Phase 13: Load plugins — register hooks, collect skills/agents
+    hook_registry = HookRegistry.from_config(config)
+    plugin_skills, plugin_agents = _load_plugins(config, hook_registry)
 
     # Assemble tools
     pool_config = PoolConfig(cwd=config.cwd)
@@ -105,7 +204,7 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
         max_turns=config.max_turns,
         tools=tools,
         permission_engine=PermissionEngine.from_config(config),
-        hooks=HookRegistry.from_config(config),
+        hooks=hook_registry,
         config=config,
         deepseek_api_key=config.deepseek_api_key,
         deepseek_base_url=config.deepseek_base_url,
@@ -156,6 +255,10 @@ async def run_interactive(args: argparse.Namespace) -> None:
     # Setup session
     session_store, _ = _setup_session(args, config)
 
+    # Phase 13: Load plugins once at startup
+    hook_registry = HookRegistry.from_config(config)
+    plugin_skills, plugin_agents = _load_plugins(config, hook_registry)
+
     compact_config = CompactConfig(
         tool_result_max_chars=config.tool_result_max_chars,
         pressure_threshold=config.pressure_threshold,
@@ -192,7 +295,7 @@ async def run_interactive(args: argparse.Namespace) -> None:
             max_turns=config.max_turns,
             tools=tools,
             permission_engine=PermissionEngine.from_config(config),
-            hooks=HookRegistry.from_config(config),
+            hooks=hook_registry,
             config=config,
             deepseek_api_key=config.deepseek_api_key,
             deepseek_base_url=config.deepseek_base_url,

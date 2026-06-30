@@ -22,6 +22,9 @@ from d2c.permissions import (
 from d2c.persistence import SessionEntry, _utc_now
 from d2c.compact import (
     applyContextShapers,
+    applySnip,
+    applyMicrocompact,
+    applyContextCollapse,
     autoCompact,
     checkPressure,
     CompactConfig,
@@ -422,12 +425,21 @@ async def queryLoop(
     )
 
     while not state.stopped:
-        # --- Context shaping (Phase 5: compaction pipeline) ---
-        # Shaper 1: Budget reduction (always applied)
-        # Shaper 2: Auto-compact (gated by pressure threshold)
+        # --- Context shaping (Phase 5 & 12: 5-layer compaction pipeline) ---
         compact_config = getattr(loop_config, 'compact_config', None)
         if compact_config:
+            # Shapers 1-4: read-time projections (non-destructive views)
             messages_for_query = applyContextShapers(state.messages, compact_config)
+
+            # Shapers 2-4: progressive read-time shaping (gated by pressure)
+            if checkPressure(messages_for_query, compact_config):
+                messages_for_query = applySnip(messages_for_query, compact_config)
+            if checkPressure(messages_for_query, compact_config):
+                messages_for_query = applyMicrocompact(messages_for_query, compact_config)
+            if checkPressure(messages_for_query, compact_config):
+                messages_for_query = applyContextCollapse(messages_for_query, compact_config)
+
+            # Shaper 5: Auto-compact (destructive — mutates state, once per session)
             if checkPressure(messages_for_query, compact_config):
                 if not state.has_attempted_reactive_compact:
                     state.messages = await autoCompact(state.messages, loop_config)

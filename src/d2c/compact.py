@@ -1,16 +1,21 @@
-"""Compaction pipeline — budget reduction + auto-compact. Paper Section 7.3.
+"""Compaction pipeline — 5-layer graduated compaction. Paper Section 7.3.
 
-Graduated compaction preserves useful information while freeing context space.
-Two shapers apply in order:
-  1. Budget reduction — cap individual tool result sizes
-  2. Auto-compact — model-generated summary replaces old history (gated by pressure threshold)
+The full pipeline applies shapers in order of increasing severity:
+  1. Budget reduction — cap individual tool result sizes (always applied)
+  2. Snip — trim oldest non-system messages, preserving task + recent context
+  3. Microcompact — cache-aware tool-result pair summarization
+  4. Context collapse — read-time projection with segmented summaries
+  5. Auto-compact — model-generated summary replaces old history (last resort)
+
+Each shaper is gated by the pressure threshold; the pipeline short-circuits
+as soon as pressure is relieved.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
 import anthropic
@@ -32,23 +37,75 @@ class CompactConfig:
     chars_per_token: float = 3.5
     compact_model: str | None = None  # None = use same model as main loop
 
+    # Shaper 2 (Snip) settings
+    snip_keep_last: int = 10  # Number of recent non-system messages to preserve
 
-# ── Shapers (paper Section 4.3) ───────────────────────────────────────
+    # Shaper 3 (Microcompact) settings
+    microcompact_summary_max_chars: int = 500  # Max chars per tool-result summary
+
+    # Shaper 4 (Context Collapse) settings
+    collapse_min_turns: int = 3  # Minimum turns before collapse is attempted
+    collapse_segment_size: int = 6  # Messages per segment for summarization
+
+
+# ── Shapers pipeline (paper Section 7.3) ───────────────────────────────
 
 def applyContextShapers(
     messages: list[dict],
     compact_config: CompactConfig | None,
 ) -> list[dict]:
-    """Apply budget reduction, then auto-compact if still over pressure threshold.
+    """Apply budget reduction (shaper 1). Always applied.
 
-    Returns messages ready for the model call. Does NOT auto-compact
-    synchronously — that requires an async model call handled in queryLoop.
+    The full 5-layer pipeline is available via applyFullContextShapers()
+    which should be called from the async loop.
     """
     if compact_config is None:
         return messages
 
     # Shaper 1: Budget reduction (always)
     messages = applyBudgetReduction(messages, compact_config)
+
+    return messages
+
+
+async def applyFullContextShapers(
+    messages: list[dict],
+    loop_config: Any,  # LoopConfig
+) -> list[dict]:
+    """Run the full 5-layer compaction pipeline, gating each layer by pressure.
+
+    Paper Section 7.3 — graduated compaction:
+      1. Budget reduction (always)
+      2. Snip (when over pressure)
+      3. Microcompact (when still over pressure, cache-aware)
+      4. Context collapse (when still over pressure, read-time projection)
+      5. Auto-compact (last resort, model-generated summary)
+
+    Each shaper is gated by the pressure threshold; the pipeline
+    short-circuits as soon as pressure is relieved.
+    """
+    compact_config = getattr(loop_config, 'compact_config', None)
+    if compact_config is None:
+        return messages
+
+    # Shaper 1: Budget reduction (always applied)
+    messages = applyBudgetReduction(messages, compact_config)
+
+    # Shaper 2: Snip (gated by pressure)
+    if checkPressure(messages, compact_config):
+        messages = applySnip(messages, compact_config)
+
+    # Shaper 3: Microcompact (gated by pressure, cache-aware)
+    if checkPressure(messages, compact_config):
+        messages = applyMicrocompact(messages, compact_config)
+
+    # Shaper 4: Context collapse (gated by pressure, read-time projection)
+    if checkPressure(messages, compact_config):
+        messages = applyContextCollapse(messages, compact_config)
+
+    # Shaper 5: Auto-compact (last resort, model-generated)
+    if checkPressure(messages, compact_config):
+        messages = await autoCompact(messages, loop_config)
 
     return messages
 
@@ -84,6 +141,290 @@ def applyBudgetReduction(
                 msg = {**msg, "content": truncated}
         result.append(msg)
     return result
+
+
+# ── Shaper 2: Snip ─────────────────────────────────────────────────────
+
+def applySnip(
+    messages: list[dict],
+    config: CompactConfig,
+) -> list[dict]:
+    """Trim oldest non-system messages while preserving task and recent context.
+
+    Paper: "snip trims older history."
+
+    Preserves:
+    - System messages (always at top)
+    - First user message (the task/question)
+    - Last N non-system messages (configurable via snip_keep_last)
+    """
+    if len(messages) <= config.snip_keep_last:
+        return messages  # Nothing to snip
+
+    keep_recent = messages[-config.snip_keep_last:]
+
+    # Find system messages and first user message
+    keep_system = [m for m in messages if m.get("role") == "system"]
+    first_user = None
+    for m in messages:
+        if m.get("role") == "user" and m.get("content") and m not in keep_system:
+            first_user = m
+            break
+
+    result: list[dict] = list(keep_system)
+    if first_user and first_user not in keep_recent:
+        result.append(first_user)
+    result.extend(keep_recent)
+
+    return result
+
+
+# ── Shaper 3: Microcompact ────────────────────────────────────────────
+
+def applyMicrocompact(
+    messages: list[dict],
+    config: CompactConfig,
+) -> list[dict]:
+    """Cache-aware compression of tool-result pairs into brief summaries.
+
+    Paper: "The cache-aware behavior of microcompact adds further opacity,
+    as compression decisions are influenced by prompt caching."
+
+    Groups consecutive tool-result pairs between cache-safe breakpoints
+    (system messages, non-tool user messages) and replaces them with
+    compact summaries. Avoids breaking the Anthropic prompt cache prefix
+    by respecting natural message boundaries.
+    """
+    if len(messages) < 4:
+        return messages  # Too few messages to compact meaningfully
+
+    max_summary = config.microcompact_summary_max_chars
+    result: list[dict] = []
+
+    # Identify safe break points: messages where cache would naturally break
+    # (system messages, non-tool user/assistant messages without preceding tool calls)
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        role = msg.get("role", "")
+
+        # System messages and non-tool messages are cache-safe boundaries
+        if role == "system":
+            result.append(msg)
+            i += 1
+            continue
+
+        # Check if next messages form a tool-use → tool-result pair
+        if role == "user" and i + 2 < len(messages):
+            nxt = messages[i + 1]
+            nnxt = messages[i + 2]
+            # assistant with tool_use followed by tool result
+            if nxt.get("role") == "assistant" and _has_tool_use(nxt):
+                if nnxt.get("role") == "tool":
+                    # Found at least one tool-result pair — collect contiguous pairs
+                    pair_count = 0
+                    pair_summaries: list[str] = []
+                    j = i
+                    while j < len(messages):
+                        um = messages[j]
+                        if um.get("role") != "user":
+                            break
+                        if j + 2 >= len(messages):
+                            break
+                        am = messages[j + 1]
+                        tm = messages[j + 2]
+                        if am.get("role") != "assistant" or not _has_tool_use(am):
+                            break
+                        if tm.get("role") != "tool":
+                            break
+
+                        tool_names = _get_tool_names(am)
+                        tool_result_text = _content_str(tm)[:max_summary]
+                        pair_summaries.append(
+                            f"[User: {_content_str(um)[:200]}] "
+                            f"→ tools: {', '.join(tool_names)} → "
+                            f"results: {tool_result_text}"
+                        )
+                        pair_count += 1
+                        j += 3
+
+                    if pair_count > 0:
+                        summary = f"[Microcompact: {pair_count} tool interaction(s)]\n" + \
+                                  "\n".join(pair_summaries)
+                        result.append({"role": "user", "content": summary})
+                        i = j
+                        continue
+
+        result.append(msg)
+        i += 1
+
+    return result
+
+
+# ── Shaper 4: Context Collapse ────────────────────────────────────────
+
+def applyContextCollapse(
+    messages: list[dict],
+    config: CompactConfig,
+) -> list[dict]:
+    """Read-time projection: segment history into summaries, preserving recent context.
+
+    Paper: "context collapse substitutes messages with a summary
+    (described in the source as 'a read-time projection over the REPL's
+    full history')."
+
+    Unlike auto-compact which replaces the actual history, context collapse
+    creates a read-time view. The full transcript on disk (session_store)
+    is preserved — only what the model sees is collapsed.
+
+    Segments the conversation into logical chunks by task boundaries and
+    generates per-segment summaries.
+    """
+    if len(messages) < config.collapse_min_turns * 2:
+        return messages  # Too few turns for meaningful collapse
+
+    segment_size = config.collapse_segment_size
+    result: list[dict] = []
+
+    # Preserve system messages
+    system_msgs = [m for m in messages if m.get("role") == "system"]
+    result.extend(system_msgs)
+
+    # Find first user message (the task)
+    first_user = None
+    first_user_idx = -1
+    for idx, m in enumerate(messages):
+        if m.get("role") == "user" and m.get("content") and m not in system_msgs:
+            first_user = m
+            first_user_idx = idx
+            break
+
+    if first_user:
+        result.append(first_user)
+
+    # Collapse middle messages into segments
+    # Skip system messages and first user message when segmenting
+    skip_indices = set(range(len(system_msgs)))
+    if first_user_idx >= 0:
+        skip_indices.add(first_user_idx)
+
+    # Keep last segment_size messages uncollapsed (recent context)
+    keep_recent = min(segment_size, len(messages) // 3)
+    recent_start = max(len(messages) - keep_recent, 0)
+
+    middle = [
+        m for i, m in enumerate(messages)
+        if i not in skip_indices and i < recent_start
+    ]
+
+    if middle:
+        segments = _segment_messages(middle, segment_size)
+        for seg_idx, segment in enumerate(segments):
+            summary = _summarize_segment(segment, seg_idx)
+            result.append({"role": "user", "content": summary})
+
+    # Append recent messages
+    recent = messages[recent_start:]
+    result.extend(recent)
+
+    return result
+
+
+# ── Segment helpers ──────────────────────────────────────────────────
+
+def _segment_messages(messages: list[dict], segment_size: int) -> list[list[dict]]:
+    """Split messages into segments of roughly segment_size each."""
+    if not messages:
+        return []
+    segments: list[list[dict]] = []
+    current: list[dict] = []
+    for msg in messages:
+        current.append(msg)
+        if len(current) >= segment_size:
+            segments.append(current)
+            current = []
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _summarize_segment(segment: list[dict], segment_idx: int) -> str:
+    """Generate a text summary of a message segment."""
+    roles: list[str] = []
+    tool_names: list[str] = []
+    key_content: list[str] = []
+
+    for msg in segment:
+        role = msg.get("role", "?")
+        roles.append(role)
+        if role == "assistant" and _has_tool_use(msg):
+            tool_names.extend(_get_tool_names(msg))
+        content = _content_str(msg)
+        if content and len(content) > 0:
+            # Capture first meaningful content
+            if len(content) > 200:
+                key_content.append(content[:200] + "...")
+            else:
+                key_content.append(content)
+
+    role_summary = " → ".join(roles[:6])
+    tool_str = f" [tools: {', '.join(tool_names[:5])}]" if tool_names else ""
+    content_preview = " ".join(key_content[:2])[:300]
+
+    return (
+        f"[Context segment {segment_idx + 1}: {len(segment)} messages, "
+        f"roles: {role_summary}{tool_str}]\n"
+        f"{content_preview}"
+    )
+
+
+# ── Message content helpers ──────────────────────────────────────────
+
+def _has_tool_use(msg: dict) -> bool:
+    """Check if a message contains tool_use blocks."""
+    content = msg.get("content", "")
+    if isinstance(content, str):
+        return False  # String content won't have structured tool_use
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                return True
+    return False
+
+
+def _get_tool_names(msg: dict) -> list[str]:
+    """Extract tool names from a message's content blocks."""
+    content = msg.get("content", "")
+    if isinstance(content, list):
+        return [
+            block.get("name", "?")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "tool_use"
+        ]
+    return []
+
+
+def _content_str(msg: dict) -> str:
+    """Extract text content from a message."""
+    content = msg.get("content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    parts.append(str(block.get("text", "")))
+                elif block.get("type") == "tool_use":
+                    parts.append(f"[tool_use: {block.get('name', '?')}]")
+                elif block.get("type") == "tool_result":
+                    result_content = block.get("content", "")
+                    if isinstance(result_content, str):
+                        parts.append(f"[result: {result_content[:100]}]")
+                    else:
+                        parts.append("[result]")
+        return " ".join(parts)
+    return str(content)
 
 
 # ── Token estimation ───────────────────────────────────────────────────
