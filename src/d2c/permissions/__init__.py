@@ -93,6 +93,22 @@ class PermissionEngine:
         self.mode = mode
         self.rules = rules or []
         self._classifier = classifier
+        self._path_rules: "PathScopedRules | None" = None  # Phase 21
+
+    def set_path_rules(self, path_rules: "PathScopedRules | None") -> None:
+        """Phase 21: Attach path-scoped rules for dynamic rule lookup.
+
+        When set, evaluate() and evaluate_async() will consult path-scoped
+        rules applicable to the current file being accessed.
+        """
+        self._path_rules = path_rules
+
+    def add_rules(self, new_rules: list[PermissionRule]) -> None:
+        """Phase 21: Dynamically add rules mid-conversation.
+
+        Used by path-scoped rule loading when new directories are accessed.
+        """
+        self.rules.extend(new_rules)
 
     def evaluate(self, request: PermissionRequest) -> PermissionResult:
         # Step 1: Deny rules first (ALWAYS)

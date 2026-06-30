@@ -280,18 +280,25 @@ class LazyMemoryLoader:
     When the agent reads a file in a nested directory below cwd,
     that directory's CLAUDE.md/CLAUDE.local.md/.d2c/rules/*.md
     are loaded and returned as additional context.
+
+    Phase 21: Also loads path-scoped permission rules from .d2c/rules/*.md
+    files, which can change classifier behavior mid-conversation.
     """
 
-    def __init__(self, cwd: Path):
+    def __init__(self, cwd: Path, path_rules: "PathScopedRules | None" = None):
         self.cwd = cwd.resolve()
         self._loaded_dirs: set[Path] = set()
         self._loaded_dirs.add(self.cwd)  # root→cwd already loaded eagerly
+        self._path_rules = path_rules
 
     def on_file_accessed(self, file_path: Path) -> str | None:
         """Called when agent reads a file. Loads memory for the file's directory.
 
         Returns additional memory content or None.
         Only triggers for directories at or below cwd.
+
+        Side effect: Populates PathScopedRules (if configured) with any
+        path-scoped permission rules from .d2c/rules/*.md files.
         """
         parent = file_path.resolve().parent
 
@@ -315,6 +322,11 @@ class LazyMemoryLoader:
         # Mark as loaded
         for d in unloaded:
             self._loaded_dirs.add(d)
+
+        # Phase 21: Load path-scoped rules alongside memory content
+        if self._path_rules:
+            for d in unloaded:
+                self._path_rules.on_directory_accessed(d)
 
         # Load from unloaded dirs (closest to file first = highest priority)
         content_parts: list[str] = []
