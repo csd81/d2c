@@ -55,6 +55,7 @@ class SubagentResult:
     turns: int = 0
     success: bool = True
     sidechain_path: Path | None = None
+    diff: str = ""  # git diff from worktree isolation
 
 
 # ── Tool pool builder ─────────────────────────────────────────────────
@@ -97,14 +98,20 @@ async def spawn_subagent(
     parent_config: "Config",
     parent_session_store: "SessionStore | None",
     parent_hooks: Any = None,
+    isolation_mode: str = "default",
 ) -> SubagentResult:
     """Paper Section 8.2-8.3: spawn isolated subagent.
 
     1. Build isolated tool pool
     2. Create isolated context (no parent history)
-    3. Run queryLoop in isolation
-    4. Write sidechain transcript
-    5. Return ONLY summary to parent
+    3. Optionally create git worktree for filesystem isolation
+    4. Run queryLoop in isolation
+    5. Write sidechain transcript
+    6. Return ONLY summary to parent (+ diff if worktree)
+
+    isolation_mode:
+      - "default": run in-process, same cwd
+      - "worktree": git worktree isolation (requires git repo)
     """
     # Deferred imports to avoid circular dependency
     from d2c.tools.pool import assembleToolPool, Config as PoolConfig
@@ -114,99 +121,162 @@ async def spawn_subagent(
     from d2c.context import getSystemPrompt, getUserContext, getSystemContext, assembleMessages
     from d2c.persistence import SessionStore, SessionEntry, _utc_now
     from d2c.hooks import HookRegistry, HookEvent, HookDefinition, HookType
-
-    # Build isolated tool pool
-    pool_config = PoolConfig(cwd=parent_config.cwd)
-    all_tools = await assembleToolPool(pool_config)
-    tools = build_subagent_tool_pool(definition, all_tools)
-
-    # Permission mode override
-    perm_mode = definition.permission_mode or parent_config.permission_mode or "default"
-    perm_engine = PermissionEngine(
-        mode=PermissionMode(perm_mode),
-        rules=[],
+    from d2c.worktree import (
+        WorktreeManager, WorktreeContext,
+        NotAGitRepoError, WorktreeCreationError,
     )
 
-    # Sidechain transcript
+    # ── Worktree isolation ──────────────────────────────────────────
+    worktree_ctx: WorktreeContext | None = None
+    worktree_manager: WorktreeManager | None = None
+    subagent_cwd = parent_config.cwd
+    diff_output = ""
     subagent_id = str(uuid.uuid4())[:8]
-    if parent_session_store:
-        sidechain_store = SessionStore(
-            base_dir=parent_session_store.base_dir,
-            session_id=subagent_id,
-            project_dir=parent_session_store.project_dir,
-        )
-    else:
-        sidechain_store = SessionStore(
-            base_dir=parent_config.cwd / ".d2c",
-            session_id=subagent_id,
-            project_dir=parent_config.cwd,
-        )
 
-    # Isolated hooks: SubagentStop instead of Stop
-    subagent_hooks = HookRegistry()
+    if isolation_mode == "worktree":
+        try:
+            worktree_manager = WorktreeManager()
+            worktree_ctx = worktree_manager.create(parent_config.cwd)
+            subagent_cwd = worktree_ctx.worktree_path
 
-    # Phase 15: Fire SubagentStart on parent hooks
-    if parent_hooks:
-        await parent_hooks.fire(HookEvent.SUBAGENT_START, {
-            "subagent_id": subagent_id,
-            "subagent_type": definition.subagent_type,
-            "task": task_prompt[:500],
-        })
-
-    # Build loop config
-    loop_config = LoopConfig(
-        system_prompt=definition.system_prompt,
-        user_context=getUserContext(parent_config),
-        model=definition.model or parent_config.model,
-        max_turns=definition.max_turns,
-        tools=tools,
-        permission_engine=perm_engine,
-        hooks=subagent_hooks,
-        config=parent_config,
-        deepseek_api_key=parent_config.deepseek_api_key,
-        deepseek_base_url=parent_config.deepseek_base_url,
-        session_store=sidechain_store,
-    )
-
-    # Assemble context
-    system_context = getSystemContext(parent_config)
-    full_prompt, messages = assembleMessages(
-        loop_config.system_prompt,
-        system_context,
-        loop_config.user_context,
-        [{"role": "user", "content": task_prompt}],
-    )
-    loop_config.system_prompt = full_prompt
-
-    # Run isolated loop
-    final_text = ""
-    tool_calls = 0
-    turns = 0
+            # Fire WorktreeCreate hook
+            if parent_hooks:
+                await parent_hooks.fire(HookEvent.WORKTREE_CREATE, {
+                    "worktree_path": str(worktree_ctx.worktree_path),
+                    "branch": worktree_ctx.branch_name,
+                    "subagent_id": subagent_id,
+                })
+        except NotAGitRepoError:
+            return SubagentResult(
+                summary="Worktree isolation requires a git repository. Use isolation_mode='default'.",
+                tool_calls=0,
+                turns=0,
+                success=False,
+            )
+        except WorktreeCreationError as e:
+            return SubagentResult(
+                summary=f"Worktree creation failed: {e}",
+                tool_calls=0,
+                turns=0,
+                success=False,
+            )
 
     try:
-        async for event in queryLoop(loop_config, messages):
-            if isinstance(event, ToolExecutionEvent):
-                tool_calls += 1
-            elif isinstance(event, TextResponse):
-                final_text = event.text
-            elif isinstance(event, StopEvent):
-                turns = getattr(event, 'metadata', {}).get('turns', 0) or turns
-    except Exception as e:
-        return SubagentResult(
-            summary=f"Subagent error: {e}",
-            tool_calls=tool_calls,
-            turns=turns,
-            success=False,
-            sidechain_path=sidechain_store.transcript_path,
+        # Build isolated tool pool
+        pool_config = PoolConfig(cwd=subagent_cwd)
+        all_tools = await assembleToolPool(pool_config)
+        tools = build_subagent_tool_pool(definition, all_tools)
+
+        # Permission mode override
+        perm_mode = definition.permission_mode or parent_config.permission_mode or "default"
+        perm_engine = PermissionEngine(
+            mode=PermissionMode(perm_mode),
+            rules=[],
         )
 
-    return SubagentResult(
-        summary=final_text,
-        tool_calls=tool_calls,
-        turns=turns,
-        success=True,
-        sidechain_path=sidechain_store.transcript_path,
-    )
+        # Sidechain transcript
+        if parent_session_store:
+            sidechain_store = SessionStore(
+                base_dir=parent_session_store.base_dir,
+                session_id=subagent_id,
+                project_dir=subagent_cwd,
+            )
+        else:
+            sidechain_store = SessionStore(
+                base_dir=subagent_cwd / ".d2c",
+                session_id=subagent_id,
+                project_dir=subagent_cwd,
+            )
+
+        # Isolated hooks: SubagentStop instead of Stop
+        subagent_hooks = HookRegistry()
+
+        # Phase 15: Fire SubagentStart on parent hooks
+        if parent_hooks:
+            await parent_hooks.fire(HookEvent.SUBAGENT_START, {
+                "subagent_id": subagent_id,
+                "subagent_type": definition.subagent_type,
+                "task": task_prompt[:500],
+            })
+
+        # Build loop config with worktree cwd
+        loop_config = LoopConfig(
+            system_prompt=definition.system_prompt,
+            user_context=getUserContext(parent_config),
+            model=definition.model or parent_config.model,
+            max_turns=definition.max_turns,
+            tools=tools,
+            permission_engine=perm_engine,
+            hooks=subagent_hooks,
+            config=parent_config,
+            deepseek_api_key=parent_config.deepseek_api_key,
+            deepseek_base_url=parent_config.deepseek_base_url,
+            session_store=sidechain_store,
+        )
+
+        # Assemble context
+        system_context = getSystemContext(parent_config)
+        full_prompt, messages = assembleMessages(
+            loop_config.system_prompt,
+            system_context,
+            loop_config.user_context,
+            [{"role": "user", "content": task_prompt}],
+        )
+        loop_config.system_prompt = full_prompt
+
+        # Run isolated loop
+        final_text = ""
+        tool_calls = 0
+        turns = 0
+
+        try:
+            async for event in queryLoop(loop_config, messages):
+                if isinstance(event, ToolExecutionEvent):
+                    tool_calls += 1
+                elif isinstance(event, TextResponse):
+                    final_text = event.text
+                elif isinstance(event, StopEvent):
+                    turns = getattr(event, 'metadata', {}).get('turns', 0) or turns
+        except Exception as e:
+            # Capture diff even on error
+            if worktree_ctx and worktree_manager:
+                diff_output = worktree_manager.get_changes(worktree_ctx)
+            return SubagentResult(
+                summary=f"Subagent error: {e}",
+                tool_calls=tool_calls,
+                turns=turns,
+                success=False,
+                sidechain_path=sidechain_store.transcript_path,
+                diff=diff_output,
+            )
+
+        # Capture diff from worktree
+        if worktree_ctx and worktree_manager:
+            diff_output = worktree_manager.get_changes(worktree_ctx)
+
+        return SubagentResult(
+            summary=final_text,
+            tool_calls=tool_calls,
+            turns=turns,
+            success=True,
+            sidechain_path=sidechain_store.transcript_path,
+            diff=diff_output,
+        )
+
+    finally:
+        # Cleanup worktree
+        if worktree_ctx and worktree_manager:
+            try:
+                worktree_manager.remove(worktree_ctx)
+            except Exception:
+                pass  # Cleanup failure is non-fatal
+
+            # Fire WorktreeRemove hook
+            if parent_hooks:
+                await parent_hooks.fire(HookEvent.WORKTREE_REMOVE, {
+                    "worktree_path": str(worktree_ctx.worktree_path),
+                    "branch": worktree_ctx.branch_name,
+                })
 
 
 # ── Subagent definition loader ────────────────────────────────────────
