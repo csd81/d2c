@@ -160,32 +160,58 @@ def _response_text(response: Any) -> str:
     return "\n".join(texts)
 
 
-def _build_anthropic_messages(messages: list[dict]) -> list[dict]:
-    """Convert our internal message format to Anthropic API format."""
+def _build_anthropic_messages(
+    messages: list[dict],
+    enable_caching: bool = False,
+) -> list[dict]:
+    """Convert our internal message format to Anthropic API format.
+
+    Phase 26: When enable_caching is True, injects cache_control breakpoints:
+      - Breakpoint 3: first message (user context/CLAUDE.md)
+      - Breakpoint 4: 5th-from-last message (sliding history), if > 8 messages
+    """
     result = []
-    for msg in messages:
+    total_msgs = len(messages)
+
+    for idx, msg in enumerate(messages):
         role = msg.get("role", "user")
         content = msg.get("content", "")
 
+        # Determine cache eligibility for this message
+        cache_control = None
+        if enable_caching:
+            if idx == 0:
+                # Breakpoint 3: Cache the user context (first message)
+                cache_control = {"type": "ephemeral"}
+            elif total_msgs > 8 and idx == total_msgs - 5:
+                # Breakpoint 4: Sliding history cache
+                cache_control = {"type": "ephemeral"}
+
         if role == "tool":
-            # Tool results in Anthropic format are user messages with tool_result blocks
+            block = {
+                "type": "tool_result",
+                "tool_use_id": msg.get("tool_use_id", ""),
+                "content": content if isinstance(content, str) else str(content),
+            }
+            if cache_control:
+                block["cache_control"] = cache_control
             result.append({
                 "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": msg.get("tool_use_id", ""),
-                        "content": content if isinstance(content, str) else str(content),
-                    }
-                ],
+                "content": [block],
             })
         elif role == "assistant" and isinstance(content, list):
             # Already in Anthropic content-block format
-            result.append({"role": "assistant", "content": content})
+            formatted_content = [dict(b) for b in content]
+            if cache_control and formatted_content:
+                formatted_content[-1]["cache_control"] = cache_control
+            result.append({"role": "assistant", "content": formatted_content})
         else:
+            block = {"type": "text", "text": _content_to_text(content)}
+            if cache_control:
+                block["cache_control"] = cache_control
             result.append({
                 "role": role,
-                "content": content,
+                "content": [block],
             })
     return result
 
@@ -449,8 +475,32 @@ async def queryLoop(
         else:
             messages_for_query = state.messages
 
-        # Build Anthropic-format messages
-        anthropic_messages = _build_anthropic_messages(messages_for_query)
+        # Phase 26: Prompt caching setup
+        enable_caching = (
+            getattr(loop_config.config, 'prompt_caching_enabled', False)
+        )
+
+        # Build Anthropic-format messages with optional cache control
+        anthropic_messages = _build_anthropic_messages(
+            messages_for_query, enable_caching,
+        )
+
+        # Build system prompt: when caching, use content-block array with cache_control
+        if enable_caching:
+            system_param: list[dict] | str = [
+                {
+                    "type": "text",
+                    "text": loop_config.system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        else:
+            system_param = loop_config.system_prompt
+
+        # Build tool schemas: when caching, add cache_control to the last tool
+        api_tools = [dict(t) for t in tool_schemas]
+        if enable_caching and api_tools:
+            api_tools[-1]["cache_control"] = {"type": "ephemeral"}
 
         # --- Model call (Phase 10: streaming) ---
         text = ""
@@ -469,9 +519,9 @@ async def queryLoop(
                 async with client.messages.stream(
                     model=loop_config.model,
                     max_tokens=8192,
-                    system=loop_config.system_prompt,
+                    system=system_param,
                     messages=anthropic_messages,
-                    tools=tool_schemas,
+                    tools=api_tools,
                 ) as stream:
                     # Lazy-init executor on first tool_use start
                     async for event in stream:
@@ -535,9 +585,9 @@ async def queryLoop(
                 response = await client.messages.create(
                     model=loop_config.model,
                     max_tokens=8192,
-                    system=loop_config.system_prompt,
+                    system=system_param,
                     messages=anthropic_messages,
-                    tools=tool_schemas,
+                    tools=api_tools,
                 )
                 text = _response_text(response)
                 tool_uses = _extract_tool_uses(response)

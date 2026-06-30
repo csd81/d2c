@@ -183,7 +183,8 @@ def test_build_anthropic_messages_simple():
     result = _build_anthropic_messages(messages)
     assert len(result) == 2
     assert result[0]["role"] == "user"
-    assert result[0]["content"] == "hello"
+    assert isinstance(result[0]["content"], list)
+    assert result[0]["content"][0] == {"type": "text", "text": "hello"}
 
 
 def test_build_anthropic_messages_tool_result():

@@ -171,6 +171,9 @@ class Config:
     # --- KAIROS (Phase 25) ---
     kairos_enabled: bool = False  # Feature-gated, off by default
 
+    # --- Prompt Caching (Phase 26) ---
+    prompt_caching_enabled: bool = True  # Anthropic prompt caching with 4 breakpoints
+
     # --- OS ---
     os: str = field(default="")
 
