@@ -2,10 +2,15 @@
 
 Each subagent gets independent context, tool set, and sidechain transcript.
 Only the final summary returns to the parent — full history never enters parent context.
+
+Phase 24: Background subagents enable fire-and-forget task delegation.
+The BackgroundSubagentManager tracks running background tasks.
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -19,6 +24,8 @@ if TYPE_CHECKING:
     from d2c.config import Config
     from d2c.hooks import HookRegistry
     from d2c.persistence import SessionStore
+
+logger = logging.getLogger(__name__)
 
 
 # ── Subagent types ────────────────────────────────────────────────────
@@ -376,3 +383,103 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
             metadata[key] = value
 
     return metadata, parts[2].strip()
+
+
+# ── Background subagent manager ────────────────────────────────────────
+
+class BackgroundSubagentManager:
+    """Paper Section 8: fire-and-forget subagent execution.
+
+    Launches subagents as asyncio.Tasks that run independently.
+    The parent can query status and retrieve results later.
+    """
+
+    def __init__(self):
+        self._running: dict[str, asyncio.Task] = {}
+        self._completed: dict[str, SubagentResult] = {}
+        self._failed: dict[str, str] = {}
+
+    async def launch_background(
+        self,
+        definition: SubagentDefinition,
+        task_prompt: str,
+        parent_config: Any,
+        parent_session_store: Any = None,
+        isolation_mode: str = "default",
+    ) -> str:
+        """Launch a subagent in the background. Returns subagent_id immediately."""
+        subagent_id = str(uuid.uuid4())[:8]
+
+        async def _runner():
+            try:
+                result = await spawn_subagent(
+                    definition=definition,
+                    task_prompt=task_prompt,
+                    parent_config=parent_config,
+                    parent_session_store=parent_session_store,
+                    isolation_mode=isolation_mode,
+                )
+                self._completed[subagent_id] = result
+            except Exception as e:
+                self._failed[subagent_id] = str(e)
+                logger.warning("Background subagent %s failed: %s", subagent_id, e)
+            finally:
+                self._running.pop(subagent_id, None)
+
+        task = asyncio.create_task(_runner())
+        self._running[subagent_id] = task
+        logger.info("Launched background subagent %s (type=%s)", subagent_id, definition.name)
+        return subagent_id
+
+    def get_status(self, subagent_id: str) -> str:
+        """Check subagent status: 'running', 'completed', 'failed', or 'unknown'."""
+        if subagent_id in self._running:
+            return "running"
+        if subagent_id in self._completed:
+            return "completed"
+        if subagent_id in self._failed:
+            return "failed"
+        return "unknown"
+
+    def get_result(self, subagent_id: str) -> SubagentResult | None:
+        """Retrieve result of a completed subagent, or None if still running/unknown."""
+        return self._completed.get(subagent_id)
+
+    def get_error(self, subagent_id: str) -> str | None:
+        """Retrieve error message for a failed subagent."""
+        return self._failed.get(subagent_id)
+
+    def cancel(self, subagent_id: str) -> bool:
+        """Cancel a running background subagent. Returns True if cancelled."""
+        task = self._running.pop(subagent_id, None)
+        if task and not task.done():
+            task.cancel()
+            return True
+        return False
+
+    @property
+    def active_count(self) -> int:
+        return len(self._running)
+
+    @property
+    def active_ids(self) -> list[str]:
+        return list(self._running.keys())
+
+
+# ── Singleton access ───────────────────────────────────────────────────
+
+_bg_manager: BackgroundSubagentManager | None = None
+
+
+def get_background_manager() -> BackgroundSubagentManager:
+    """Get or create the singleton BackgroundSubagentManager."""
+    global _bg_manager
+    if _bg_manager is None:
+        _bg_manager = BackgroundSubagentManager()
+    return _bg_manager
+
+
+def reset_background_manager() -> None:
+    """Reset the global background manager (for testing)."""
+    global _bg_manager
+    _bg_manager = None

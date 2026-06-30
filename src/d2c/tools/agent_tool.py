@@ -80,8 +80,17 @@ class AgentTool(Tool):
         background: bool = False,
         **kwargs: Any,
     ) -> ToolResult:
-        """Spawn an isolated subagent and return its summary."""
-        from d2c.subagent import load_subagent_definition, spawn_subagent, SubagentResult
+        """Spawn an isolated subagent and return its summary.
+
+        When background=True, the subagent runs as a fire-and-forget task.
+        The parent gets back a subagent_id and can query status/results later.
+        """
+        from d2c.subagent import (
+            load_subagent_definition,
+            spawn_subagent,
+            SubagentResult,
+            get_background_manager,
+        )
 
         # Resolve definition
         try:
@@ -103,7 +112,29 @@ class AgentTool(Tool):
         from d2c.config import Config
         parent_config = self._config or Config.load()
 
-        # Spawn subagent
+        # ── Background execution ──────────────────────────────────────
+        if background:
+            bg_manager = get_background_manager()
+            subagent_id = await bg_manager.launch_background(
+                definition=definition,
+                task_prompt=prompt,
+                parent_config=parent_config,
+                parent_session_store=None,
+            )
+            return ToolResult(
+                output=(
+                    f"[Subagent '{definition.name}' launched in background]\n"
+                    f"ID: {subagent_id}\n"
+                    f"Use background status tools to check progress and retrieve results."
+                ),
+                metadata={
+                    "subagent_type": definition.name,
+                    "background": True,
+                    "subagent_id": subagent_id,
+                },
+            )
+
+        # ── Foreground execution ──────────────────────────────────────
         result: SubagentResult = await spawn_subagent(
             definition=definition,
             task_prompt=prompt,
