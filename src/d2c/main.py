@@ -350,6 +350,17 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
     for warning in config.validate():
         print(f"Warning: {warning}", file=sys.stderr)
 
+    # Phase 32: Force restricted permission mode in untrusted workspaces
+    from d2c.trust import get_trust_gate
+    if not get_trust_gate().is_project_trusted:
+        if config.permission_mode not in ("default", "plan"):
+            print(
+                f"Warning: Untrusted workspace — overriding permission mode "
+                f"'{config.permission_mode}' to 'default'.",
+                file=sys.stderr,
+            )
+            config.permission_mode = "default"
+
     # Setup session
     session_store, resume_messages = _setup_session(args, config)
 
@@ -361,7 +372,7 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
     pool_config = PoolConfig(cwd=config.cwd)
     tools = await assembleToolPool(pool_config)
 
-    # Build loop config (with stubs for not-yet-implemented phases)
+    # Build loop config
     compact_config = CompactConfig(
         tool_result_max_chars=config.tool_result_max_chars,
         pressure_threshold=config.pressure_threshold,
@@ -442,6 +453,17 @@ async def run_interactive(args: argparse.Namespace) -> None:
     # Validate config (Phase 10)
     for warning in config.validate():
         print(f"Warning: {warning}", file=sys.stderr)
+
+    # Phase 32: Force restricted permission mode in untrusted workspaces
+    from d2c.trust import get_trust_gate
+    if not get_trust_gate().is_project_trusted:
+        if config.permission_mode not in ("default", "plan"):
+            print(
+                f"Warning: Untrusted workspace — overriding permission mode "
+                f"'{config.permission_mode}' to 'default'.",
+                file=sys.stderr,
+            )
+            config.permission_mode = "default"
 
     # Setup session
     session_store, _ = _setup_session(args, config)
@@ -568,6 +590,21 @@ async def run_interactive(args: argparse.Namespace) -> None:
         })
 
 
+def _has_local_extensions(cwd: Path) -> bool:
+    """Check whether the workspace contains project-local extensions.
+
+    Returns True if any of .d2c/plugins, .d2c/agents, .d2c/skills,
+    .d2c/config.yaml, or .d2c/mcp.json exist in the workspace.
+    """
+    return (
+        (cwd / ".d2c" / "plugins").is_dir()
+        or (cwd / ".d2c" / "agents").is_dir()
+        or (cwd / ".d2c" / "skills").is_dir()
+        or (cwd / ".d2c" / "config.yaml").exists()
+        or (cwd / ".d2c" / "mcp.json").exists()
+    )
+
+
 def _resolve_trust(args: argparse.Namespace) -> "WorkSpaceTrustGate":
     """Determine trust decision and initialize the global trust gate.
 
@@ -591,16 +628,33 @@ def _resolve_trust(args: argparse.Namespace) -> "WorkSpaceTrustGate":
         store.trust(cwd)
     elif args.no_trust:
         gate.decide(False)
+        if args.prompt and _has_local_extensions(cwd):
+            print(
+                "Error: --no-trust cannot be used with a workspace that has "
+                "local extensions (.d2c/plugins, .d2c/skills, etc.). "
+                "Remove the .d2c directory or use --trust instead.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
     elif store.is_trusted(cwd):
         gate.decide(True)
     elif args.prompt:
         # Headless: untrusted workspace
         gate.decide(False)
-        print(
-            "Warning: untrusted workspace. Project-local features disabled "
-            "(.env, plugins, skills, MCP, CLAUDE.md). Use --trust to enable.",
-            file=sys.stderr,
-        )
+        if _has_local_extensions(cwd):
+            print(
+                "Error: Untrusted workspace contains local extensions "
+                "(.d2c/plugins, .d2c/skills, .d2c/mcp.json, .d2c/config.yaml). "
+                "Use --trust to run in this workspace, or remove the .d2c directory.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        else:
+            print(
+                "Warning: untrusted workspace. Project-local features disabled "
+                "(.env, plugins, skills, MCP, CLAUDE.md). Use --trust to enable.",
+                file=sys.stderr,
+            )
     else:
         # Interactive: prompt the user
         print(f"Workspace: {cwd}")
