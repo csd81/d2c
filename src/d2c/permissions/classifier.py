@@ -9,11 +9,20 @@ Stage 1 (fast-filter): Heuristic rules for clearly safe or unsafe operations.
 
 Stage 2 (CoT): For ambiguous cases, calls a fast model with structured
   safety evaluation prompt. The model classifies as safe/unsafe/review.
+
+Phase 27: ShellCommandAnalyzer — robust shell parsing with AST-style safety
+analysis replacing naive string checks. Resolves wrappers, detects command
+chaining bypasses, and applies deep inspection rules per-command.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import re
+import shlex
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from d2c.tools import PermissionCategory
@@ -53,6 +62,365 @@ SAFE_SHELL_COMMANDS = frozenset({
     "which", "where", "whoami", "hostname", "date", "time",
     "mkdir", "touch", "cp", "mv",
 })
+
+# Phase 27: Wrapper commands that modify execution context but are not the
+# actual payload. Stripped recursively to reveal the underlying command.
+_WRAPPER_COMMANDS = frozenset({"env", "sudo", "nohup", "time", "exec", "eval"})
+
+# Phase 27: Shell interpreters — piping into these is always dangerous.
+_SHELL_INTERPRETERS = frozenset({"bash", "sh", "zsh", "dash", "fish",
+                                  "python", "python3", "perl", "ruby",
+                                  "node", "powershell", "pwsh", "cmd"})
+
+# Phase 27: Destructive file operation commands.
+_DESTRUCTIVE_FILE_CMDS = frozenset({"rm", "trash", "del", "rmdir", "rd"})
+
+# Phase 27: Permission-changing commands.
+_PERMISSION_CMDS = frozenset({"chmod", "chown", "chgrp", "icacls", "cacls"})
+
+# Phase 27: Network download commands — SSRF risk.
+_NETWORK_CMDS = frozenset({"curl", "wget", "fetch", "Invoke-WebRequest"})
+
+# Phase 27: Recursive flags that make file operations dangerous at scale.
+_RECURSIVE_FLAGS = frozenset({"-r", "-R", "-rf", "-rF", "-fr", "-fR",
+                               "/s", "/S", "-Recurse"})
+
+# Phase 27: SSRF / local-network targets.
+_SSRF_PATTERNS = re.compile(
+    r"(localhost|127\.0\.0\.\d+|169\.254\.\d+\.\d+|\[::1\]|0\.0\.0\.0|"
+    r"10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|"
+    r"192\.168\.\d+\.\d+)",
+    re.IGNORECASE,
+)
+
+# Phase 27: Statement delimiters used by split_logical_statements.
+_STATEMENT_DELIMITERS = re.compile(r'(;|&&|\|\||\|&|&\||\n)')
+
+# Phase 27: Variable reference pattern for detecting unresolvable targets.
+_VARIABLE_PATTERN = re.compile(r'\$\{?[A-Za-z_][A-Za-z0-9_]*\}?')
+
+
+# ── Phase 27: Shell Command Parser ──────────────────────────────────────
+
+@dataclass
+class ParsedStatement:
+    """A single parsed shell statement with resolved command and context."""
+    command: str
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+    redirects: list[str] = field(default_factory=list)
+
+
+def _split_logical_statements(cmd_str: str) -> list[str]:
+    """Split a shell command string by logical statement operators.
+
+    Handles: ``;``, ``&&``, ``||``, ``|`` (pipe), ``&`` (background),
+    and newlines. Each resulting segment is a logical statement that
+    should be analyzed independently.
+    """
+    # Use regex split to capture delimiters, then rebuild statements
+    parts = _STATEMENT_DELIMITERS.split(cmd_str)
+    statements: list[str] = []
+    current: list[str] = []
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if part in (";", "&&", "||"):
+            if current:
+                statements.append(" ".join(current))
+                current = []
+            # The delimiter itself is discarded; next part starts a new statement
+        elif part == "|":
+            # Pipe: keep as part of the same statement for analysis
+            # (pipes chain within one logical line; we detect | bash as a hazard)
+            current.append(part)
+        elif part in ("|&", "&|"):
+            current.append(part)
+        elif part == "&":
+            # Background: end current statement, start new one
+            if current:
+                statements.append(" ".join(current))
+                current = []
+        elif part.strip().startswith("\n") or part == "\n":
+            if current:
+                statements.append(" ".join(current))
+                current = []
+        else:
+            current.append(part)
+
+    if current:
+        statements.append(" ".join(current))
+
+    return statements
+
+
+def _extract_command_name(raw: str) -> str:
+    """Extract the command name from a raw part, handling paths and .exe."""
+    name = raw.replace("\\", "/").split("/")[-1]
+    if name.lower().endswith(".exe"):
+        name = name[:-4]
+    return name.lower()
+
+
+def parse_shell_command(cmd_str: str) -> list[ParsedStatement]:
+    """Parse a shell command string into a list of resolved statements.
+
+    Resolution steps:
+    1. Split by logical separators (``;``, ``&&``, ``||``, pipe, ``&``)
+    2. Tokenize each statement with ``shlex``
+    3. Extract environment variables (``KEY=value``) and redirects
+    4. Strip wrapper commands (``env``, ``sudo``, ``nohup``, etc.) recursively
+    5. Return ``ParsedStatement`` for each resolved command
+    """
+    raw_statements = _split_logical_statements(cmd_str)
+    parsed: list[ParsedStatement] = []
+
+    for stmt in raw_statements:
+        stmt = stmt.strip()
+        if not stmt:
+            continue
+
+        try:
+            parts = shlex.split(stmt)
+        except ValueError:
+            # Fallback split if quotes are unbalanced
+            parts = stmt.split()
+
+        if not parts:
+            continue
+
+        env: dict[str, str] = {}
+        redirects: list[str] = []
+        clean_parts: list[str] = []
+
+        for p in parts:
+            if "=" in p and not p.startswith("-") and not p.startswith("--"):
+                # Check if this looks like a variable assignment (not a flag like --key=val)
+                eq_pos = p.index("=")
+                k = p[:eq_pos]
+                # Variable names: start with letter/underscore, contain alphanumeric/underscore
+                if re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', k):
+                    env[k] = p[eq_pos + 1:]
+                    continue
+            if p.startswith(">") or p.startswith("<"):
+                redirects.append(p)
+            else:
+                clean_parts.append(p)
+
+        # Strip wrapper commands recursively
+        while clean_parts:
+            cmd_name = _extract_command_name(clean_parts[0])
+            if cmd_name in _WRAPPER_COMMANDS:
+                clean_parts = clean_parts[1:]
+                # Re-extract env vars from wrapper args (e.g., env VAR=1)
+                remaining = list(clean_parts)
+                clean_parts = []
+                for p in remaining:
+                    if "=" in p and not p.startswith("-"):
+                        eq_pos = p.index("=")
+                        k = p[:eq_pos]
+                        if re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', k):
+                            env[k] = p[eq_pos + 1:]
+                            continue
+                    clean_parts.append(p)
+            else:
+                break
+
+        if clean_parts:
+            parsed.append(ParsedStatement(
+                command=clean_parts[0],
+                args=clean_parts[1:],
+                env=env,
+                redirects=redirects,
+            ))
+
+    return parsed
+
+
+def _has_recursive_flag(args: list[str]) -> bool:
+    """Check if args contain a recursive/destructive flag."""
+    for a in args:
+        if a.lower() in _RECURSIVE_FLAGS:
+            return True
+        # Handle combined flags like -rf, -fr
+        if a.startswith("-") and not a.startswith("--"):
+            flags = a[1:].lower()
+            if "r" in flags or "R" in flags:
+                return True
+    return False
+
+
+def _has_variable_targets(args: list[str], redirects: list[str]) -> bool:
+    """Check if any argument or redirect target contains a shell variable."""
+    for a in args + redirects:
+        if _VARIABLE_PATTERN.search(a):
+            return True
+    return False
+
+
+def _is_system_path_static(path: str) -> bool:
+    """Check if a path is a system-critical location (static check)."""
+    if not path:
+        return False
+    system_prefixes = [
+        "/etc", "/sys", "/proc", "/dev",
+        "/boot", "/root", "/var/log",
+        "C:\\Windows", "C:\\Program Files",
+        "~/.ssh", "~/.gnupg",
+        ".git/config", ".env",
+    ]
+    normalized = path.replace("\\", "/").lower()
+    for prefix in system_prefixes:
+        if normalized.startswith(prefix.replace("\\", "/").lower()):
+            return True
+    # Also check for root paths
+    if normalized in ("/", "~", "c:", "c:\\", "d:", "d:\\"):
+        return True
+    return False
+
+
+def _analyze_shell_command(cmd_str: str) -> Any | None:
+    """Deep safety analysis of a shell command string.
+
+    Returns:
+        PermissionResult(ALLOW) if clearly safe,
+        PermissionResult(DENY) if clearly dangerous,
+        None if ambiguous (should fall through to CoT).
+    """
+    from d2c.permissions import PermissionDecision, PermissionResult
+
+    # Check for pipe-to-shell pattern in the raw command (before splitting)
+    # Pattern: anything | bash/sh/python/...
+    pipe_parts = cmd_str.split("|")
+    if len(pipe_parts) > 1:
+        # Check the last consumer in the pipe chain
+        for part in pipe_parts[1:]:
+            first_word = part.strip().split()[0] if part.strip() else ""
+            if _extract_command_name(first_word) in _SHELL_INTERPRETERS:
+                return PermissionResult(
+                    PermissionDecision.DENY,
+                    reason="auto (deep): pipe to shell interpreter blocked",
+                )
+
+    try:
+        statements = parse_shell_command(cmd_str)
+    except Exception:
+        # Parse error → can't determine safety, fall through to CoT
+        return None
+
+    if not statements:
+        return None
+
+    has_ambiguous = False
+
+    for stmt in statements:
+        cmd_name = _extract_command_name(stmt.command)
+        is_handled = False  # True if a specific check resolved this command
+
+        # Check for variable targets (unresolvable → ASK)
+        if _has_variable_targets(stmt.args, stmt.redirects):
+            has_ambiguous = True
+            continue
+
+        # --- Destructive file operations ---
+        if cmd_name in _DESTRUCTIVE_FILE_CMDS:
+            if _has_recursive_flag(stmt.args):
+                # Check target paths for system locations
+                for arg in stmt.args:
+                    if arg.startswith("-"):
+                        continue
+                    if _is_system_path_static(arg):
+                        return PermissionResult(
+                            PermissionDecision.DENY,
+                            reason=f"auto (deep): destructive {cmd_name} on system path '{arg}'",
+                        )
+                # Recursive but on non-system path → ambiguous
+                has_ambiguous = True
+                continue
+            # Non-recursive rm/del → safe
+            is_handled = True
+
+        # --- Permission-changing commands ---
+        if cmd_name in _PERMISSION_CMDS:
+            if _has_recursive_flag(stmt.args):
+                for arg in stmt.args:
+                    if arg.startswith("-"):
+                        continue
+                    if _is_system_path_static(arg):
+                        return PermissionResult(
+                            PermissionDecision.DENY,
+                            reason=f"auto (deep): recursive {cmd_name} on system path",
+                        )
+                has_ambiguous = True
+                continue
+            is_handled = True
+
+        # --- Network commands: SSRF check ---
+        if cmd_name in _NETWORK_CMDS:
+            ssrf_found = False
+            for arg in stmt.args:
+                if arg.startswith("-"):
+                    continue
+                if _SSRF_PATTERNS.search(arg):
+                    has_ambiguous = True
+                    ssrf_found = True
+                    break
+            if not ssrf_found:
+                is_handled = True  # External URL → safe
+
+        # --- Redirect to sensitive paths ---
+        for redir in stmt.redirects:
+            target = redir.lstrip("<>")
+            if target.startswith("&"):
+                continue  # fd redirect like 2>&1
+            target = target.strip()
+            if _is_system_path_static(target):
+                has_ambiguous = True  # Suspicious, needs CoT review
+
+        # --- Nested shell: bash -c "...", sh -c "...", etc. ---
+        if cmd_name in ("bash", "sh", "zsh", "powershell", "pwsh", "cmd"):
+            inner_safe = False
+            inspect_next = False
+            for arg in stmt.args:
+                if inspect_next:
+                    inner_result = _analyze_shell_command(arg)
+                    if inner_result is not None:
+                        from d2c.permissions import PermissionDecision
+                        if inner_result.decision == PermissionDecision.DENY:
+                            return PermissionResult(
+                                PermissionDecision.DENY,
+                                reason="auto (deep): nested shell has destructive command",
+                            )
+                        elif inner_result.decision == PermissionDecision.ALLOW:
+                            inner_safe = True
+                        elif inner_result.decision == PermissionDecision.ASK:
+                            has_ambiguous = True
+                    inspect_next = False
+                if arg in ("-c", "-Command", "/C", "/c"):
+                    inspect_next = True
+            if inner_safe:
+                is_handled = True
+
+        # --- Known-safe commands ---
+        if is_handled:
+            continue
+        if cmd_name in SAFE_SHELL_COMMANDS:
+            continue  # This statement is safe
+
+        # --- Unknown command → ambiguous ---
+        has_ambiguous = True
+
+    if has_ambiguous:
+        return None  # Fall through to CoT
+
+    # All statements passed safety checks
+    from d2c.permissions import PermissionDecision, PermissionResult
+    return PermissionResult(
+        PermissionDecision.ALLOW,
+        reason="auto (deep): all statements pass safety analysis",
+    )
 
 
 class AutoClassifier:
@@ -117,11 +485,11 @@ class AutoClassifier:
                     reason=f"auto (fast-filter): safe edit on {file_path}",
                 )
 
-        # Shell commands: check for destructive patterns
+        # Shell commands: destructive patterns + deep analysis (Phase 27)
         if tool_name == "Bash":
             cmd = tool_input.get("command", "").strip()
 
-            # Destructive → always deny
+            # Quick pre-check: destructive patterns (string-match for speed)
             cmd_lower = cmd.lower()
             for pattern in DESTRUCTIVE_PATTERNS:
                 if pattern in cmd_lower:
@@ -130,15 +498,12 @@ class AutoClassifier:
                         reason=f"auto (fast-filter): destructive command blocked",
                     )
 
-            # Known-safe command
-            first_word = cmd.split()[0] if cmd else ""
-            if first_word and first_word.lower() in SAFE_SHELL_COMMANDS:
-                return PermissionResult(
-                    PermissionDecision.ALLOW,
-                    reason=f"auto (fast-filter): safe shell command '{first_word}'",
-                )
+            # Phase 27: Deep AST-style safety analysis
+            result = _analyze_shell_command(cmd)
+            if result is not None:
+                return result
 
-            # Unknown shell command → ambiguous, needs CoT
+            # Unknown / ambiguous shell command → needs CoT
             return None
 
         # Meta operations (Skill, Agent) → needs CoT evaluation
