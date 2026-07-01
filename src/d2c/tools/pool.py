@@ -18,6 +18,8 @@ from d2c.tools.agent_tool import AgentTool
 from d2c.tools.apply_patch import ApplyPatchTool
 from d2c.tools.background_status import BackgroundStatusTool
 from d2c.tools.bash_tool import BashTool
+from d2c.tools.code_symbols import CodeSymbolsTool
+from d2c.tools.config_info import ConfigInfoTool
 from d2c.tools.edit_tool import FileEditTool
 from d2c.tools.env_info import EnvInfoTool
 from d2c.tools.fs_tools import FileInfoTool, ListDirTool
@@ -26,6 +28,7 @@ from d2c.tools.glob_tool import GlobTool
 from d2c.tools.grep_tool import GrepTool
 from d2c.tools.memory_tool import MemoryTool
 from d2c.tools.notebook_edit import NotebookEditTool
+from d2c.tools.package_info import PackageInfoTool
 from d2c.tools.read_tool import FileReadTool
 from d2c.tools.skill_tool import SkillTool
 from d2c.tools.structured_edit import JsonEditTool, ReplaceManyTool
@@ -126,6 +129,10 @@ def getAllBaseTools(config: Config) -> list[Tool]:
         # Phase 51: unified-diff patching + env inspection
         ApplyPatchTool(cwd=config.cwd),
         EnvInfoTool(cwd=config.cwd),
+        # Phase 56: tool breadth batch 3
+        ConfigInfoTool(cwd=config.cwd, permission_mode=config.permission_mode),
+        PackageInfoTool(cwd=config.cwd),
+        CodeSymbolsTool(),
     ]
 
     # Filter disabled tools before wrapping (Phase 20 compatibility)

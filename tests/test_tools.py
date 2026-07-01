@@ -431,6 +431,9 @@ async def test_assemble_tool_pool():
         "JsonEdit",
         "ApplyPatch",
         "EnvInfo",
+        "ConfigInfo",
+        "PackageInfo",
+        "CodeSymbols",
     }
 
 

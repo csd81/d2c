@@ -64,7 +64,7 @@ Structure and behavior match the paper closely, often down to function names.
 
 | Subsystem | Paper | `d2c` |
 |---|---|---|
-| **Tool count** (§6.2, App. A) | up to **54** (19 unconditional + 35 gated) | **25** built-ins + dynamic MCP (Phase 41 added git/fs/structured-edit tools; see `plans/tool-inventory.md`) |
+| **Tool count** (§6.2, App. A) | up to **54** (19 unconditional + 35 gated) | **28** built-ins + dynamic MCP (Phase 56 added ConfigInfo/PackageInfo/CodeSymbols; see `plans/tool-inventory.md`) |
 | **Permission modes** (§5.1) | **7** (plan, default, acceptEdits, auto, dontAsk, bypassPermissions, bubble) | **6** — has AUTO + BYPASS, **no `bubble`** (subagent-escalation mode) |
 | **Hook events** (§6.1) | **27** defined, 5 in permission flow | **27 defined** (matches), but only **12 actually fired** |
 | **Subagent types** (§8) | up to 6 (Explore, Plan, general, Guide, Verification, Statusline) | 3 (Explore, Plan, general-purpose) |
@@ -173,7 +173,7 @@ Most of the original "last-mile wiring" gaps and both correctness bugs were **cl
 background-status, output-token recovery, compaction-flag split, real slash commands, shell
 permission hardening, Tavily-backed WebSearch, +6 built-in tools, and interactive ASK handling) —
 each now covered by tests, with WebSearch also live-verified against the real Tavily API. What
-remains diverging is mostly **breadth** (25 tools vs 54) and a few **deliberately out-of-scope**
+remains diverging is mostly **breadth** (28 tools vs 54) and a few **deliberately out-of-scope**
 items.
 
 **Interactive ASK (Phases 43 & 49).** `ASK` no longer falls through to automatic execution anywhere:

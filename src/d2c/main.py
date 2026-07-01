@@ -471,9 +471,11 @@ async def _wire_runtime(config: Config, session_store, hook_registry) -> None:
 
 
 def _pool_config_from(config: Config) -> "PoolConfig":
-    """Build the tool-pool config, wiring sandbox settings (Phase 34)."""
+    """Build the tool-pool config, wiring sandbox settings (Phase 34) and the
+    effective permission mode (Phase 56: consumed by ConfigInfoTool)."""
     return PoolConfig(
         cwd=config.cwd,
+        permission_mode=config.permission_mode,
         sandbox_config=SandboxConfig(enabled=config.sandbox_enabled),
     )
 
