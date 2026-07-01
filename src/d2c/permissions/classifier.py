@@ -637,7 +637,14 @@ def _classify_ae_statement(stmt: "ParsedStatement") -> str:
         return "deny" if any(a in _AE_FIND_DESTRUCTIVE for a in args) else "allow"
 
     if name in _AE_INTERPRETERS:
-        if any(a in _AE_CODE_FLAGS for a in args):
+        # Deny inline-code flags, including combined POSIX short-flag clusters
+        # like `bash -lc '...'` / `sh -ic '...'` (Phase 46).
+        def _is_inline_code_flag(a: str) -> bool:
+            if a in _AE_CODE_FLAGS:
+                return True
+            return a.startswith("-") and not a.startswith("--") and ("c" in a[1:] or "e" in a[1:])
+
+        if any(_is_inline_code_flag(a) for a in args):
             return "deny"  # inline arbitrary code
         if name in ("python", "python3") and "-m" in args:
             return "allow"  # e.g. python -m pytest

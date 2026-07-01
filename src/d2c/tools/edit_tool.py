@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from d2c.tools import PermissionCategory, Tool, ToolResult
-from d2c.tools.write_tool import _read_files
+from d2c.tools.write_tool import is_file_read
 
 
 class FileEditTool(Tool):
@@ -82,7 +82,7 @@ class FileEditTool(Tool):
                 error=True,
             )
 
-        if str(path) not in _read_files:
+        if not is_file_read(path):
             return ToolResult(
                 output=f"Error: must Read the file first before editing: {file_path}. "
                 f"Use the Read tool to read '{file_path}' first.",

@@ -11,8 +11,18 @@ from typing import Any, ClassVar
 
 from d2c.tools import PermissionCategory, Tool, ToolResult
 
-# Set of files that have been read this session (tracked globally for now)
+# Set of files that have been read this session (canonical realpaths).
 _read_files: set[str] = set()
+
+
+def _canonical(path: str | Path) -> str:
+    """Canonicalize a path for read-tracking: resolve ``..``/``.`` and symlinks
+    so alternate spellings of the same file cannot bypass the Read-before-Write
+    guard (Phase 46). Falls back to the absolute string if resolution fails."""
+    try:
+        return str(Path(path).resolve())
+    except OSError:
+        return str(Path(path).absolute())
 
 
 class FileWriteTool(Tool):
@@ -71,7 +81,7 @@ class FileWriteTool(Tool):
             )
 
         # Safety: must have read the file first (if it exists)
-        if path.exists() and str(path) not in _read_files:
+        if path.exists() and not is_file_read(path):
             return ToolResult(
                 output=f"Error: must Read the file first before overwriting: {file_path}. "
                 f"Use the Read tool to read '{file_path}' first.",
@@ -80,7 +90,7 @@ class FileWriteTool(Tool):
 
         try:
             path.write_text(content, encoding="utf-8")
-            _read_files.add(str(path))  # mark as read for subsequent writes
+            mark_file_read(path)  # mark as read for subsequent writes
             result = ToolResult(
                 output=f"Successfully wrote {len(content)} bytes to {file_path}.",
                 metadata={"bytes_written": len(content), "lines": content.count("\n") + 1},
@@ -101,13 +111,13 @@ class FileWriteTool(Tool):
 
 
 def mark_file_read(path: str | Path) -> None:
-    """Register a file as having been read this session."""
-    _read_files.add(str(path))
+    """Register a file as having been read this session (by canonical realpath)."""
+    _read_files.add(_canonical(path))
 
 
 def is_file_read(path: str | Path) -> bool:
-    """Whether a file has been Read (or written) this session."""
-    return str(path) in _read_files
+    """Whether a file has been Read (or written) this session (canonical realpath)."""
+    return _canonical(path) in _read_files
 
 
 def clear_read_files() -> None:

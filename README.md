@@ -103,6 +103,12 @@ Key subsystems (see [`CLAUDE.md`](./CLAUDE.md) for the full map):
 
 d2c gates project-local features behind a trust decision. In an untrusted workspace it skips project `.env`, plugins, skills, MCP, and memory, and forces `default`/`plan` permission mode. Use `--trust` / `--no-trust` to control it.
 
+## Security
+
+See [`docs/security.md`](./docs/security.md) for the safety model, known protections, and limitations
+(the sandbox is process-level, not a filesystem jail). The invariants are enforced by
+`tests/test_security_regressions.py`.
+
 ## Development
 
 The project was built as a numbered sequence of phases. Each phase has a design doc under [`plans/`](./plans/) and a matching commit. `plans/master_plan.md` is the original blueprint — treat it as historical intent; the code has since diverged.

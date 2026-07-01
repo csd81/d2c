@@ -65,7 +65,17 @@ def load_bundled_skills() -> list[SkillDefinition]:
 
 
 def load_user_skills(cwd: Path) -> list[SkillDefinition]:
-    """Load user-defined skills from .d2c/skills/ directory."""
+    """Load user-defined skills from .d2c/skills/ directory.
+
+    Phase 46: project-local skills are executable-ish extension surfaces, so
+    they are gated on workspace trust here too (defense in depth — not only at
+    the load_all_skills entry point).
+    """
+    from d2c.trust import get_trust_gate
+
+    if not get_trust_gate().is_project_trusted:
+        return []
+
     skills_dir = cwd / ".d2c" / "skills"
     if not skills_dir.is_dir():
         return []
