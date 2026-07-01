@@ -76,26 +76,39 @@ def check_websearch(config: Any) -> DoctorResult:
 
     provider = getattr(config, "websearch_provider", "") or ""
     key = getattr(config, "websearch_api_key", None)
-    if not provider and not key:
+    base_url = getattr(config, "websearch_base_url", "") or ""
+    if not provider and not key and not base_url:
         return _w(
             "WebSearch",
             "unconfigured (WebSearch tool disabled)",
             fix="export D2C_WEBSEARCH_PROVIDER=tavily D2C_WEBSEARCH_API_KEY=tvly-...",
         )
     effective = provider or "tavily"
-    if effective not in _PROVIDERS:
+    cls = _PROVIDERS.get(effective)
+    if cls is None:
         return _f(
             "WebSearch",
             f"unsupported provider '{effective}'",
             fix=f"Use one of: {', '.join(sorted(_PROVIDERS))}",
         )
-    if not key:
+    # Phase 58: provider-specific requirement (searxng needs a base URL
+    # instead of an API key; tavily/brave need the key).
+    if cls.requires_base_url and not base_url:
+        return _w(
+            "WebSearch",
+            f"provider={effective} but no base URL",
+            fix="export D2C_WEBSEARCH_BASE_URL=http://localhost:8080",
+        )
+    if cls.requires_api_key and not key:
         return _w(
             "WebSearch",
             f"provider={effective} but no API key",
             fix="export D2C_WEBSEARCH_API_KEY=tvly-...",
         )
-    return _p("WebSearch", f"provider={effective}")
+    detail = f"provider={effective}"
+    if cls.requires_base_url:
+        detail += f", base_url={base_url}"
+    return _p("WebSearch", detail)
 
 
 def check_websearch_live(config: Any) -> DoctorResult:
@@ -103,6 +116,7 @@ def check_websearch_live(config: Any) -> DoctorResult:
     import asyncio
 
     from d2c.tools.web_search import (
+        _PROVIDERS,
         WebSearchAuthError,
         WebSearchError,
         WebSearchRateLimitError,
@@ -111,10 +125,18 @@ def check_websearch_live(config: Any) -> DoctorResult:
     )
 
     provider_name = getattr(config, "websearch_provider", "") or "tavily"
-    key = getattr(config, "websearch_api_key", None)
-    if not key:
+    key = getattr(config, "websearch_api_key", None) or ""
+    base_url = getattr(config, "websearch_base_url", "") or ""
+
+    cls = _PROVIDERS.get(provider_name)
+    if cls is None:
+        return _f("WebSearch (live)", f"unsupported provider '{provider_name}'")
+    if cls.requires_base_url and not base_url:
+        return _w("WebSearch (live)", "skipped — no base URL configured")
+    if cls.requires_api_key and not key:
         return _w("WebSearch (live)", "skipped — not configured")
-    provider = _make_provider(provider_name, key, 15.0)
+
+    provider = _make_provider(provider_name, key, 15.0, base_url)
     if provider is None:
         return _f("WebSearch (live)", f"unsupported provider '{provider_name}'")
     try:

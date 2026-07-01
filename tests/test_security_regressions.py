@@ -310,7 +310,7 @@ async def test_websearch_output_is_marked_untrusted(monkeypatch):
                 )
             ]
 
-    monkeypatch.setattr(ws, "_make_provider", lambda name, key, timeout: _Fake())
+    monkeypatch.setattr(ws, "_make_provider", lambda name, key, timeout, base_url="": _Fake())
     res = await WebSearchTool().execute(query="q")
     assert not res.error
     assert res.output.startswith('<untrusted_web_content source="web_search:tavily">')

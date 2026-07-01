@@ -177,9 +177,10 @@ class Config:
     # --- Shell sandboxing (Phase 34) ---
     sandbox_enabled: bool = False  # gate BashTool execution through SandboxExecutor
 
-    # --- WebSearch (Phase 39) ---
-    websearch_provider: str = ""  # e.g. "tavily"; empty = unconfigured
+    # --- WebSearch (Phase 39; Phase 58: base_url for self-hosted providers) ---
+    websearch_provider: str = ""  # e.g. "tavily", "brave", "searxng"; empty = unconfigured
     websearch_api_key: str | None = None
+    websearch_base_url: str = ""  # e.g. SearXNG instance URL; not needed by tavily/brave
 
     # --- Observability (Phase 44) ---
     log_level: str = "INFO"
@@ -233,6 +234,7 @@ class Config:
         sandbox_enabled = os.environ.get("D2C_SANDBOX", "").lower() in ("1", "true", "yes", "on")
         websearch_provider = os.environ.get("D2C_WEBSEARCH_PROVIDER", "").strip().lower()
         websearch_api_key = os.environ.get("D2C_WEBSEARCH_API_KEY") or None
+        websearch_base_url = os.environ.get("D2C_WEBSEARCH_BASE_URL", "").strip()
 
         def _flag(name: str) -> bool:
             return os.environ.get(name, "").lower() in ("1", "true", "yes", "on")
@@ -251,6 +253,7 @@ class Config:
             sandbox_enabled=sandbox_enabled,
             websearch_provider=websearch_provider,
             websearch_api_key=websearch_api_key,
+            websearch_base_url=websearch_base_url,
             log_level=log_level,
             audit_log_enabled=audit_log_enabled,
             audit_log_path=audit_log_path,

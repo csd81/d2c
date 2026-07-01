@@ -15,7 +15,12 @@ from d2c.tools.web_search import (
 
 @pytest.fixture(autouse=True)
 def _clear_env(monkeypatch):
-    for var in ("D2C_WEBSEARCH_PROVIDER", "D2C_WEBSEARCH_API_KEY", "D2C_WEBSEARCH_TIMEOUT"):
+    for var in (
+        "D2C_WEBSEARCH_PROVIDER",
+        "D2C_WEBSEARCH_API_KEY",
+        "D2C_WEBSEARCH_BASE_URL",
+        "D2C_WEBSEARCH_TIMEOUT",
+    ):
         monkeypatch.delenv(var, raising=False)
     yield
 
@@ -48,7 +53,7 @@ class FakeProvider:
 
 
 def _inject(monkeypatch, fake):
-    monkeypatch.setattr(ws, "_make_provider", lambda name, key, timeout: fake)
+    monkeypatch.setattr(ws, "_make_provider", lambda name, key, timeout, base_url="": fake)
 
 
 # ── Tool: config + validation ─────────────────────────────────────────

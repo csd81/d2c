@@ -23,10 +23,14 @@ export DEEPSEEK_BASE_URL=https://api.deepseek.com/anthropic   # default
 export D2C_MODEL=deepseek-v4-pro                              # default
 export D2C_SANDBOX=1                                          # sandbox Bash (off by default)
 
-# optional — enable the WebSearch tool (Tavily):
+# optional — enable the WebSearch tool. Provider is tavily (default), brave, or searxng:
 export D2C_WEBSEARCH_PROVIDER=tavily
 export D2C_WEBSEARCH_API_KEY=tvly-...
 export D2C_WEBSEARCH_TIMEOUT=15                               # seconds (default)
+# export D2C_WEBSEARCH_PROVIDER=brave
+# export D2C_WEBSEARCH_API_KEY=BSA...
+# export D2C_WEBSEARCH_PROVIDER=searxng                       # no API key needed
+# export D2C_WEBSEARCH_BASE_URL=http://localhost:8080          # your SearXNG instance
 
 # optional — cost accounting (Phase 55; costs are ESTIMATES, not invoices):
 export D2C_PRICING_INPUT_PER_MILLION=0.56                     # USD/M input tokens
@@ -47,11 +51,28 @@ export D2C_LOG_TOOL_OUTPUTS=0                                # log full tool out
 compaction, hook-failure, and WebSearch events. Secrets (API keys, `Authorization`, `sk-…`/`tvly-…`
 shapes) are redacted; full prompts and tool outputs are **not** logged unless you opt in.
 
-Without `D2C_WEBSEARCH_PROVIDER`/`D2C_WEBSEARCH_API_KEY`, the `WebSearch` tool returns a clear
-"not configured" error instead of results.
+Without a configured provider, the `WebSearch` tool returns a clear "not configured" error instead
+of results (searxng needs `D2C_WEBSEARCH_BASE_URL`; tavily/brave need `D2C_WEBSEARCH_API_KEY`).
 
-Tavily requires registering for an API key. Its free plan currently includes monthly credits with no
-credit card required, which is enough for basic local WebSearch testing.
+WebSearch providers, roughly in order of setup effort:
+
+| Provider  | Setup                                                  | Tradeoff |
+|-----------|---------------------------------------------------------|----------|
+| `tavily`  | API key, free tier with no credit card                  | Easiest agent-oriented hosted provider; default. |
+| `brave`   | API key                                                  | Hosted provider with an independent index. |
+| `searxng` | Point at a running instance (no account)                 | Self-hosted/no-vendor; reliability depends on the instance, and it must have JSON output enabled in `settings.yml`. |
+
+Not every provider supports every `WebSearch` filter — `recency_days`/`domains` are Tavily-only
+today; brave/searxng ignore them and the tool result notes which filters were dropped rather than
+silently misapplying them.
+
+Run `python -m d2c --doctor` to see which provider is configured and whether it's ready; add
+`--doctor-live` for a real connectivity probe (never prints the key):
+
+```bash
+D2C_WEBSEARCH_PROVIDER=brave D2C_WEBSEARCH_API_KEY=... python -m d2c --doctor --doctor-live
+D2C_WEBSEARCH_PROVIDER=searxng D2C_WEBSEARCH_BASE_URL=http://localhost:8080 python -m d2c --doctor --doctor-live
+```
 
 `.env` resolution: `~/.d2c/.env` always loads; a project-local `.env` loads **only if the workspace is trusted** (see [Workspace trust](#workspace-trust)). Shell environment variables take precedence over `.env` values.
 

@@ -34,6 +34,11 @@ is protected, what is not, and what you should not rely on. The invariants below
   closing tags are neutralized so content can't break out of the wrapper), and the system prompt
   instructs the model to treat tagged content as data. CLAUDE.md sections carry `<!-- LEVEL: path -->`
   provenance markers.
+- **WebSearch provider trust (Phase 58).** `D2C_WEBSEARCH_PROVIDER` picks who receives your query
+  text: `tavily`/`brave` are third-party hosted APIs (your key, their infra); `searxng` sends the
+  query to whatever `D2C_WEBSEARCH_BASE_URL` you configure — only point it at an instance you trust,
+  since d2c has no way to verify a self-hosted endpoint's provenance or behavior. All three return
+  results through the same untrusted-content wrapper above regardless of provider.
 - **Subagent isolation.** Subagents run with their own context and tool pool; optional git-worktree
   isolation for filesystem separation.
 
