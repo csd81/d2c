@@ -78,6 +78,10 @@ design.
 
 ## 3. Gaps and bugs (scaffolded but inert, or behaviorally wrong)
 
+> **Status update:** The gaps below describe the pre-Phase-34 state. **Phases 34–35 resolved most
+> of them** (see `plans/phase34-wire-inert-subsystems.md` and `plans/phase35-output-token-recovery.md`).
+> Resolved items are marked ✅ inline.
+
 Several features exist as complete-looking modules but are **never wired into the loop**, so at
 runtime they do nothing. Two are outright correctness bugs.
 
@@ -85,9 +89,11 @@ runtime they do nothing. Two are outright correctness bugs.
    `d2c`, `FileReadTool` **never marks a file as read** — only `FileWriteTool` does. The safety gate
    can therefore essentially only be satisfied by a prior *write*, not a read. This is a bug, not a
    simplification.
-2. **Output-token recovery (§4.4) is absent.** The paper describes escalating retries
-   (`MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3`). `d2c` has the `output_tokens_recovery_attempts` field
-   but never reads it; `max_tokens` is hardcoded to 8192.
+2. **Output-token recovery (§4.4) is absent.** ✅ *Fixed in Phase 35.* The paper describes escalating
+   retries (`MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3`). `d2c` previously had the
+   `output_tokens_recovery_attempts` field but never read it; `max_tokens` was hardcoded to 8192.
+   Now `queryLoop` escalates `max_tokens` (8192 → 16384 → 32768, capped) and retries up to 3× on a
+   `max_tokens` stop, resetting after any clean response; covered by `tests/test_loop_output_recovery.py`.
 3. **Reactive vs. proactive compaction share one flag.** The `prompt_too_long` recovery (§4.4) and
    proactive `autoCompact` both consume `has_attempted_reactive_compact`, so only one can ever fire
    per session. The reactive path also does crude slice truncation rather than a real summary.
