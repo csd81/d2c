@@ -195,8 +195,17 @@ def _build_anthropic_messages(
     Phase 26: When enable_caching is True, injects cache_control breakpoints:
       - Breakpoint 3: first message (user context/CLAUDE.md)
       - Breakpoint 4: 5th-from-last message (sliding history), if > 8 messages
+
+    When an assistant turn has multiple tool_use blocks (e.g. several
+    concurrent-safe reads), each tool result is appended internally as its
+    own {"role": "tool", ...} message. The API requires every tool_use id
+    from a turn to have its tool_result in a single message immediately
+    following the assistant turn — consecutive internal "tool" messages are
+    therefore merged into one user message with multiple tool_result
+    blocks, not emitted as separate consecutive user messages (which only
+    the first one would satisfy that requirement, breaking the request).
     """
-    result = []
+    result: list[dict] = []
     total_msgs = len(messages)
 
     for idx, msg in enumerate(messages):
@@ -221,12 +230,20 @@ def _build_anthropic_messages(
             }
             if cache_control:
                 block["cache_control"] = cache_control
-            result.append(
-                {
-                    "role": "user",
-                    "content": [block],
-                }
-            )
+            if (
+                idx > 0
+                and messages[idx - 1].get("role") == "tool"
+                and result
+                and result[-1].get("role") == "user"
+            ):
+                result[-1]["content"].append(block)
+            else:
+                result.append(
+                    {
+                        "role": "user",
+                        "content": [block],
+                    }
+                )
         elif role == "assistant" and isinstance(content, list):
             # Already in Anthropic content-block format
             formatted_content = [dict(b) for b in content]

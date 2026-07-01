@@ -1,7 +1,10 @@
 """Phase 52: session-scoped persistent approvals."""
 
+import asyncio
 import builtins
 import json
+import threading
+import time
 from functools import partial
 
 import pytest
@@ -138,3 +141,64 @@ def test_new_replstate_has_empty_cache(tmp_dir):
     s2 = ReplState(config=Config(cwd=tmp_dir), session_store=None)
     assert len(s2.approvals) == 0
     assert s1.approvals is not s2.approvals
+
+
+# ── Phase 59 fix: concurrent approval prompts must not interleave ──────
+
+
+@pytest.mark.asyncio
+async def test_concurrent_prompts_are_serialized_not_interleaved(monkeypatch):
+    """Two tools needing approval in the same turn (e.g. concurrent-safe
+    reads) must not have their prompts/input() calls race on stdin — the
+    prompt lock in make_interactive_approval() must serialize them."""
+    cache = ApprovalCache()
+    cb = make_interactive_approval(cache)
+
+    lock = threading.Lock()
+    concurrent = 0
+    max_concurrent = 0
+
+    def _input(prompt=""):
+        nonlocal concurrent, max_concurrent
+        with lock:
+            concurrent += 1
+            max_concurrent = max(max_concurrent, concurrent)
+        time.sleep(0.05)  # widen the race window so a real bug would show
+        with lock:
+            concurrent -= 1
+        return "y"
+
+    monkeypatch.setattr(builtins, "input", _input)
+
+    results = await asyncio.gather(
+        cb(_req("cmd-A"), _ASK),
+        cb(_req("cmd-B"), _ASK),
+    )
+    assert results == [True, True]
+    assert max_concurrent == 1  # never two input() calls in flight at once
+
+
+@pytest.mark.asyncio
+async def test_concurrent_identical_action_only_prompts_once(monkeypatch):
+    """If two concurrent tool calls need approval for the EXACT same action
+    and the user picks "always" on the first, the second must resolve from
+    cache after acquiring the lock — not re-prompt."""
+    cache = ApprovalCache()
+    cb = make_interactive_approval(cache)
+
+    prompt_count = 0
+
+    def _input(prompt=""):
+        nonlocal prompt_count
+        prompt_count += 1
+        time.sleep(0.05)
+        return "a"  # always allow
+
+    monkeypatch.setattr(builtins, "input", _input)
+
+    results = await asyncio.gather(
+        cb(_req("same-cmd"), _ASK),
+        cb(_req("same-cmd"), _ASK),
+    )
+    assert results == [True, True]
+    assert prompt_count == 1  # second call resolved from cache, not a prompt

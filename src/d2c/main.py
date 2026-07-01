@@ -698,7 +698,17 @@ def make_interactive_approval(cache: "ApprovalCache"):
     Prompt options: [y] allow once, [n]/empty deny, [a] always allow this exact
     action for this session (cached in memory, never persisted). A cache hit
     executes without prompting and emits ``permission_approved_cached``.
+
+    Phase 59 fix: concurrent-safe tools (e.g. multiple reads in one turn)
+    can all need approval at once. Without serialization, their prompts and
+    ``input()`` calls interleave on the same stdin — confusing at best, and
+    at worst an answer lands on the wrong prompt. A lock scoped to this
+    callback instance (one per REPL session) makes prompts resolve one at a
+    time; the cache is rechecked after acquiring it, since a concurrent
+    "always" approval for the identical action may have landed while
+    waiting.
     """
+    prompt_lock = asyncio.Lock()
 
     async def _cb(request, result) -> bool:
         if cache.is_approved(request):
@@ -708,19 +718,27 @@ def make_interactive_approval(cache: "ApprovalCache"):
                 category=getattr(request.tool_category, "value", None),
             )
             return True
-        for line in _permission_prompt_lines(request, result):
-            print(line)
-        try:
-            ans = (await asyncio.to_thread(input, "  Allow? [y/N/a]: ")).strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
+        async with prompt_lock:
+            if cache.is_approved(request):
+                audit(
+                    "permission_approved_cached",
+                    tool_name=request.tool_name,
+                    category=getattr(request.tool_category, "value", None),
+                )
+                return True
+            for line in _permission_prompt_lines(request, result):
+                print(line)
+            try:
+                ans = (await asyncio.to_thread(input, "  Allow? [y/N/a]: ")).strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return False
+            if ans in ("y", "yes"):
+                return True
+            if ans in ("a", "always"):
+                cache.approve(request)
+                return True
             return False
-        if ans in ("y", "yes"):
-            return True
-        if ans in ("a", "always"):
-            cache.approve(request)
-            return True
-        return False
 
     return _cb
 

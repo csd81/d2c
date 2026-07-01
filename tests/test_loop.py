@@ -226,6 +226,71 @@ def test_build_anthropic_messages_assistant_with_blocks():
     assert result[0]["content"] == messages[0]["content"]
 
 
+def test_build_anthropic_messages_merges_consecutive_tool_results():
+    """Regression: an assistant turn with multiple tool_use blocks (e.g.
+    concurrent-safe reads) must produce ONE user message containing all the
+    tool_result blocks immediately after it — not one user message per
+    tool. Anthropic-compatible APIs reject a turn where a later tool_use id
+    has no tool_result in the very next message, which is what happens if
+    each tool result becomes its own separate user message."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "tu1", "name": "Read", "input": {}},
+                {"type": "tool_use", "id": "tu2", "name": "Grep", "input": {}},
+                {"type": "tool_use", "id": "tu3", "name": "Glob", "input": {}},
+            ],
+        },
+        {"role": "tool", "content": "read output", "tool_use_id": "tu1"},
+        {"role": "tool", "content": "grep output", "tool_use_id": "tu2"},
+        {"role": "tool", "content": "glob output", "tool_use_id": "tu3"},
+        {"role": "user", "content": "thanks"},
+    ]
+    result = _build_anthropic_messages(messages)
+
+    # assistant, ONE merged user/tool_result message, final user message.
+    assert len(result) == 3
+    assert result[0]["role"] == "assistant"
+    assert result[1]["role"] == "user"
+    tool_result_blocks = result[1]["content"]
+    assert [b["type"] for b in tool_result_blocks] == ["tool_result"] * 3
+    assert [b["tool_use_id"] for b in tool_result_blocks] == ["tu1", "tu2", "tu3"]
+    assert [b["content"] for b in tool_result_blocks] == [
+        "read output",
+        "grep output",
+        "glob output",
+    ]
+    assert result[2] == {"role": "user", "content": [{"type": "text", "text": "thanks"}]}
+
+
+def test_build_anthropic_messages_does_not_merge_nonadjacent_tool_results():
+    """Two single-tool turns stay as two separate tool_result messages —
+    only messages that were consecutive "tool" entries in the source list
+    get merged."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "tu1", "name": "Read", "input": {}}],
+        },
+        {"role": "tool", "content": "first output", "tool_use_id": "tu1"},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "tu2", "name": "Read", "input": {}}],
+        },
+        {"role": "tool", "content": "second output", "tool_use_id": "tu2"},
+    ]
+    result = _build_anthropic_messages(messages)
+    assert len(result) == 4
+    assert [r["role"] for r in result] == ["assistant", "user", "assistant", "user"]
+    assert result[1]["content"] == [
+        {"type": "tool_result", "tool_use_id": "tu1", "content": "first output"}
+    ]
+    assert result[3]["content"] == [
+        {"type": "tool_result", "tool_use_id": "tu2", "content": "second output"}
+    ]
+
+
 def test_extract_tool_uses():
     block = MockContentBlock("tool_use", id="tu_1", name="Read", input={"file_path": "/x.txt"})
     response = MockResponse(content=[block])
@@ -384,6 +449,60 @@ async def test_loop_tool_use_then_text():
     assert isinstance(events[0], ToolExecutionEvent)
     assert events[0].tool_use.name == "Read"
     assert isinstance(events[-1], TextResponse)
+
+
+@pytest.mark.asyncio
+async def test_loop_multi_tool_turn_sends_well_formed_followup_request():
+    """Regression: a turn with multiple concurrent-safe tool_use blocks must
+    produce a single well-formed follow-up request — every tool_use id from
+    the previous assistant turn needs a tool_result in the very next
+    message, not spread across several consecutive user messages (real
+    Anthropic-compatible APIs reject that with a 400)."""
+    config = make_loop_config()
+
+    with patch("d2c.loop.anthropic.AsyncAnthropic") as mock_cls:
+        mock_client = MagicMock()
+        call_count = [0]
+        captured_messages: list[list[dict]] = []
+
+        async def side_effect(**kwargs):
+            captured_messages.append(kwargs["messages"])
+            call_count[0] += 1
+            if call_count[0] == 1:
+                blocks = [
+                    MockContentBlock(
+                        "tool_use", id="tu_1", name="Read", input={"file_path": "/a.txt"}
+                    ),
+                    MockContentBlock(
+                        "tool_use", id="tu_2", name="Read", input={"file_path": "/b.txt"}
+                    ),
+                ]
+                return MockResponse(content=blocks)
+            return make_text_response("Read both files.")
+
+        mock_client.messages.create = AsyncMock(side_effect=side_effect)
+        mock_cls.return_value = mock_client
+
+        events = []
+        messages = [{"role": "user", "content": "read both files"}]
+        async for event in queryLoop(config, messages):
+            events.append(event)
+
+    assert call_count[0] == 2
+    # The second request is the one carrying the tool results.
+    followup = captured_messages[1]
+    assistant_idx = next(i for i, m in enumerate(followup) if m.get("role") == "assistant")
+    tool_use_ids = {
+        b["id"] for b in followup[assistant_idx]["content"] if b.get("type") == "tool_use"
+    }
+    assert tool_use_ids == {"tu_1", "tu_2"}
+
+    # Every tool_use id must have its tool_result in the immediately
+    # following message — a single message, not two separate ones.
+    next_msg = followup[assistant_idx + 1]
+    assert next_msg["role"] == "user"
+    result_ids = {b["tool_use_id"] for b in next_msg["content"] if b.get("type") == "tool_result"}
+    assert result_ids == tool_use_ids
 
 
 @pytest.mark.asyncio
