@@ -94,7 +94,7 @@ class TaskCreateTool(Tool):
     category: ClassVar[PermissionCategory] = PermissionCategory.META
     is_concurrent_safe: ClassVar[bool] = False
 
-    async def execute(self, subject: str, description: str) -> ToolResult:
+    async def execute(self, subject: str, description: str, **kwargs: Any) -> ToolResult:  # type: ignore[override]  # dispatched as execute(**tool_input); schema validates
         store = TaskStore.get_store()
         task = store.create(subject, description)
         await _fire_task_hook("TASK_CREATED", {"task": task})
@@ -147,12 +147,13 @@ class TaskUpdateTool(Tool):
         "deleted": set(),
     }
 
-    async def execute(
+    async def execute(  # type: ignore[override]  # dispatched as execute(**tool_input); schema validates
         self,
         taskId: str,
         status: str | None = None,
         subject: str | None = None,
         description: str | None = None,
+        **kwargs: Any,
     ) -> ToolResult:
         store = TaskStore.get_store()
         existing = store.get(taskId)
@@ -217,7 +218,7 @@ class TaskListTool(Tool):
     category: ClassVar[PermissionCategory] = PermissionCategory.READ
     is_concurrent_safe: ClassVar[bool] = True
 
-    async def execute(self) -> ToolResult:
+    async def execute(self, **kwargs: Any) -> ToolResult:
         store = TaskStore.get_store()
         tasks = store.list_all()
 

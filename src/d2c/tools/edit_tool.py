@@ -48,12 +48,13 @@ class FileEditTool(Tool):
     category: ClassVar[PermissionCategory] = PermissionCategory.WRITE
     is_concurrent_safe: ClassVar[bool] = False
 
-    async def execute(
+    async def execute(  # type: ignore[override]  # dispatched as execute(**tool_input); schema validates
         self,
         file_path: str,
         old_string: str,
         new_string: str,
         replace_all: bool = False,
+        **kwargs: Any,
     ) -> ToolResult:
         path = Path(file_path)
 

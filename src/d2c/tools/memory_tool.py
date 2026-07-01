@@ -46,13 +46,14 @@ class MemoryTool(Tool):
     category: ClassVar[PermissionCategory] = PermissionCategory.META
     is_concurrent_safe: ClassVar[bool] = False
 
-    async def execute(
+    async def execute(  # type: ignore[override]  # dispatched as execute(**tool_input); schema validates
         self,
         action: str,
         name: str | None = None,
         memory_type: str = "project",
         description: str = "",
         content: str = "",
+        **kwargs: Any,
     ) -> ToolResult:
         from d2c.memory import AutoMemoryStore
 

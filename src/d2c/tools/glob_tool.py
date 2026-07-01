@@ -38,7 +38,7 @@ class GlobTool(Tool):
     def __init__(self, cwd: Path | None = None):
         self._cwd = cwd or Path.cwd()
 
-    async def execute(self, pattern: str, path: str = ".") -> ToolResult:
+    async def execute(self, pattern: str, path: str = ".", **kwargs: Any) -> ToolResult:  # type: ignore[override]  # dispatched as execute(**tool_input); schema validates
         search_dir = Path(path)
         if not search_dir.is_absolute():
             search_dir = self._cwd / path

@@ -33,7 +33,7 @@ class BackgroundStatusTool(Tool):
     category: ClassVar[PermissionCategory] = PermissionCategory.READ
     is_concurrent_safe: ClassVar[bool] = True
 
-    async def execute(self, subagent_id: str | None = None) -> ToolResult:
+    async def execute(self, subagent_id: str | None = None, **kwargs: Any) -> ToolResult:
         from d2c.subagent import get_background_manager
 
         manager = get_background_manager()

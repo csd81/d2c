@@ -17,7 +17,7 @@ from d2c.mcp.transports import MCPTransport
 from d2c.mcp.transports.stdio import MCPTransportError
 
 if TYPE_CHECKING:
-    pass
+    import httpx
 
 
 def _get_httpx():
@@ -37,7 +37,7 @@ class SSETransport(MCPTransport):
         self._headers = headers or {}
         self._timeout_ms = timeout_ms
         self._timeout = timeout_ms / 1000.0
-        self._client = None
+        self._client: httpx.AsyncClient | None = None
         self._connected = False
         self._event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._receive_task: asyncio.Task | None = None

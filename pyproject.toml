@@ -79,26 +79,14 @@ ignore = ["E501"]
 "tests/*" = ["F811", "E402", "F841"]
 
 [tool.mypy]
-# Staged typing: lenient baseline over a growing set of clean modules.
-# Expand `files` module-by-module in later phases toward all of src/d2c.
+# Phase 54: full-src coverage with a lenient baseline (staged rollout done).
 python_version = "3.11"
 ignore_missing_imports = true
 check_untyped_defs = false
 warn_unused_ignores = false
 warn_return_any = false
 disable_error_code = ["annotation-unchecked"]
-files = [
-    "src/d2c/untrusted.py",
-    "src/d2c/observability.py",
-    "src/d2c/doctor.py",
-    "src/d2c/config.py",
-    "src/d2c/history.py",
-    "src/d2c/path_rules.py",
-    "src/d2c/sandbox.py",
-    "src/d2c/permissions",
-    "src/d2c/tools/env_info.py",
-    "src/d2c/tools/apply_patch.py",
-]
+files = ["src/d2c"]
 
 [tool.bandit]
 # Justified skips for this project's intentional shell/subprocess design and

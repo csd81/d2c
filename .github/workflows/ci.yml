@@ -27,7 +27,7 @@ jobs:
         run: ruff check .
       - name: Format check (ruff)
         run: ruff format --check .
-      - name: Type check (mypy, staged modules)
+      - name: Type check (mypy, full src/d2c)
         run: mypy
       - name: Security lint (bandit)
         run: bandit -c pyproject.toml -r src/d2c

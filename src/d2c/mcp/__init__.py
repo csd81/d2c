@@ -8,7 +8,7 @@ to MCP-compatible tool servers over stdio, SSE, HTTP, and WebSocket transports.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from d2c.tools import PermissionCategory, Tool, ToolResult
 
@@ -41,7 +41,7 @@ class MCPTool(Tool):
     explicitly configured the server.
     """
 
-    is_concurrent_safe: bool = True  # MCP tools assumed safe for parallel
+    is_concurrent_safe: ClassVar[bool] = True  # MCP tools assumed safe for parallel
 
     def __init__(
         self,
@@ -51,10 +51,13 @@ class MCPTool(Tool):
         server_name: str,
         server_config: MCPServerConfig,
     ) -> None:
-        self.name = name
-        self.description = description
-        self.input_schema = input_schema
-        self.category = PermissionCategory.READ  # conservative default
+        # Tool metadata is ClassVar on the ABC (one class per built-in tool);
+        # MCP tools are one *instance* per remote tool, so metadata is
+        # intentionally per-instance here.
+        self.name = name  # type: ignore[misc]
+        self.description = description  # type: ignore[misc]
+        self.input_schema = input_schema  # type: ignore[misc]
+        self.category = PermissionCategory.READ  # type: ignore[misc]  # conservative default
         self._server_name = server_name
         self._server_config = server_config
 

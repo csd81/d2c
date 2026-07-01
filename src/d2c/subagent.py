@@ -418,15 +418,16 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
     for line in parts[1].strip().split("\n"):
         line = line.strip()
         if ":" in line:
-            key, _, value = line.partition(":")
+            key, _, raw = line.partition(":")
             key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            if value.lower() == "true":
+            raw = raw.strip().strip('"').strip("'")
+            value: str | bool | int = raw
+            if raw.lower() == "true":
                 value = True
-            elif value.lower() == "false":
+            elif raw.lower() == "false":
                 value = False
-            elif value.isdigit():
-                value = int(value)
+            elif raw.isdigit():
+                value = int(raw)
             metadata[key] = value
 
     return metadata, parts[2].strip()

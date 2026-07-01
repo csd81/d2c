@@ -22,7 +22,7 @@ python -m d2c --doctor                   # no FAILs on a clean setup
 
 ruff check .
 ruff format --check .
-mypy                                     # staged clean modules
+mypy                                     # all of src/d2c
 bandit -c pyproject.toml -r src/d2c
 pip-audit                                # advisory
 pytest -q

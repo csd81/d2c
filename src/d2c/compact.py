@@ -262,7 +262,7 @@ async def _summarize_segment_content(
         if getattr(loop_config, "compact_config", None)
         else None
     )
-    model = compact_model or getattr(loop_config, "model", "deepseek-chat")
+    model: str = compact_model or getattr(loop_config, "model", None) or "deepseek-chat"
 
     if summary_type == "tools":
         prompt = (

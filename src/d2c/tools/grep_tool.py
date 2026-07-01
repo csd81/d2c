@@ -80,7 +80,7 @@ class GrepTool(Tool):
     def __init__(self, cwd: Path | None = None):
         self._cwd = cwd or Path.cwd()
 
-    async def execute(
+    async def execute(  # type: ignore[override]  # dispatched as execute(**tool_input); schema validates
         self,
         pattern: str,
         path: str = ".",
@@ -93,6 +93,7 @@ class GrepTool(Tool):
         i: bool = False,
         head_limit: int = 250,
         multiline: bool = False,
+        **kwargs: Any,
     ) -> ToolResult:
         search_path = Path(path)
         if not search_path.is_absolute():

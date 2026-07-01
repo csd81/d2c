@@ -53,13 +53,14 @@ class NotebookEditTool(Tool):
     def __init__(self, cwd: Path | None = None):
         self._cwd = cwd or Path.cwd()
 
-    async def execute(
+    async def execute(  # type: ignore[override]  # dispatched as execute(**tool_input); schema validates
         self,
         notebook_path: str,
         action: str,
         cell_id: int | None = None,
         new_source: str | None = None,
         cell_type: str = "code",
+        **kwargs: Any,
     ) -> ToolResult:
         nb_path = Path(notebook_path)
         if not nb_path.is_absolute():
@@ -168,7 +169,7 @@ class NotebookEditTool(Tool):
         if new_source is None:
             return ToolResult(output="new_source is required for add action.", error=True)
 
-        new_cell = {
+        new_cell: dict[str, Any] = {
             "cell_type": cell_type,
             "metadata": {},
             "source": new_source.split("\n"),

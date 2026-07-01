@@ -50,7 +50,7 @@ class FileWriteTool(Tool):
     category: ClassVar[PermissionCategory] = PermissionCategory.WRITE
     is_concurrent_safe: ClassVar[bool] = False
 
-    async def execute(self, file_path: str, content: str) -> ToolResult:
+    async def execute(self, file_path: str, content: str, **kwargs: Any) -> ToolResult:  # type: ignore[override]  # dispatched as execute(**tool_input); schema validates
         path = Path(file_path)
 
         # Phase 23: Checkpoint before modification

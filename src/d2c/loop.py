@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, cast
 
 import anthropic
 
@@ -691,9 +691,9 @@ async def queryLoop(
                 async with client.messages.stream(
                     model=loop_config.model,
                     max_tokens=recovery_max_tokens,
-                    system=system_param,
-                    messages=anthropic_messages,
-                    tools=api_tools,
+                    system=cast(Any, system_param),
+                    messages=cast(Any, anthropic_messages),
+                    tools=cast(Any, api_tools),
                 ) as stream:
                     # Lazy-init executor on first tool_use start
                     async for event in stream:
@@ -763,9 +763,9 @@ async def queryLoop(
                 response = await client.messages.create(
                     model=loop_config.model,
                     max_tokens=recovery_max_tokens,
-                    system=system_param,
-                    messages=anthropic_messages,
-                    tools=api_tools,
+                    system=cast(Any, system_param),
+                    messages=cast(Any, anthropic_messages),
+                    tools=cast(Any, api_tools),
                 )
                 text = _response_text(response)
                 tool_uses = _extract_tool_uses(response)
@@ -927,7 +927,7 @@ async def queryLoop(
         # --- Tool dispatch ---
         state.messages.append(_assistant_message_with_tools(text, tool_uses))
         # Record assistant response with tool_use blocks
-        assistant_content = [{"type": "text", "text": text}] if text else []
+        assistant_content: list[dict[str, Any]] = [{"type": "text", "text": text}] if text else []
         for tu in tool_uses:
             assistant_content.append(
                 {"type": "tool_use", "id": tu.id, "name": tu.name, "input": tu.input}
@@ -953,10 +953,10 @@ async def queryLoop(
                     tool_use_id=tu.id,
                     error=result.error,
                 )
-                event = ToolExecutionEvent(tool_use=tu, result=result)
-                yield event
+                tool_event = ToolExecutionEvent(tool_use=tu, result=result)
+                yield tool_event
 
-                if event.stop_continuation:
+                if tool_event.stop_continuation:
                     state.stopped = True
                     state.stop_reason = "hook_intervention"
                     _record(
@@ -968,7 +968,7 @@ async def queryLoop(
                     )
                     break
         else:
-            async for event in dispatchTools(
+            async for tool_event in dispatchTools(
                 tool_uses,
                 tools_map,
                 state,
@@ -977,10 +977,10 @@ async def queryLoop(
                 loop_config.hooks,
                 loop_config.approval_callback,
             ):
-                yield event
+                yield tool_event
 
                 # Phase 7: Hook intervention check (hook_stopped_continuation)
-                if event.stop_continuation:
+                if tool_event.stop_continuation:
                     state.stopped = True
                     state.stop_reason = "hook_intervention"
                     _record(

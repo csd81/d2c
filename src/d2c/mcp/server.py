@@ -224,20 +224,22 @@ class MCPServer:
                 tool_input=arguments,
                 tool_category=tool.category,
             )
+            decision_err: str | None = None
             try:
                 perm_result = await self._permission_engine.evaluate_async(perm_request)
             except Exception as e:
                 perm_result = None
                 decision_err = type(e).__name__
-            else:
-                decision_err = None
             resolved = await resolve_permission_decision(perm_request, perm_result, None)
             if decision_err is not None or (
                 resolved is not None and resolved.decision != PermissionDecision.ALLOW
             ):
-                reason = (
-                    decision_err and f"permission check failed ({decision_err})" or resolved.reason
-                )
+                if decision_err is not None:
+                    reason = f"permission check failed ({decision_err})"
+                elif resolved is not None:
+                    reason = resolved.reason
+                else:
+                    reason = "permission denied"
                 from d2c.observability import audit
 
                 audit(

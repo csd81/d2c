@@ -106,10 +106,11 @@ class ToolSearchTool(Tool):
         """Update the tool registry (called after pool assembly)."""
         self._registry = registry
 
-    async def execute(
+    async def execute(  # type: ignore[override]  # dispatched as execute(**tool_input); schema validates
         self,
         query: str,
         max_results: int = 5,
+        **kwargs: Any,
     ) -> ToolResult:
         """Search for tools matching the query and load their full schemas.
 

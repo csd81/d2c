@@ -70,7 +70,7 @@ class WorktreeManager:
                 timeout=10,
             )
             return result.returncode == 0
-        except (subprocess.TimeoutError, FileNotFoundError, OSError):
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
     def _find_repo_root(self, path: Path) -> Path:
@@ -84,7 +84,7 @@ class WorktreeManager:
             )
             if result.returncode == 0:
                 return Path(result.stdout.strip())
-        except (subprocess.TimeoutError, FileNotFoundError, OSError):
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
         raise NotAGitRepoError(f"Not a git repository: {path}")
 
@@ -143,7 +143,7 @@ class WorktreeManager:
             raise WorktreeCreationError(
                 f"Worktree creation failed: {e.stderr.strip() if e.stderr else e}"
             ) from e
-        except subprocess.TimeoutError as e:
+        except subprocess.TimeoutExpired as e:
             raise WorktreeCreationError("Worktree creation timed out after 30s") from e
         except OSError as e:
             raise WorktreeCreationError(f"Failed to create worktree directory: {e}") from e
@@ -193,7 +193,7 @@ class WorktreeManager:
                 ctx.worktree_path,
                 e.stderr.strip() if e.stderr else e,
             )
-        except (subprocess.TimeoutError, OSError) as e:
+        except (subprocess.TimeoutExpired, OSError) as e:
             logger.warning(
                 "Failed to remove worktree '%s': %s",
                 ctx.worktree_path,
@@ -215,7 +215,7 @@ class WorktreeManager:
                 ctx.branch_name,
                 e.stderr.strip() if e.stderr else e,
             )
-        except (subprocess.TimeoutError, OSError) as e:
+        except (subprocess.TimeoutExpired, OSError) as e:
             logger.warning(
                 "Failed to delete branch '%s': %s",
                 ctx.branch_name,
@@ -247,7 +247,7 @@ class WorktreeManager:
                 timeout=30,
             )
             return result.stdout if result.returncode == 0 else ""
-        except (subprocess.TimeoutError, OSError):
+        except (subprocess.TimeoutExpired, OSError):
             return ""
 
     def get_changed_files(self, ctx: WorktreeContext) -> list[str]:
@@ -268,6 +268,6 @@ class WorktreeManager:
             )
             if result.returncode == 0:
                 return [f for f in result.stdout.strip().split("\n") if f]
-        except (subprocess.TimeoutError, OSError):
+        except (subprocess.TimeoutExpired, OSError):
             pass
         return []

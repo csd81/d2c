@@ -45,6 +45,7 @@ from d2c.tools.pool import assembleToolPool
 
 if TYPE_CHECKING:
     from d2c.approvals import ApprovalCache
+    from d2c.persistence import SessionStore
     from d2c.trust import WorkSpaceTrustGate
 
 
@@ -482,7 +483,7 @@ class ReplState:
     """Mutable REPL state that slash commands operate on."""
 
     config: Config
-    session_store: object
+    session_store: "SessionStore | None"
     conversation: list[dict] = field(default_factory=list)
     stream: bool = True
     approvals: "ApprovalCache" = field(default_factory=lambda: _new_approval_cache())
@@ -583,6 +584,7 @@ def _print_settings(state: "ReplState") -> None:
     from d2c.trust import get_trust_gate
 
     config = state.config
+    trusted: bool | str
     try:
         trusted = get_trust_gate().is_project_trusted
     except Exception:
@@ -660,7 +662,7 @@ async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
         new_store = SessionManager().create_session(state.config.cwd)
         await _switch_session(state, new_store, "clear")
         state.conversation.clear()
-        print(f"Cleared. New session: {state.session_store.session_id}")
+        print(f"Cleared. New session: {new_store.session_id}")
         return True
 
     if name == "/resume":
@@ -899,7 +901,7 @@ async def run_interactive(args: argparse.Namespace) -> None:
     tool_names = [t.name for t in tools]
     completer = D2CCompleter(config.cwd, tool_names)
 
-    session = PromptSession(
+    session: PromptSession[str] = PromptSession(
         history=FileHistory(str(history_file)),
         completer=completer,
         complete_while_typing=True,

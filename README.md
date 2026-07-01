@@ -135,7 +135,7 @@ CI (`.github/workflows/ci.yml`, Python 3.11 & 3.13) runs the same checks you can
 ```bash
 ruff check .            # lint
 ruff format --check .   # formatting
-mypy                    # types (staged clean modules; see [tool.mypy] files)
+mypy                    # types (all of src/d2c; lenient baseline)
 bandit -c pyproject.toml -r src/d2c   # security lint (justified skips in pyproject)
 pip-audit               # dependency vulnerability scan (advisory)
 pytest                  # tests

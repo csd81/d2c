@@ -17,7 +17,10 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import AsyncGenerator
+from typing import TYPE_CHECKING, AsyncGenerator
+
+if TYPE_CHECKING:
+    from d2c.loop import LoopConfig
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +81,7 @@ class KairosAgent:
     def __init__(
         self,
         config: object | None = None,
-        loop_config: object | None = None,
+        loop_config: "LoopConfig | None" = None,
         idle_timeout: float = 30.0,
     ):
         self._idle_timeout = idle_timeout
@@ -86,7 +89,7 @@ class KairosAgent:
         self._tick_count = 0
         self._sleeping = False
         self._config = config
-        self._loop_config = loop_config
+        self._loop_config: "LoopConfig | None" = loop_config
 
     async def start(self) -> AsyncGenerator[TickEvent | SleepEvent | ActionEvent, None]:
         """Start the KAIROS heartbeat loop, yielding events as they occur.
@@ -135,12 +138,12 @@ class KairosAgent:
 
         Override this method for testing.
         """
-        from d2c.loop import LoopConfig, TextResponse, queryLoop
+        from d2c.loop import TextResponse, queryLoop
 
         if self._loop_config is None:
             return KairosResponse(action="sleep", sleep_duration=300.0)
 
-        loop_config: LoopConfig = self._loop_config
+        loop_config = self._loop_config
 
         messages = [{"role": "user", "content": tick_prompt}]
 

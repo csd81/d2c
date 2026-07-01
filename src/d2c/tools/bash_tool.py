@@ -62,7 +62,7 @@ class BashTool(Tool):
         self._cwd = cwd or Path.cwd()
         self._background_tasks: dict[str, asyncio.Task] = {}
         self._sandbox_config = sandbox_config
-        self._sandbox_executor = None
+        self._sandbox_executor: "SandboxExecutor | None" = None
 
     def _get_sandbox_executor(self) -> "SandboxExecutor":
         """Lazy init sandbox executor."""
@@ -72,13 +72,14 @@ class BashTool(Tool):
             self._sandbox_executor = SandboxExecutor()
         return self._sandbox_executor
 
-    async def execute(
+    async def execute(  # type: ignore[override]  # dispatched as execute(**tool_input); schema validates
         self,
         command: str,
         timeout: int = 120_000,
         description: str = "",
         run_in_background: bool = False,
         dangerouslyDisableSandbox: bool = False,
+        **kwargs: Any,
     ) -> ToolResult:
         # Phase 17: Sandbox check
         sandbox_config = self._sandbox_config

@@ -12,7 +12,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from d2c.tools.agent_tool import AgentTool
 from d2c.tools.apply_patch import ApplyPatchTool
@@ -36,6 +36,7 @@ from d2c.tools.web_search import WebSearchTool
 from d2c.tools.write_tool import FileWriteTool
 
 if TYPE_CHECKING:
+    from d2c.sandbox import SandboxConfig
     from d2c.tools import Tool
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ class Config:
     deny_rules: list[Rule] = field(default_factory=list)
     os: str = field(default="")
     deferred_tools: bool = field(default=False)
-    sandbox_config: object | None = field(default=None)  # Phase 34: SandboxConfig
+    sandbox_config: "SandboxConfig | None" = field(default=None)  # Phase 34
 
     def __post_init__(self):
         import platform
@@ -139,7 +140,8 @@ def getAllBaseTools(config: Config) -> list[Tool]:
         for t in tools:
             schema_size = len(str(t.input_schema))
             if schema_size > DEFERRED_THRESHOLD and t.name != "ToolSearch":
-                result.append(DeferredToolSchema(t))
+                # DeferredToolSchema is a duck-typed Tool wrapper (same interface)
+                result.append(cast("Tool", DeferredToolSchema(t)))
             else:
                 result.append(t)
         return result
@@ -234,8 +236,9 @@ async def assembleToolPool(
     # Phase 20: Give ToolSearchTool access to the full registry
     # so it can search deferred tools and load their schemas.
     for t in deduped:
-        if t.name == "ToolSearch":
-            t.set_registry(deduped)
+        if isinstance(t, ToolSearchTool):
+            registry: list[DeferredToolSchema | Tool] = list(deduped)
+            t.set_registry(registry)
             break
 
     return deduped

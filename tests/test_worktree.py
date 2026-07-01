@@ -75,6 +75,20 @@ class TestWorktreeManager:
         manager = WorktreeManager()
         assert manager.is_git_repo(Path("/nonexistent/path/12345")) is False
 
+    def test_is_git_repo_timeout_returns_false(self, monkeypatch):
+        """Phase 54 regression: a hung git command is caught, not raised.
+
+        The handlers previously caught subprocess.TimeoutError, which does
+        not exist — a real timeout raised AttributeError instead.
+        """
+        import subprocess
+
+        def _hang(*a, **k):
+            raise subprocess.TimeoutExpired(cmd="git", timeout=10)
+
+        monkeypatch.setattr(subprocess, "run", _hang)
+        assert WorktreeManager().is_git_repo(Path("/tmp")) is False
+
     def test_create_worktree_succeeds(self):
         """Worktree creation in a valid git repo."""
         with tempfile.TemporaryDirectory() as tmp:

@@ -55,11 +55,12 @@ class FileReadTool(Tool):
         ".svg",
     }
 
-    async def execute(
+    async def execute(  # type: ignore[override]  # dispatched as execute(**tool_input); schema validates
         self,
         file_path: str,
         offset: int = 0,
         limit: int = 2000,
+        **kwargs: Any,
     ) -> ToolResult:
         path = Path(file_path)
 
