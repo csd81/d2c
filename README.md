@@ -84,6 +84,7 @@ Default model is `deepseek-v4-pro`. Aliases are accepted: `v3`/`chat` → `deeps
 python -m d2c                    # interactive REPL (rich prompt_toolkit console)
 python -m d2c "fix the bug in foo.py"   # single-shot headless run
 python -m d2c --mcp              # run as an MCP server (stdio JSON-RPC) for IDE integration
+python -m d2c --serve            # run a local HTTP server (health + session endpoints)
 python -m d2c --list-models
 python -m d2c --doctor           # diagnose config/env (PASS/WARN/FAIL); add --json or --doctor-live
 python -m d2c --version          # print version and exit
@@ -105,6 +106,8 @@ Common flags:
 | `--fork <id>` | Branch a new session from an existing one |
 | `--rewind-files <id>` | Revert all filesystem changes made during a session |
 | `--trust` / `--no-trust` | Control the workspace trust gate |
+| `--serve` | Start the local HTTP server |
+| `--host` / `--port` | With `--serve`: bind address (default `127.0.0.1:8765`, localhost-only) |
 
 In the REPL, slash commands include `/exit`, `/clear`, `/resume`, `/fork`, `/settings`, `/usage`,
 and `/help`. `/usage` shows session token totals (input/output/cache) and an estimated cost; the
@@ -112,6 +115,39 @@ status bar shows a compact `133.4k in / 9.2k out | ~$0.42` summary once the mode
 Token counts fall back to local estimation when the provider omits usage fields, and costs use a
 built-in DeepSeek pricing snapshot — treat them as estimates and override via `D2C_PRICING_*` when
 pricing changes.
+
+## Programmatic use (SDK / local server)
+
+`d2c.sdk.D2CClient` is a small, stable Python wrapper around the agent loop for scripts, IDE
+integrations, and automation — no CLI/REPL required:
+
+```python
+from d2c.sdk import D2CClient
+
+client = D2CClient(cwd=".")
+async for event in client.run("summarize this repo"):
+    ...  # TextDelta | TextResponse | ToolExecutionEvent | StopEvent — same events the CLI consumes
+```
+
+Each `run()` call is one turn against a persistent on-disk session (the same
+`d2c.persistence.SessionStore` mechanism the CLI uses); a session is created on first use and reused
+by `client.session_id` on subsequent calls, or resume an existing one with `run(prompt,
+session_id=...)`. Like headless CLI mode, `D2CClient` has no interactive approval prompt, so `ASK`
+permission decisions fail closed under the default permission mode — pass `permission_mode="bypass"`
+(or `"acceptEdits"`/`"dontAsk"`) for unattended automation.
+
+`python -m d2c --serve` runs a minimal local HTTP server (hand-rolled over `asyncio`, no new
+dependency) exposing the same functionality over JSON, **localhost-only by default**:
+
+| Method & path | Description |
+|---|---|
+| `GET /health` | `{"status": "ok", "version": "..."}` |
+| `POST /sessions` | Create a session; optional `{"model": "..."}` body. Returns `{"session_id"}`. |
+| `POST /sessions/{id}/messages` | Run one turn; `{"prompt": "..."}` body. Blocks until the turn completes; returns `{"session_id", "text", "stop_reason"}`. |
+| `GET /sessions/{id}/events` | All recorded loop events for that session (tool inputs redacted). |
+
+This is groundwork for a local daemon, not a production server: no auth, no TLS, one request per
+connection. Only bind beyond `127.0.0.1` if you understand the exposure.
 
 ## How it works
 

@@ -57,7 +57,13 @@ is protected, what is not, and what you should not rely on. The invariants below
   as data — but d2c does not scrub injected instructions from model context, and delimiters guide
   the model rather than constrain it. The permission gate remains the enforcement layer.
 - **`ASK` outside the REPL blocks rather than prompts.** There is no interactive approval channel in
-  headless/MCP mode; such actions are denied (permission-required), not queued.
+  headless/MCP/`--serve` mode; such actions are denied (permission-required), not queued.
+- **The local HTTP server (`--serve`, Phase 59) has no authentication.** It binds `127.0.0.1` by
+  default; anyone who can reach the bound host/port can create sessions and run prompts with
+  whatever permission mode the server was started with. It's groundwork for a local daemon, not a
+  production server — no TLS, no auth, no rate limiting. Don't bind it beyond localhost. Tool inputs
+  in `/sessions/{id}/events` responses are redacted the same way audit logs are, but redaction covers
+  known secret shapes, not everything sensitive.
 - **Policy, not proof.** These are runtime checks, not formally verified guarantees.
 
 ## What not to rely on

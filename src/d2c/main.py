@@ -98,6 +98,22 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="With --doctor: machine-readable JSON output",
     )
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Start the local HTTP server (health + session endpoints); localhost-only by default",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="With --serve: bind host (default: 127.0.0.1, localhost-only)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="With --serve: bind port (default: 8765)",
+    )
 
     # Trust gate flags (mutually exclusive)
     trust_group = parser.add_mutually_exclusive_group()
@@ -542,6 +558,49 @@ def _pool_config_from(config: Config) -> "PoolConfig":
     )
 
 
+async def _assemble_headless_loop_config(
+    config: Config, session_store: SessionStore | None
+) -> tuple[LoopConfig, HookRegistry, "UsageTracker"]:
+    """Build a fully-wired LoopConfig for a single-shot (non-REPL) run.
+
+    Phase 59: shared by run_headless (CLI) and d2c.sdk.D2CClient so both
+    surfaces build identical loop configuration from one code path.
+    """
+    hook_registry = HookRegistry.from_config(config)
+    _load_plugins(config, hook_registry)
+    await _wire_runtime(config, session_store, hook_registry)
+
+    from d2c.usage import UsageTracker, set_usage_tracker
+
+    usage_tracker = UsageTracker()
+    set_usage_tracker(usage_tracker)
+
+    pool_config = _pool_config_from(config)
+    tools = await assembleToolPool(pool_config)
+
+    compact_config = CompactConfig(
+        tool_result_max_chars=config.tool_result_max_chars,
+        pressure_threshold=config.pressure_threshold,
+        context_window_tokens=config.context_window_tokens,
+    )
+    loop_config = LoopConfig(
+        system_prompt=getSystemPrompt(),
+        user_context=getUserContext(config),
+        model=config.model,
+        max_turns=config.max_turns,
+        tools=tools,
+        permission_engine=PermissionEngine.from_config(config),
+        hooks=hook_registry,
+        config=config,
+        deepseek_api_key=config.deepseek_api_key,
+        deepseek_base_url=config.deepseek_base_url,
+        session_store=session_store,
+        compact_config=compact_config,
+        stream=True,
+    )
+    return loop_config, hook_registry, usage_tracker
+
+
 # ── Phase 36: REPL slash commands ─────────────────────────────────────
 
 
@@ -857,44 +916,12 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
     # Setup session
     session_store, resume_messages = _setup_session(args, config)
 
-    # Phase 13: Load plugins — register hooks, collect skills/agents
-    hook_registry = HookRegistry.from_config(config)
-    plugin_skills, plugin_agents = _load_plugins(config, hook_registry)
-
-    # Phase 34: wire runtime subsystems + fire SessionStart
-    await _wire_runtime(config, session_store, hook_registry)
-
-    # Phase 55: session usage accounting
-    from d2c.usage import UsageTracker, audit_session_usage, set_usage_tracker
-
-    usage_tracker = UsageTracker()
-    set_usage_tracker(usage_tracker)
-
-    # Assemble tools
-    pool_config = _pool_config_from(config)
-    tools = await assembleToolPool(pool_config)
-
-    # Build loop config
-    compact_config = CompactConfig(
-        tool_result_max_chars=config.tool_result_max_chars,
-        pressure_threshold=config.pressure_threshold,
-        context_window_tokens=config.context_window_tokens,
+    # Phase 59: shared assembly (plugins, runtime wiring, usage tracker, tool
+    # pool, LoopConfig) — identical to what d2c.sdk.D2CClient builds.
+    loop_config, hook_registry, usage_tracker = await _assemble_headless_loop_config(
+        config, session_store
     )
-    loop_config = LoopConfig(
-        system_prompt=getSystemPrompt(),
-        user_context=getUserContext(config),
-        model=config.model,
-        max_turns=config.max_turns,
-        tools=tools,
-        permission_engine=PermissionEngine.from_config(config),
-        hooks=hook_registry,
-        config=config,
-        deepseek_api_key=config.deepseek_api_key,
-        deepseek_base_url=config.deepseek_base_url,
-        session_store=session_store,
-        compact_config=compact_config,
-        stream=True,  # Phase 10: streaming enabled
-    )
+    from d2c.usage import audit_session_usage
 
     # Assemble context
     system_context = getSystemContext(config)
@@ -1325,6 +1352,15 @@ def main() -> None:
         from d2c.mcp.server import run_mcp_server
 
         asyncio.run(run_mcp_server(args))
+        return
+
+    if args.serve:
+        from d2c.server import D2CServer
+
+        _resolve_trust(args)
+        server = D2CServer(host=args.host, port=args.port, cwd=(args.cwd or Path.cwd()).resolve())
+        print(f"d2c server listening on http://{args.host}:{args.port}")
+        asyncio.run(server.serve_forever())
         return
 
     if args.list_models:
