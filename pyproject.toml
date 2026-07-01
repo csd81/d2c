@@ -25,3 +25,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+# Bundled skill markdown must ship in the wheel (loaded via glob at runtime).
+"d2c.skills" = ["*.md"]

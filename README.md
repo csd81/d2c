@@ -103,4 +103,8 @@ pytest tests/test_loop.py::test_name    # a single test
 
 Tests are async and use explicit `@pytest.mark.asyncio` markers — mark new async tests accordingly.
 
+The suite runs on a fresh `python -m venv` install (`pip install -e ".[dev]"`) and in CI
+(`.github/workflows/tests.yml`, Python 3.11 & 3.13). A wheel built with `python -m build` includes
+the bundled skill data (`d2c/skills/*.md`) needed at runtime.
+
 See [`CLAUDE.md`](./CLAUDE.md) for architecture details and conventions.
