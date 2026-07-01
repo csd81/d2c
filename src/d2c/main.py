@@ -554,7 +554,12 @@ def _pool_config_from(config: Config) -> "PoolConfig":
     return PoolConfig(
         cwd=config.cwd,
         permission_mode=config.permission_mode,
-        sandbox_config=SandboxConfig(enabled=config.sandbox_enabled),
+        sandbox_config=SandboxConfig(
+            enabled=config.sandbox_enabled,
+            backend=config.sandbox_backend,
+            network_enabled=config.sandbox_allow_network,
+            fallback_to_process=config.sandbox_fallback,
+        ),
     )
 
 

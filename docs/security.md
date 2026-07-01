@@ -62,11 +62,22 @@ is protected, what is not, and what you should not rely on. The invariants below
 
 ## Known limitations (do not over-rely)
 
-- **The sandbox is not a filesystem jail.** The default `process` backend restricts environment, cwd,
-  and timeout — it does **not** prevent a command from writing outside cwd. Filesystem safety for
-  destructive commands comes from the **permission gate**, not the sandbox. The Docker backend
-  (`backend=docker`, opt-in) provides real isolation; the Windows backend is a stub that falls back
-  to the process backend.
+- **The `process` sandbox backend is not a filesystem jail.** The default `process` backend restricts
+  environment, cwd, and timeout — it does **not** prevent a command from writing outside cwd.
+  Filesystem safety for destructive commands under this backend comes from the **permission gate**,
+  not the sandbox. The Windows backend is a stub that falls back to the process backend.
+- **OS-level backends provide real isolation (Phase 62).** `D2C_SANDBOX_BACKEND=bubblewrap` (Linux)
+  runs each sandboxed command inside a bubblewrap namespace: the working directory (plus any
+  `allowed_dirs`) is bind-mounted **read-write**, system roots (`/usr`, `/bin`, `/lib`, `/etc`, ...)
+  **read-only**, `/tmp` a fresh tmpfs, the network namespace unshared (no network unless
+  `D2C_SANDBOX_NETWORK=1`), and the process dies with its parent — so a write to `$HOME` or `/etc`, or
+  a read of an unbound sibling directory, actually fails. `backend=docker` (opt-in) is the other
+  strong option. If a requested OS-level backend is unavailable, d2c **fails closed** (the command
+  does not run) unless `D2C_SANDBOX_FALLBACK=1` opts into the weaker process backend — a requested
+  strong sandbox never silently downgrades. `--doctor` reports the configured backend and its
+  availability. These backends still only apply to commands the sandbox decides to run inside it (safe
+  read-only commands skip it for performance); they are defense-in-depth, layered under the permission
+  gate, not a replacement for it.
 - **No cwd jail at the tool level.** File tools operate on any absolute path the permission policy
   allows; there is no path-jail confining them to the project directory.
 - **Prompt injection is mitigated by design, not filtered.** Untrusted text from memory / WebFetch /

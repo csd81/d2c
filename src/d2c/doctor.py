@@ -200,16 +200,53 @@ def check_trust(trusted: bool) -> DoctorResult:
 
 
 def check_sandbox(config: Any) -> DoctorResult:
+    from d2c.sandbox import bubblewrap_available
+
     enabled = getattr(config, "sandbox_enabled", False)
+    backend = getattr(config, "sandbox_backend", "process") or "process"
+    fallback = getattr(config, "sandbox_fallback", False)
+
     if not enabled:
-        return _p("Sandbox", "disabled (default)")
-    # Sandbox backend selection lives in SandboxConfig; the pool uses the
-    # default (process) backend unless a config file overrides it.
-    if not shutil.which("docker"):
-        return _p(
-            "Sandbox", "enabled (process backend; not a filesystem jail — see docs/security.md)"
+        # Still surface the configured backend so `--doctor` shows intent.
+        return _p("Sandbox", f"disabled (default; backend={backend})")
+
+    # Phase 62: OS-level bubblewrap backend.
+    if backend == "bubblewrap":
+        if bubblewrap_available():
+            net = "network on" if getattr(config, "sandbox_allow_network", False) else "no network"
+            return _p("Sandbox", f"enabled (bubblewrap OS-level backend; {net})")
+        if fallback:
+            return _w(
+                "Sandbox",
+                "backend=bubblewrap requested but bwrap not found; will fall back to the "
+                "process backend (weaker isolation)",
+                fix="Install bubblewrap (apt install bubblewrap) for OS-level isolation.",
+            )
+        return _f(
+            "Sandbox",
+            "backend=bubblewrap requested but bwrap not found; commands fail closed (not run)",
+            fix="Install bubblewrap, set D2C_SANDBOX_FALLBACK=1, or use D2C_SANDBOX_BACKEND=process.",
         )
-    return _p("Sandbox", "enabled (process backend; docker available for stronger isolation)")
+
+    if backend == "docker":
+        if shutil.which("docker"):
+            return _p("Sandbox", "enabled (docker backend)")
+        if fallback:
+            return _w("Sandbox", "backend=docker requested but docker not found; will fall back")
+        return _f(
+            "Sandbox",
+            "backend=docker requested but docker not found; commands fail closed (not run)",
+            fix="Install/start Docker, set D2C_SANDBOX_FALLBACK=1, or use the process backend.",
+        )
+
+    # Process backend (or unknown → treated as process at runtime).
+    detail = "enabled (process backend; not a filesystem jail — see docs/security.md"
+    if bubblewrap_available():
+        detail += "; bubblewrap available for OS-level isolation via D2C_SANDBOX_BACKEND=bubblewrap"
+    detail += ")"
+    if backend not in ("process", "bubblewrap", "docker"):
+        return _w("Sandbox", f"unknown backend '{backend}'; runtime treats it as process")
+    return _p("Sandbox", detail)
 
 
 def check_audit(config: Any) -> DoctorResult:

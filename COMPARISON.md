@@ -97,11 +97,14 @@ runtime they do nothing. Two are outright correctness bugs.
    `autoCompact` now uses `has_attempted_proactive_compact`, independent of the reactive
    `prompt_too_long` path. (The reactive path still does a crude slice truncation rather than a full
    summary — an intentional simplification, not a blocker.)
-4. **Sandbox (§5.4) is implemented but never attached.** ✅ *Wired in Phase 34; tested in Phase 37.*
-   `SandboxConfig` flows through the pool into `BashTool` (`D2C_SANDBOX=1`, off by default); the
-   process backend is reachable and exercised on POSIX and Windows. Covered by `tests/test_sandbox.py`
-   and `tests/test_phase37.py`. *The Windows-sandbox backend remains an explicit stub* (falls back to
-   the process backend).
+4. **Sandbox (§5.4) is implemented but never attached.** ✅ *Wired in Phase 34; tested in Phase 37;
+   OS-level backend added in Phase 62.* `SandboxConfig` flows through the pool into `BashTool`
+   (`D2C_SANDBOX=1`, off by default); the process backend is reachable and exercised on POSIX and
+   Windows, and Phase 62 adds a real Linux **bubblewrap** OS-level backend
+   (`D2C_SANDBOX_BACKEND=bubblewrap`) with rw-cwd / ro-system-roots / unshared-network / fail-closed
+   semantics, verified by live confinement tests. Covered by `tests/test_sandbox.py`,
+   `tests/test_phase37.py`, and `tests/test_phase62_sandbox.py`. *The Windows-sandbox backend remains
+   an explicit stub* (falls back to the process backend).
 5. **File-history checkpoints / `--rewind-files` (§9) don't work.** ✅ *Fixed in Phase 34; tested in
    Phase 37.* The tracker is installed at startup (headless + interactive) and re-pointed on session
    switch (`/clear`, `/resume`, `/fork`). Write/Edit checkpoint before mutating; `--rewind-files`

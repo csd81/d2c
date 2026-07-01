@@ -22,6 +22,9 @@ export DEEPSEEK_API_KEY=sk-...
 export DEEPSEEK_BASE_URL=https://api.deepseek.com/anthropic   # default
 export D2C_MODEL=deepseek-v4-pro                              # default
 export D2C_SANDBOX=1                                          # sandbox Bash (off by default)
+export D2C_SANDBOX_BACKEND=bubblewrap                         # process (default) | bubblewrap | docker
+export D2C_SANDBOX_NETWORK=0                                  # allow network inside the sandbox (off)
+export D2C_SANDBOX_FALLBACK=0                                 # if the OS backend is missing: 0=fail closed, 1=fall back to process
 
 # optional — enable the WebSearch tool. Provider is tavily (default), brave, or searxng:
 export D2C_WEBSEARCH_PROVIDER=tavily

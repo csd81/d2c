@@ -180,8 +180,11 @@ class Config:
     # --- Prompt Caching (Phase 26) ---
     prompt_caching_enabled: bool = True  # Anthropic prompt caching with 4 breakpoints
 
-    # --- Shell sandboxing (Phase 34) ---
+    # --- Shell sandboxing (Phase 34; Phase 62: OS-level backend) ---
     sandbox_enabled: bool = False  # gate BashTool execution through SandboxExecutor
+    sandbox_backend: str = "process"  # "process" | "bubblewrap" | "docker"
+    sandbox_allow_network: bool = False  # network inside the sandbox (bubblewrap/docker)
+    sandbox_fallback: bool = False  # if an OS backend is unavailable, fall back to process
 
     # --- WebSearch (Phase 39; Phase 58: base_url for self-hosted providers) ---
     websearch_provider: str = ""  # e.g. "tavily", "brave", "searxng"; empty = unconfigured
@@ -243,12 +246,18 @@ class Config:
         base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic")
         model = os.environ.get("D2C_MODEL", "deepseek-v4-pro")
         sandbox_enabled = os.environ.get("D2C_SANDBOX", "").lower() in ("1", "true", "yes", "on")
+        sandbox_backend = (
+            os.environ.get("D2C_SANDBOX_BACKEND", "process").strip().lower() or "process"
+        )
         websearch_provider = os.environ.get("D2C_WEBSEARCH_PROVIDER", "").strip().lower()
         websearch_api_key = os.environ.get("D2C_WEBSEARCH_API_KEY") or None
         websearch_base_url = os.environ.get("D2C_WEBSEARCH_BASE_URL", "").strip()
 
         def _flag(name: str) -> bool:
             return os.environ.get(name, "").lower() in ("1", "true", "yes", "on")
+
+        sandbox_allow_network = _flag("D2C_SANDBOX_NETWORK")
+        sandbox_fallback = _flag("D2C_SANDBOX_FALLBACK")
 
         log_level = os.environ.get("D2C_LOG_LEVEL", "INFO").upper()
         audit_log_enabled = _flag("D2C_AUDIT_LOG")
@@ -275,6 +284,9 @@ class Config:
             permission_rules=list(merged_settings.permission_rules),
             hooks=list(merged_settings.hooks),
             sandbox_enabled=sandbox_enabled,
+            sandbox_backend=sandbox_backend,
+            sandbox_allow_network=sandbox_allow_network,
+            sandbox_fallback=sandbox_fallback,
             websearch_provider=websearch_provider,
             websearch_api_key=websearch_api_key,
             websearch_base_url=websearch_base_url,
