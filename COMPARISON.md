@@ -93,12 +93,17 @@ Structure and behavior match the paper closely, often down to function names.
 - **Observability / audit logging (Phase 44).** Opt-in structured JSONL audit log with central
   redaction and `session_id`/`turn_id`/`tool_call_id` correlation across session, model-call,
   tool-call, permission, file-change, compaction, hook-failure, and WebSearch events.
-- **Interactive ASK (Phases 43/49).** `ASK` never falls through to automatic execution: shared
-  `resolve_permission_decision` gates both executors and the MCP path. REPL prompts with `[y/N/a]`,
-  default deny; headless / MCP / no-callback contexts return permission-required denial. Granular
-  audit events. The `a` ("always") exact-match approval cache persists across sessions and process
-  restarts to `~/.d2c/approvals.json` (SHA-256 hashes + timestamps, atomic writes; Phase 64) —
-  `/clear`/`/resume`/`/fork` reset only the in-memory view, not the file.
+- **Interactive ASK (Phases 43/49/64/65).** `ASK` never falls through to automatic execution: shared
+  `resolve_permission_decision` gates both executors and the MCP path; headless / MCP / no-callback
+  contexts return permission-required denial. Granular audit events. The REPL renders a styled,
+  color-coded permission dialog (Phase 65, `prompt_toolkit` `HTML`/`print_formatted_text`, no new
+  dependency): a category-colored header, Bash commands risk-colored by reusing the `acceptEdits`
+  structural classifier, and Edit/Write/ApplyPatch get a `+N / -M` diff summary computed only from
+  the already-provided tool input (never a speculative disk read) — short diffs shown inline, longer
+  ones collapsed behind a `[d]` expand action. Scopes: `[y]` once, `[a]` session (in-memory only),
+  `[A]` always (exact-match hashes + timestamps persisted to `~/.d2c/approvals.json`, atomic writes,
+  survives sessions and process restarts — Phase 64), `[n]` deny (default). `/clear`/`/resume`/`/fork`
+  reset only the in-memory view, never the persisted file.
 - **Prompt-injection hardening (Phase 53).** Retrieved web content, search snippets, and
   model-written memories wrapped in `<untrusted_*>` delimiters with breakout neutralization. System
   prompt treats such content as data.

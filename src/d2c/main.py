@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 # Phase 31: Rich TUI / REPL Console
-from prompt_toolkit import PromptSession
+from prompt_toolkit import PromptSession, print_formatted_text
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
@@ -674,7 +674,9 @@ def _tool_input_preview(tool_input: dict) -> str:
 
 def _permission_prompt_lines(request, result) -> list[str]:
     """Phase 57: permission-dialog body — tool name, risk category, reason,
-    and a redacted input preview, formatted for easy scanning."""
+    and a redacted input preview, formatted for easy scanning. Plain text —
+    used by the headless-fallback ``interactive_approval()``. The REPL's
+    styled dialog is ``_render_permission_dialog()`` (Phase 65)."""
     category = getattr(getattr(request, "tool_category", None), "value", None) or "unknown"
     reason = getattr(result, "reason", "") or "approval required"
     return [
@@ -688,7 +690,8 @@ async def interactive_approval(request, result) -> bool:
     """Phase 43: prompt the user to approve/deny an ASK tool request.
 
     Default is deny (empty input). `y`/`yes` approves once. Runs input() off
-    the event loop so streaming isn't blocked.
+    the event loop so streaming isn't blocked. Plain-text: used in headless
+    fallback paths where styled TUI output isn't appropriate.
     """
     for line in _permission_prompt_lines(request, result):
         print(line)
@@ -700,12 +703,174 @@ async def interactive_approval(request, result) -> bool:
     return ans in ("y", "yes")
 
 
-def make_interactive_approval(cache: "ApprovalCache"):
-    """Phase 52: build an approval callback backed by a session-scoped cache.
+# ── Phase 65: styled REPL permission dialog ─────────────────────────
 
-    Prompt options: [y] allow once, [n]/empty deny, [a] always allow this exact
-    action for this session (cached in memory, never persisted). A cache hit
-    executes without prompting and emits ``permission_approved_cached``.
+_CATEGORY_DIALOG_COLORS: dict[str, str] = {
+    "read": "ansigreen",
+    "shell": "ansiyellow",
+    "write": "ansired",
+    "meta": "ansicyan",
+}
+_RISK_DIALOG_COLORS: dict[str, str] = {
+    "allow": "ansigreen",
+    "ask": "ansiyellow",
+    "deny": "ansired",
+}
+# Tools whose input already contains enough to compute a real diff WITHOUT
+# reading anything from disk (old_string/new_string for Edit; the unified
+# diff text itself for ApplyPatch). Write has no "old" side available, so it
+# gets a content preview, not a true diff.
+_DIFF_CAPABLE_TOOLS = frozenset({"Edit", "Write", "ApplyPatch"})
+_INLINE_DIFF_THRESHOLD = 10  # short diffs show inline even when collapsed
+_MAX_DIFF_DISPLAY_LINES = 60  # cap even an expanded ("d") diff
+
+
+def _bash_risk_verdict(command: str) -> str:
+    """'allow' | 'ask' | 'deny' risk bucket for a Bash command, reusing the
+    existing acceptEdits structural classifier as the color signal rather
+    than duplicating a command-name heuristic."""
+    from d2c.permissions.classifier import classify_accept_edits_shell
+
+    try:
+        return classify_accept_edits_shell(command)
+    except Exception:
+        return "ask"
+
+
+def _diff_preview(tool_name: str, tool_input: dict) -> tuple[str, list[str]]:
+    """(summary, diff_lines) computed ONLY from the tool_input already
+    provided — never reads the file from disk (the permission gate must not
+    read speculatively). Diff/line-count math runs on the raw content so
+    truncation never corrupts it; each individual line is redacted before
+    being returned for display.
+    """
+    import difflib
+
+    from d2c.observability import redact
+
+    def _r(line: str) -> str:
+        return str(redact(line))
+
+    if tool_name == "Edit":
+        old = str(tool_input.get("old_string", "")).splitlines()
+        new = str(tool_input.get("new_string", "")).splitlines()
+        raw = list(difflib.unified_diff(old, new, lineterm=""))
+        plus = sum(1 for x in raw if x.startswith("+") and not x.startswith("+++"))
+        minus = sum(1 for x in raw if x.startswith("-") and not x.startswith("---"))
+        return f"+{plus} / -{minus}", [_r(x) for x in raw]
+
+    if tool_name == "Write":
+        content = str(tool_input.get("content", ""))
+        lines = content.splitlines()
+        return f"+{len(lines)} (new content)", [_r(f"+{x}") for x in lines]
+
+    if tool_name == "ApplyPatch":
+        patch = str(tool_input.get("patch", ""))
+        lines = patch.splitlines()
+        plus = sum(1 for x in lines if x.startswith("+") and not x.startswith("+++"))
+        minus = sum(1 for x in lines if x.startswith("-") and not x.startswith("---"))
+        return f"+{plus} / -{minus}", [_r(x) for x in lines]
+
+    return "", []
+
+
+def _render_permission_dialog(request, result, *, expand_diff: bool = False) -> None:
+    """Phase 65: styled color-coded permission dialog via prompt_toolkit.
+
+    - Header: tool name + category badge, colored by PermissionCategory
+      (green=READ, yellow=SHELL, red=WRITE, cyan=META).
+    - Input preview, per tool type: Bash gets risk-colored command text
+      (reusing the acceptEdits classifier); Edit/Write/ApplyPatch get a
+      diff summary (+N / -M) and, if short (or "d" expanded), the diff
+      itself with +green/-red lines; WebFetch/WebSearch show the
+      URL/query; everything else falls back to a redacted JSON preview.
+    - All interpolated content is HTML-escaped and redacted — never raw
+      secrets, never a string that could break out of the markup.
+    """
+    import html as _html
+
+    def esc(s: str) -> str:
+        return _html.escape(str(s))
+
+    tool_name = getattr(request, "tool_name", "")
+    tool_input = request.tool_input if isinstance(request.tool_input, dict) else {}
+    category = getattr(getattr(request, "tool_category", None), "value", None) or "unknown"
+    reason = getattr(result, "reason", "") or "approval required"
+    cat_color = _CATEGORY_DIALOG_COLORS.get(category, "ansicyan")
+
+    lines = [
+        f"\n<b>Permission required:</b> <b>{esc(tool_name)}</b> "
+        f"<{cat_color}>[{esc(category)}]</{cat_color}>",
+        f"  Reason: {esc(reason)}",
+    ]
+
+    diff_summary = ""
+    diff_lines: list[str] = []
+    if tool_name == "Bash":
+        command = str(tool_input.get("command", ""))
+        verdict = _bash_risk_verdict(command)
+        color = _RISK_DIALOG_COLORS.get(verdict, "ansiyellow")
+        from d2c.observability import redact
+
+        safe_command = str(redact(command))
+        lines.append(f"  Command: <{color}>{esc(safe_command)}</{color}>")
+    elif tool_name == "WebFetch":
+        from d2c.observability import redact
+
+        url = str(redact(tool_input.get("url", "")))
+        lines.append(f"  URL: {esc(url)}")
+    elif tool_name == "WebSearch":
+        from d2c.observability import redact
+
+        query = str(redact(tool_input.get("query", "")))
+        lines.append(f"  Query: {esc(query)}")
+    elif tool_name in _DIFF_CAPABLE_TOOLS:
+        diff_summary, diff_lines = _diff_preview(tool_name, tool_input)
+        file_path = str(tool_input.get("file_path", ""))
+        lines.append(f"  {esc(file_path)}  ({esc(diff_summary)})")
+        if diff_lines and (expand_diff or len(diff_lines) < _INLINE_DIFF_THRESHOLD):
+            shown = diff_lines[:_MAX_DIFF_DISPLAY_LINES]
+            for d_line in shown:
+                if d_line.startswith("+") and not d_line.startswith("+++"):
+                    lines.append(f"    <ansigreen>{esc(d_line)}</ansigreen>")
+                elif d_line.startswith("-") and not d_line.startswith("---"):
+                    lines.append(f"    <ansired>{esc(d_line)}</ansired>")
+                else:
+                    lines.append(f"    {esc(d_line)}")
+            if len(diff_lines) > len(shown):
+                lines.append(f"    ... [{len(diff_lines) - len(shown)} more lines]")
+    else:
+        lines.append(f"  Input:  {esc(_tool_input_preview(tool_input))}")
+
+    choices = "[y] once  [a] session  [A] always  [n] deny"
+    if tool_name in _DIFF_CAPABLE_TOOLS and diff_lines and not expand_diff:
+        choices += "  [d] diff"
+    lines.append(f"  {choices}")
+
+    # file=sys.stdout (looked up fresh here, not cached) avoids a
+    # prompt_toolkit issue where its DEFAULT output object caches a stdout
+    # reference across calls — under pytest's capsys (which swaps sys.stdout
+    # per test), that stale reference raises "I/O operation on closed file"
+    # on the second call. Passing file= explicitly sidesteps the cache and
+    # is equally correct for a real terminal.
+    print_formatted_text(HTML("\n".join(lines)), file=sys.stdout)
+
+
+def make_interactive_approval(cache: "ApprovalCache"):
+    """Phase 52/64/65: build an approval callback backed by a session-scoped,
+    optionally-persistent cache, rendering a styled permission dialog.
+
+    Prompt options:
+      [y] allow once (not cached)
+      [a] session — cached in memory only; forgotten on clear()/restart even
+          if the cache is disk-backed
+      [A] always — cached AND persisted to disk (Phase 64), survives
+          clear()/restart
+      [d] diff — re-render with the full diff expanded, then re-prompt
+      anything else / empty — deny (default)
+
+    A cache hit (either scope) skips the full dialog and prints one styled
+    confirmation line, emitting ``permission_approved_cached``.
 
     Phase 59 fix: concurrent-safe tools (e.g. multiple reads in one turn)
     can all need approval at once. Without serialization, their prompts and
@@ -718,8 +883,18 @@ def make_interactive_approval(cache: "ApprovalCache"):
     """
     prompt_lock = asyncio.Lock()
 
+    def _cache_hit_line(request) -> None:
+        import html as _html
+
+        tool_name = _html.escape(str(getattr(request, "tool_name", "")))
+        print_formatted_text(
+            HTML(f"<ansigreen>✓</ansigreen> {tool_name} — approved (cached)"),
+            file=sys.stdout,
+        )
+
     async def _cb(request, result) -> bool:
         if cache.is_approved(request):
+            _cache_hit_line(request)
             audit(
                 "permission_approved_cached",
                 tool_name=request.tool_name,
@@ -728,25 +903,35 @@ def make_interactive_approval(cache: "ApprovalCache"):
             return True
         async with prompt_lock:
             if cache.is_approved(request):
+                _cache_hit_line(request)
                 audit(
                     "permission_approved_cached",
                     tool_name=request.tool_name,
                     category=getattr(request.tool_category, "value", None),
                 )
                 return True
-            for line in _permission_prompt_lines(request, result):
-                print(line)
-            try:
-                ans = (await asyncio.to_thread(input, "  Allow? [y/N/a]: ")).strip().lower()
-            except (EOFError, KeyboardInterrupt):
-                print()
+
+            expand_diff = False
+            while True:
+                _render_permission_dialog(request, result, expand_diff=expand_diff)
+                try:
+                    raw = (await asyncio.to_thread(input, "  Choice: ")).strip()
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    return False
+                low = raw.lower()
+                if low in ("d", "diff"):
+                    expand_diff = True
+                    continue
+                if low in ("y", "yes"):
+                    return True
+                if raw == "a" or low == "session":
+                    cache.approve(request, persist=False)
+                    return True
+                if raw == "A" or low == "always":
+                    cache.approve(request)
+                    return True
                 return False
-            if ans in ("y", "yes"):
-                return True
-            if ans in ("a", "always"):
-                cache.approve(request)
-                return True
-            return False
 
     return _cb
 

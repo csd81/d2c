@@ -50,16 +50,22 @@ async def test_interactive_prompt_shows_category_and_choices(monkeypatch, capsys
 
 
 @pytest.mark.asyncio
-async def test_cached_prompt_shows_yna_choices(monkeypatch, capsys):
+async def test_dialog_shows_scope_choices(monkeypatch, capsys):
+    # Phase 65: the styled dialog prints the scope choices as part of its
+    # body (via print_formatted_text), not embedded in the input() prompt
+    # string, which is now just a bare "  Choice: ".
     from d2c.approvals import ApprovalCache
     from d2c.main import make_interactive_approval
 
     cache = ApprovalCache()
     cb = make_interactive_approval(cache)
-    prompts = []
-    monkeypatch.setattr(builtins, "input", lambda p="": prompts.append(p) or "")
+    monkeypatch.setattr(builtins, "input", lambda p="": "")
     await cb(_req(), _ASK)
-    assert prompts and "[y/N/a]" in prompts[0]
+    out = capsys.readouterr().out
+    assert "[y] once" in out
+    assert "[a] session" in out
+    assert "[A] always" in out
+    assert "[n] deny" in out
 
 
 # ── Permission dialog: no secret leakage ────────────────────────────────

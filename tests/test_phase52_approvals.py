@@ -91,7 +91,7 @@ async def test_always_then_no_prompt_on_repeat(monkeypatch):
     cache = ApprovalCache()
     cb = make_interactive_approval(cache)
 
-    monkeypatch.setattr(builtins, "input", lambda *a: "a")  # user picks "always"
+    monkeypatch.setattr(builtins, "input", lambda *a: "a")  # user picks "session"
     assert await cb(_req(), _ASK) is True
     assert cache.is_approved(_req())
 

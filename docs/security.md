@@ -17,15 +17,21 @@ is protected, what is not, and what you should not rely on. The invariants below
   on stdin). Permission-evaluation errors **fail closed**. Every decision is audited
   (`permission_ask`/`approved`/`approved_cached`/`denied`/`required`/`approval_error`, correlated by
   tool-call id, no secrets).
-- **Approval cache: exact-match, hash-only, persisted across restarts (Phase 64).** The `a` cache
-  stores only SHA-256 hashes of the exact action (tool + category + full input — never raw command
-  text), matches exact repeats only (no shell generalization), and writes atomically (temp file +
-  rename) to `~/.d2c/approvals.json` — the same trust tier as `trusted.json` and sessions, no new
-  boundary. `/clear`/`/resume`/`/fork` reset only the **in-memory** view for that session; the
-  persisted file is untouched, so a fresh session or a restarted process reloads it — that's the
-  point (approve a repeated action once, not every session). A corrupted or unreadable file is
-  logged and treated as empty, never crashes startup. To forget everything, delete the file (there's
-  no in-app "forget all" command).
+- **Approval cache: exact-match, hash-only, two scopes (Phases 64/65).** `[a]` "session" caches an
+  exact action in memory only — forgotten on `/clear`/`/resume`/`/fork` or restart, like the original
+  Phase 52 design. `[A]` "always" additionally persists it: only SHA-256 hashes of the exact action
+  (tool + category + full input — never raw command text) are written atomically (temp file + rename)
+  to `~/.d2c/approvals.json` — the same trust tier as `trusted.json` and sessions, no new boundary.
+  Both scopes match exact repeats only (no shell generalization). `/clear`/`/resume`/`/fork` reset
+  only the **in-memory** view for that session either way; a persisted `[A]` entry survives, so a
+  fresh session or a restarted process reloads it — that's the point (approve a repeated action once,
+  not every session). A corrupted or unreadable file is logged and treated as empty, never crashes
+  startup. To forget everything, delete the file (there's no in-app "forget all" command).
+- **Permission dialog rendering (Phase 65).** The styled dialog only ever displays what's already in
+  the tool's `tool_input` — Edit/Write/ApplyPatch diff previews are computed from the stored
+  old/new/patch text, never by reading the file from disk. Every interpolated value (command, URL,
+  query, diff lines) is HTML-escaped and routed through the same `observability.redact()` used
+  elsewhere, so secrets are redacted in the dialog exactly as in the audit log.
 - **Read-before-Write.** Write/Edit/ReplaceMany/JsonEdit require the file to have been Read first.
   Paths are **canonicalized** (`..`/`.`/symlinks resolved), so alternate spellings or a symlink alias
   cannot bypass the guard, and you can't read one realpath then mutate a different one.

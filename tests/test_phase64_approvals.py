@@ -255,10 +255,11 @@ def test_concurrent_saves_do_not_corrupt_the_file(tmp_path):
 async def test_repl_callback_persists_and_reloads_across_sessions(tmp_path, monkeypatch):
     path = tmp_path / "approvals.json"
 
-    # Session 1: user picks "always".
+    # Session 1: user picks "A" (always — persisted; Phase 65 distinguishes
+    # this from lowercase "a", which is session-only and NOT persisted).
     session1_cache = ApprovalCache(path=path)
     cb1 = make_interactive_approval(session1_cache)
-    monkeypatch.setattr(builtins, "input", lambda *a: "a")
+    monkeypatch.setattr(builtins, "input", lambda *a: "A")
     assert await cb1(_req("deploy.sh"), _ASK) is True
 
     # Session 2 (new ApprovalCache instance against the same file, as
@@ -279,7 +280,7 @@ async def test_repl_callback_new_session_still_prompts_for_new_action(tmp_path, 
     path = tmp_path / "approvals.json"
     session1_cache = ApprovalCache(path=path)
     cb1 = make_interactive_approval(session1_cache)
-    monkeypatch.setattr(builtins, "input", lambda *a: "a")
+    monkeypatch.setattr(builtins, "input", lambda *a: "A")
     await cb1(_req("known-cmd"), _ASK)
 
     session2_cache = ApprovalCache(path=path)

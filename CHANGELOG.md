@@ -5,10 +5,16 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
-- **Phase 64:** approval cache (`a` / "always allow") now persists across sessions and process
-  restarts to `~/.d2c/approvals.json` (SHA-256 hashes + timestamps only, atomic writes). `/clear`,
-  `/resume`, and `/fork` still reset the in-memory view for the current session; the persisted file
-  is untouched.
+- **Phase 65:** the REPL's bare-text `Allow? [y/N/a]:` permission prompt is now a styled, color-coded
+  dialog (`prompt_toolkit`, no new dependency): category-colored header, Bash commands risk-colored
+  via the existing `acceptEdits` classifier, and Edit/Write/ApplyPatch get a `+N / -M` diff summary
+  (short diffs shown inline, longer ones behind a `[d]` expand action) — computed only from the
+  already-provided tool input, never a speculative disk read. The approval scopes are now `[y]` once,
+  `[a]` session (in-memory only, not persisted), `[A]` always (persisted, splitting out what Phase 64
+  called `a`), `[n]` deny.
+- **Phase 64:** approval cache (now `A` / "always") persists across sessions and process restarts to
+  `~/.d2c/approvals.json` (SHA-256 hashes + timestamps only, atomic writes). `/clear`, `/resume`, and
+  `/fork` still reset the in-memory view for the current session; the persisted file is untouched.
 
 ## 0.1.0 — 2026-07-01
 

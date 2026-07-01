@@ -74,9 +74,19 @@ class ApprovalCache:
     def is_approved(self, request: Any) -> bool:
         return self._key(request) in self._keys
 
-    def approve(self, request: Any) -> None:
+    def approve(self, request: Any, *, persist: bool = True) -> None:
+        """Approve an exact action for the runtime session.
+
+        Phase 65: ``persist=False`` (the REPL's "session" scope, [a]) adds
+        the action to the in-memory set only — it behaves exactly like the
+        Phase 52 in-memory-only cache and disappears on ``clear()``/restart,
+        even if this cache has a disk path. ``persist=True`` (the default,
+        and the REPL's "always" scope, [A]) additionally writes through to
+        disk when a path is configured, so it survives ``clear()`` and
+        process restarts (Phase 64).
+        """
         self._keys[self._key(request)] = datetime.now(timezone.utc).isoformat()
-        if self._path is not None:
+        if persist and self._path is not None:
             self.save()
 
     def clear(self) -> None:
