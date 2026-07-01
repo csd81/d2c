@@ -80,10 +80,12 @@ class FileWriteTool(Tool):
         try:
             path.write_text(content, encoding="utf-8")
             _read_files.add(str(path))  # mark as read for subsequent writes
-            return ToolResult(
+            result = ToolResult(
                 output=f"Successfully wrote {len(content)} bytes to {file_path}.",
                 metadata={"bytes_written": len(content), "lines": content.count('\n') + 1},
             )
+            from d2c.tools import notify_file_access
+            return notify_file_access(path, result)
         except OSError as e:
             return ToolResult(output=f"Error writing file: {e}", error=True)
 

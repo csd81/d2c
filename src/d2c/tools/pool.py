@@ -27,6 +27,8 @@ from d2c.tools.tool_search import DeferredToolSchema, ToolSearchTool
 from d2c.tools.web_fetch import WebFetchTool
 from d2c.tools.web_search import WebSearchTool
 from d2c.tools.write_tool import FileWriteTool
+from d2c.tools.background_status import BackgroundStatusTool
+from d2c.tools.memory_tool import MemoryTool
 
 if TYPE_CHECKING:
     from d2c.tools import Tool
@@ -64,6 +66,7 @@ class Config:
     deny_rules: list[Rule] = field(default_factory=list)
     os: str = field(default="")
     deferred_tools: bool = field(default=False)
+    sandbox_config: object | None = field(default=None)  # Phase 34: SandboxConfig
 
     def __post_init__(self):
         import platform
@@ -88,7 +91,7 @@ def getAllBaseTools(config: Config) -> list[Tool]:
         FileEditTool(),
         NotebookEditTool(),
         # Shell tools
-        BashTool(cwd=config.cwd),
+        BashTool(cwd=config.cwd, sandbox_config=config.sandbox_config),
         # Meta/agent tools
         AgentTool(),
         SkillTool(skills=skills),
@@ -101,6 +104,9 @@ def getAllBaseTools(config: Config) -> list[Tool]:
         TaskListTool(),
         # Tool search (Phase 20: deferred schemas)
         ToolSearchTool(),
+        # Phase 34: background subagent status + auto-memory
+        BackgroundStatusTool(),
+        MemoryTool(),
     ]
 
     # Filter disabled tools before wrapping (Phase 20 compatibility)

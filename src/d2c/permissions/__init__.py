@@ -98,10 +98,49 @@ class PermissionEngine:
     def set_path_rules(self, path_rules: "PathScopedRules | None") -> None:
         """Phase 21: Attach path-scoped rules for dynamic rule lookup.
 
-        When set, evaluate() and evaluate_async() will consult path-scoped
-        rules applicable to the current file being accessed.
+        When set, evaluate() and evaluate_async() consult path-scoped rules
+        applicable to the file in the request (via _path_scoped_decision),
+        loading each directory's .d2c/rules/*.md lazily on first access.
         """
         self._path_rules = path_rules
+
+    def _path_scoped_decision(self, request: "PermissionRequest") -> "PermissionResult | None":
+        """Phase 34: consult path-scoped rules for the file in this request.
+
+        Returns a DENY/ALLOW result if a path rule matches, else None (so the
+        caller falls through to mode defaults). Deny wins over allow. The
+        directory is loaded lazily on first access, so newly-entered
+        directories contribute their rules mid-conversation.
+        """
+        if not self._path_rules:
+            return None
+        p = (
+            request.tool_input.get("file_path")
+            or request.tool_input.get("path")
+            or request.tool_input.get("notebook_path")
+        )
+        if not p:
+            return None
+        from pathlib import Path
+        fp = Path(str(p))
+        try:
+            self._path_rules.on_directory_accessed(fp.parent)
+            dyn_rules = self._path_rules.get_rules_for_path(fp)
+        except Exception:
+            return None
+        for rule in dyn_rules:
+            if rule.rule_type == RuleType.DENY and rule.matches(request.tool_name, request.tool_input):
+                return PermissionResult(
+                    PermissionDecision.DENY,
+                    reason=rule.reason or f"Denied by path rule: {rule.pattern}",
+                )
+        for rule in dyn_rules:
+            if rule.rule_type == RuleType.ALLOW and rule.matches(request.tool_name, request.tool_input):
+                return PermissionResult(
+                    PermissionDecision.ALLOW,
+                    reason=rule.reason or f"Allowed by path rule: {rule.pattern}",
+                )
+        return None
 
     def add_rules(self, new_rules: list[PermissionRule]) -> None:
         """Phase 21: Dynamically add rules mid-conversation.
@@ -127,6 +166,11 @@ class PermissionEngine:
                     reason=rule.reason or f"Allowed by rule: {rule.pattern}",
                 )
 
+        # Step 2b: Path-scoped rules (Phase 21/34) — lazily loaded per directory
+        path_result = self._path_scoped_decision(request)
+        if path_result is not None:
+            return path_result
+
         # Step 3: Mode-based defaults
         return self._mode_default(request)
 
@@ -147,6 +191,11 @@ class PermissionEngine:
                     PermissionDecision.ALLOW,
                     reason=rule.reason or f"Allowed by rule: {rule.pattern}",
                 )
+
+        # Step 2b: Path-scoped rules (Phase 21/34) — lazily loaded per directory
+        path_result = self._path_scoped_decision(request)
+        if path_result is not None:
+            return path_result
 
         # Step 3: Mode-based defaults (async for AUTO)
         if self.mode == PermissionMode.AUTO and self._classifier:
@@ -262,7 +311,14 @@ class PermissionEngine:
                     pattern=r.get("pattern", ""),
                     reason=r.get("reason", ""),
                 ))
-        return cls(mode=mode, rules=rules)
+        engine = cls(mode=mode, rules=rules)
+        # Phase 34: attach path-scoped rules so .d2c/rules/*.md are enforced.
+        try:
+            from d2c.path_rules import PathScopedRules
+            engine.set_path_rules(PathScopedRules())
+        except Exception:
+            pass
+        return engine
 
 
 # ── Authorization pipeline ───────────────────────────────────────────

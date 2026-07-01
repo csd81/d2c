@@ -76,9 +76,16 @@ class LoopState:
     messages: list[dict[str, Any]]
     turn_count: int = 0
     output_tokens_recovery_attempts: int = 0
-    has_attempted_reactive_compact: bool = False
+    has_attempted_reactive_compact: bool = False  # reactive: on prompt-too-long error
+    has_attempted_proactive_compact: bool = False  # proactive: pressure-triggered auto-compact
     stopped: bool = False
     stop_reason: str | None = None
+
+
+# Phase 34: max escalating retries when the model truncates at the output cap
+MAX_OUTPUT_TOKENS_RECOVERY = 3
+BASE_MAX_TOKENS = 8192
+MAX_MAX_TOKENS = 32768
 
 
 # ── Loop config ──────────────────────────────────────────────────────
@@ -486,9 +493,9 @@ async def queryLoop(
 
             # Shaper 5: Auto-compact (destructive — mutates state, once per session)
             if checkPressure(messages_for_query, compact_config):
-                if not state.has_attempted_reactive_compact:
+                if not state.has_attempted_proactive_compact:
                     state.messages = await autoCompact(state.messages, loop_config)
-                    state.has_attempted_reactive_compact = True
+                    state.has_attempted_proactive_compact = True
                     messages_for_query = state.messages
         else:
             messages_for_query = state.messages
@@ -523,6 +530,13 @@ async def queryLoop(
         # --- Model call (Phase 10: streaming) ---
         text = ""
         tool_uses: list[ToolUse] = []
+        response_stop_reason: str | None = None
+
+        # Phase 34: escalate the output budget on each recovery attempt.
+        recovery_max_tokens = min(
+            BASE_MAX_TOKENS * (2 ** state.output_tokens_recovery_attempts),
+            MAX_MAX_TOKENS,
+        )
 
         stream_executor: StreamingToolExecutor | None = None
 
@@ -536,7 +550,7 @@ async def queryLoop(
 
                 async with client.messages.stream(
                     model=loop_config.model,
-                    max_tokens=8192,
+                    max_tokens=recovery_max_tokens,
                     system=system_param,
                     messages=anthropic_messages,
                     tools=api_tools,
@@ -587,6 +601,7 @@ async def queryLoop(
                     final_msg = await stream.get_final_message()
                     text = _response_text(final_msg)
                     tool_uses = _extract_tool_uses(final_msg)
+                    response_stop_reason = getattr(final_msg, "stop_reason", None)
                 except Exception:
                     # Fallback: use accumulated text
                     text = accumulated
@@ -602,13 +617,14 @@ async def queryLoop(
                 # Non-streaming fallback
                 response = await client.messages.create(
                     model=loop_config.model,
-                    max_tokens=8192,
+                    max_tokens=recovery_max_tokens,
                     system=system_param,
                     messages=anthropic_messages,
                     tools=api_tools,
                 )
                 text = _response_text(response)
                 tool_uses = _extract_tool_uses(response)
+                response_stop_reason = getattr(response, "stop_reason", None)
         except anthropic.AuthenticationError as e:
             yield TextResponse(text=f"Authentication failed: {e}\nCheck your DEEPSEEK_API_KEY.")
             state.stopped = True
@@ -652,6 +668,16 @@ async def queryLoop(
             _record(loop_config.session_store, "system", "",
                     event="session_stop", stop_reason="api_error")
             break
+
+        # Phase 34: output-token recovery. If the response was truncated at the
+        # output cap (and isn't a tool call), retry the turn with a larger
+        # budget, up to MAX_OUTPUT_TOKENS_RECOVERY attempts. Reset on success.
+        if response_stop_reason == "max_tokens" and not tool_uses:
+            if state.output_tokens_recovery_attempts < MAX_OUTPUT_TOKENS_RECOVERY:
+                state.output_tokens_recovery_attempts += 1
+                continue
+        else:
+            state.output_tokens_recovery_attempts = 0
 
         # --- Check for text-only response (primary stop condition) ---
         if not tool_uses:

@@ -135,7 +135,7 @@ class FileEditTool(Tool):
             return ToolResult(output=f"Error writing file: {e}", error=True)
 
         replaced = occurrences if replace_all else 1
-        return ToolResult(
+        result = ToolResult(
             output=f"Successfully replaced {replaced} occurrence(s) in {file_path}.",
             metadata={
                 "occurrences_replaced": replaced,
@@ -144,3 +144,5 @@ class FileEditTool(Tool):
                 "bytes_after": len(new_content),
             },
         )
+        from d2c.tools import notify_file_access
+        return notify_file_access(path, result)

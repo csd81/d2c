@@ -174,6 +174,9 @@ class Config:
     # --- Prompt Caching (Phase 26) ---
     prompt_caching_enabled: bool = True  # Anthropic prompt caching with 4 breakpoints
 
+    # --- Shell sandboxing (Phase 34) ---
+    sandbox_enabled: bool = False  # gate BashTool execution through SandboxExecutor
+
     # --- OS ---
     os: str = field(default="")
 
@@ -214,12 +217,14 @@ class Config:
         api_key = os.environ.get("DEEPSEEK_API_KEY")
         base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic")
         model = os.environ.get("D2C_MODEL", "deepseek-v4-pro")
+        sandbox_enabled = os.environ.get("D2C_SANDBOX", "").lower() in ("1", "true", "yes", "on")
 
         return cls(
             model=model,
             deepseek_api_key=api_key,
             deepseek_base_url=base_url,
             cwd=project_dir,
+            sandbox_enabled=sandbox_enabled,
         )
 
     def validate(self) -> list[str]:

@@ -125,7 +125,8 @@ class AgentTool(Tool):
                 output=(
                     f"[Subagent '{definition.name}' launched in background]\n"
                     f"ID: {subagent_id}\n"
-                    f"Use background status tools to check progress and retrieve results."
+                    f"Use the AgentStatus tool (subagent_id='{subagent_id}') to check "
+                    f"progress and retrieve the result."
                 ),
                 metadata={
                     "subagent_type": definition.name,

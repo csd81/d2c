@@ -76,13 +76,23 @@ class FileReadTool(Tool):
         ext = path.suffix.lower()
 
         if ext == ".pdf":
-            return await self._read_pdf(path)
+            result = await self._read_pdf(path)
         elif ext in self.IMAGE_EXTENSIONS:
-            return await self._read_image(path)
+            result = await self._read_image(path)
         elif ext == ".ipynb":
-            return await self._read_notebook(path)
+            result = await self._read_notebook(path)
         else:
-            return await self._read_text(path, offset, limit)
+            result = await self._read_text(path, offset, limit)
+
+        # Phase 34: register the file as read so Write/Edit's "must Read
+        # first" guard is satisfiable, and surface any nested project memory.
+        if not result.error:
+            from d2c.tools.write_tool import mark_file_read
+            from d2c.tools import notify_file_access
+            mark_file_read(str(path))
+            result = notify_file_access(path, result)
+
+        return result
 
     async def _read_text(self, path: Path, offset: int, limit: int) -> ToolResult:
         try:

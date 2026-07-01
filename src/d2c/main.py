@@ -36,8 +36,11 @@ from d2c.tools.pool import Config as PoolConfig
 from d2c.tools.pool import assembleToolPool
 from d2c.plugins.loader import PluginLoader
 from d2c.hooks import HookDefinition, HookEvent, HookType
-from d2c.file_history import FileHistory
+from d2c.file_history import FileHistory as SessionFileHistory, FileHistoryTracker
 from d2c.history import PromptHistory
+from d2c.tools import set_file_history_tracker, set_active_hooks, set_active_memory_loader
+from d2c.sandbox import SandboxConfig
+from d2c.memory import LazyMemoryLoader
 
 
 def parse_args() -> argparse.Namespace:
@@ -338,6 +341,64 @@ def get_statusbar_text(
     )
 
 
+async def _wire_runtime(config: Config, session_store, hook_registry) -> None:
+    """Phase 34: connect the built-but-inert runtime subsystems.
+
+    - File-history tracker so Write/Edit checkpoint and --rewind-files works.
+    - Active hooks accessor so tools (e.g. Task tools) can fire lifecycle events.
+    - Active memory loader so file access surfaces nested CLAUDE.md / path rules.
+    - Fire the SessionStart hook.
+    """
+    if session_store is not None:
+        base_dir = Path.home() / ".d2c"
+        file_history = SessionFileHistory(base_dir, session_store.session_id, cwd=config.cwd)
+        set_file_history_tracker(FileHistoryTracker(file_history))
+    set_active_hooks(hook_registry)
+    set_active_memory_loader(LazyMemoryLoader(config.cwd))
+    await hook_registry.fire(HookEvent.SESSION_START, {
+        "session_id": session_store.session_id if session_store else None,
+        "cwd": str(config.cwd),
+    })
+
+
+def _pool_config_from(config: Config) -> "PoolConfig":
+    """Build the tool-pool config, wiring sandbox settings (Phase 34)."""
+    return PoolConfig(
+        cwd=config.cwd,
+        sandbox_config=SandboxConfig(enabled=config.sandbox_enabled),
+    )
+
+
+def _print_help() -> None:
+    """Phase 34: REPL slash-command help."""
+    print(
+        "Commands:\n"
+        "  /help            Show this help\n"
+        "  /settings        Show current model, mode, cwd, trust\n"
+        "  /clear           Start a fresh session (clears conversation)\n"
+        "  /resume <id>     Resume a saved session\n"
+        "  /fork <id>       Fork a new session from an existing one\n"
+        "  /exit, /quit     Leave the REPL"
+    )
+
+
+def _print_settings(config: Config) -> None:
+    """Phase 34: print current session settings."""
+    from d2c.trust import get_trust_gate
+    try:
+        trusted = get_trust_gate().is_project_trusted
+    except Exception:
+        trusted = "unknown"
+    print(
+        f"Settings:\n"
+        f"  model:       {config.model}\n"
+        f"  permission:  {config.permission_mode}\n"
+        f"  cwd:         {config.cwd}\n"
+        f"  sandbox:     {'on' if config.sandbox_enabled else 'off'}\n"
+        f"  trusted:     {trusted}"
+    )
+
+
 async def run_headless(prompt: str, args: argparse.Namespace) -> None:
     """Single-shot headless execution: claude -p equivalent."""
     config = Config.load(args.cwd)
@@ -369,8 +430,11 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
     hook_registry = HookRegistry.from_config(config)
     plugin_skills, plugin_agents = _load_plugins(config, hook_registry)
 
+    # Phase 34: wire runtime subsystems + fire SessionStart
+    await _wire_runtime(config, session_store, hook_registry)
+
     # Assemble tools
-    pool_config = PoolConfig(cwd=config.cwd)
+    pool_config = _pool_config_from(config)
     tools = await assembleToolPool(pool_config)
 
     # Build loop config
@@ -416,6 +480,20 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
         "session_id": session_store.session_id if session_store else None,
         "model": config.model,
     })
+
+    # Phase 34: Fire UserPromptSubmit; honor block / injected context.
+    ups = await hook_registry.fire(HookEvent.USER_PROMPT_SUBMIT, {
+        "prompt": prompt,
+        "session_id": session_store.session_id if session_store else None,
+    })
+    if getattr(ups, "decision", None) == "deny" or getattr(ups, "veto", False):
+        print("[prompt blocked by UserPromptSubmit hook]")
+        await hook_registry.fire(HookEvent.SESSION_END, {
+            "session_id": session_store.session_id if session_store else None,
+        })
+        return
+    if getattr(ups, "additional_context", None):
+        messages.insert(0, {"role": "user", "content": ups.additional_context})
 
     # Run loop
     try:
@@ -473,13 +551,16 @@ async def run_interactive(args: argparse.Namespace) -> None:
     hook_registry = HookRegistry.from_config(config)
     plugin_skills, plugin_agents = _load_plugins(config, hook_registry)
 
+    # Phase 34: wire runtime subsystems + fire SessionStart
+    await _wire_runtime(config, session_store, hook_registry)
+
     compact_config = CompactConfig(
         tool_result_max_chars=config.tool_result_max_chars,
         pressure_threshold=config.pressure_threshold,
         context_window_tokens=config.context_window_tokens,
     )
 
-    pool_config = PoolConfig(cwd=config.cwd)
+    pool_config = _pool_config_from(config)
     tools = await assembleToolPool(pool_config)
 
     system_context = getSystemContext(config)
@@ -510,6 +591,7 @@ async def run_interactive(args: argparse.Namespace) -> None:
     )
 
     active_tasks = 0
+    conversation: list[dict] = []  # Phase 34: running multi-turn history
 
     try:
         while True:
@@ -530,12 +612,60 @@ async def run_interactive(args: argparse.Namespace) -> None:
 
             if not prompt_text:
                 continue
-            if prompt_text.lower() in ("/exit", "/quit", "exit", "quit", "q"):
+
+            # ── Slash commands (Phase 34) ─────────────────────────────
+            low = prompt_text.lower()
+            if low in ("/exit", "/quit", "exit", "quit", "q"):
                 break
+            if low == "/help":
+                _print_help()
+                continue
+            if low == "/settings":
+                _print_settings(config)
+                continue
+            if low == "/clear":
+                session_store = SessionManager().create_session(config.cwd)
+                conversation = []
+                print(f"Cleared. New session: {session_store.session_id}")
+                continue
+            if low.startswith("/resume"):
+                parts = prompt_text.split()
+                if len(parts) < 2:
+                    print("Usage: /resume <session_id>")
+                    continue
+                try:
+                    session_store, restored = SessionManager().resume_session(parts[1], config.cwd)
+                    conversation = list(restored)
+                    print(f"Resumed session {session_store.session_id} ({len(conversation)} messages).")
+                except Exception as e:
+                    print(f"Could not resume: {e}")
+                continue
+            if low.startswith("/fork"):
+                parts = prompt_text.split()
+                if len(parts) < 2:
+                    print("Usage: /fork <session_id>")
+                    continue
+                try:
+                    session_store = SessionManager().fork_session(parts[1], config.cwd)
+                    _, restored = SessionManager().resume_session(parts[1], config.cwd)
+                    conversation = list(restored)
+                    print(f"Forked {parts[1]} → new session {session_store.session_id}.")
+                except Exception as e:
+                    print(f"Could not fork: {e}")
+                continue
 
             # Phase 22: Record prompt in global history
             prompt_history = PromptHistory()
             prompt_history.append(prompt_text)
+
+            # Phase 34: UserPromptSubmit hook — honor block / injected context
+            ups = await hook_registry.fire(HookEvent.USER_PROMPT_SUBMIT, {
+                "prompt": prompt_text,
+                "session_id": session_store.session_id if session_store else None,
+            })
+            if getattr(ups, "decision", None) == "deny" or getattr(ups, "veto", False):
+                print("[prompt blocked by UserPromptSubmit hook]")
+                continue
 
             loop_config = LoopConfig(
                 system_prompt=system_prompt,
@@ -553,11 +683,16 @@ async def run_interactive(args: argparse.Namespace) -> None:
                 stream=True,  # Phase 10: streaming enabled
             )
 
+            # Phase 34: multi-turn — carry running conversation into the loop
+            if getattr(ups, "additional_context", None):
+                conversation.append({"role": "user", "content": ups.additional_context})
+            conversation.append({"role": "user", "content": prompt_text})
+
             full_prompt, messages = assembleMessages(
                 loop_config.system_prompt,
                 system_context,
                 loop_config.user_context,
-                [{"role": "user", "content": prompt_text}],
+                list(conversation),
             )
             loop_config.system_prompt = full_prompt
             # Record user message
@@ -567,12 +702,15 @@ async def run_interactive(args: argparse.Namespace) -> None:
                     timestamp=_utc_now(), entry_type="message",
                 ))
 
+            assistant_text = ""
             try:
                 async for event in queryLoop(loop_config, messages):
                     if isinstance(event, TextDelta):
                         print(event.text, end="", flush=True)
+                        assistant_text += event.text
                     elif isinstance(event, LoopTextResponse):
                         print(f"\n{event.text}\n")
+                        assistant_text = event.text
                     elif isinstance(event, ToolExecutionEvent):
                         print(f"  [{event.tool_use.name}] {event.result.output[:200]}", end="")
                         if len(event.result.output) > 200:
@@ -584,6 +722,10 @@ async def run_interactive(args: argparse.Namespace) -> None:
                             print(f"  [stopped: {event.reason}]")
             except Exception as e:
                 print(f"Error: {e}")
+
+            # Phase 34: append assistant turn so the next prompt has context
+            if assistant_text:
+                conversation.append({"role": "assistant", "content": assistant_text})
     finally:
         # Phase 15: Fire SessionEnd hook
         await hook_registry.fire(HookEvent.SESSION_END, {
@@ -678,7 +820,7 @@ def main() -> None:
     # Phase 23: Handle --rewind-files (no project config needed)
     if args.rewind_files:
         base_dir = Path.home() / ".d2c"
-        restored = FileHistory.rewind_session(
+        restored = SessionFileHistory.rewind_session(
             base_dir, args.rewind_files, cwd=args.cwd,
         )
         if restored:

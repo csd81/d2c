@@ -72,3 +72,58 @@ def set_file_history_tracker(tracker: Any) -> None:
 
 def get_file_history_tracker() -> Any:
     return _file_history_tracker
+
+
+# ── Phase 34: Active runtime accessors ────────────────────────────────
+#
+# tool.execute() is called as tool.execute(**tu.input) with no context
+# object, and runs via two paths (loop._execute_one_tool and
+# streaming_executor). Rather than thread a context arg through both, we
+# expose the current session's hooks and memory loader as module globals
+# (same pattern as the file-history tracker above), set once at startup.
+
+_active_hooks: Any = None
+_active_memory_loader: Any = None
+
+
+def set_active_hooks(hooks: Any) -> None:
+    """Set the active HookRegistry so tools can fire lifecycle events."""
+    global _active_hooks
+    _active_hooks = hooks
+
+
+def get_active_hooks() -> Any:
+    return _active_hooks
+
+
+def set_active_memory_loader(loader: Any) -> None:
+    """Set the active LazyMemoryLoader for nested-directory memory loading."""
+    global _active_memory_loader
+    _active_memory_loader = loader
+
+
+def get_active_memory_loader() -> Any:
+    return _active_memory_loader
+
+
+def notify_file_access(path: Any, result: "ToolResult") -> "ToolResult":
+    """Surface nested CLAUDE.md / path rules for a file the agent just touched.
+
+    Called by Read/Write/Edit after a successful operation. Appends any
+    newly-discovered project instructions to the tool result so they enter
+    the model's context. Best-effort: never raises into the tool path.
+    """
+    if result.error:
+        return result
+    loader = get_active_memory_loader()
+    if loader is None:
+        return result
+    try:
+        from pathlib import Path as _Path
+        extra = loader.on_file_accessed(_Path(str(path)))
+    except Exception:
+        extra = None
+    if extra:
+        parent = str(path)
+        result.output += f"\n\n[Project instructions loaded for {parent}]\n{extra}"
+    return result

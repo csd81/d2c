@@ -248,6 +248,15 @@ async def spawn_subagent(
             # Capture diff even on error
             if worktree_ctx and worktree_manager:
                 diff_output = worktree_manager.get_changes(worktree_ctx)
+            # Phase 34: Fire SubagentStop even on failure
+            if parent_hooks:
+                await parent_hooks.fire(HookEvent.SUBAGENT_STOP, {
+                    "subagent_id": subagent_id,
+                    "summary": f"Subagent error: {e}",
+                    "tool_calls": tool_calls,
+                    "turns": turns,
+                    "success": False,
+                })
             return SubagentResult(
                 summary=f"Subagent error: {e}",
                 tool_calls=tool_calls,
@@ -260,6 +269,16 @@ async def spawn_subagent(
         # Capture diff from worktree
         if worktree_ctx and worktree_manager:
             diff_output = worktree_manager.get_changes(worktree_ctx)
+
+        # Phase 34: Fire SubagentStop on parent hooks
+        if parent_hooks:
+            await parent_hooks.fire(HookEvent.SUBAGENT_STOP, {
+                "subagent_id": subagent_id,
+                "summary": final_text,
+                "tool_calls": tool_calls,
+                "turns": turns,
+                "success": True,
+            })
 
         return SubagentResult(
             summary=final_text,
@@ -464,6 +483,17 @@ class BackgroundSubagentManager:
     @property
     def active_ids(self) -> list[str]:
         return list(self._running.keys())
+
+    def statuses(self) -> dict[str, str]:
+        """Phase 34: map every known subagent id → status (running/completed/failed)."""
+        result: dict[str, str] = {}
+        for sid in self._running:
+            result[sid] = "running"
+        for sid in self._completed:
+            result[sid] = "completed"
+        for sid in self._failed:
+            result[sid] = "failed"
+        return result
 
 
 # ── Singleton access ───────────────────────────────────────────────────

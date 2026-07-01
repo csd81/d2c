@@ -116,6 +116,18 @@ def getUserContext(config: "Config") -> str:
     memory = loadClaudeMdHierarchy(cwd)
     if memory:
         parts.append(memory)
+
+    # Phase 34: recall saved auto-memories by injecting the MEMORY.md index.
+    try:
+        from d2c.memory import AutoMemoryStore
+        index_file = AutoMemoryStore.INDEX_FILE
+        if index_file.exists():
+            index = index_file.read_text(encoding="utf-8").strip()
+            if index:
+                parts.append(f"# Saved memories (from MEMORY.md)\n{index}")
+    except Exception:
+        pass
+
     return "\n\n".join(parts)
 
 

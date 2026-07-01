@@ -16,6 +16,23 @@ from typing import Any, ClassVar
 from d2c.tools import PermissionCategory, Tool, ToolResult
 
 
+async def _fire_task_hook(event_name: str, payload: dict) -> None:
+    """Phase 34: fire a task lifecycle hook via the active HookRegistry.
+
+    Task tools receive no hooks handle, so we read the process-wide active
+    registry (set at startup). Best-effort — never raises into the tool.
+    """
+    from d2c.tools import get_active_hooks
+    hooks = get_active_hooks()
+    if hooks is None:
+        return
+    try:
+        from d2c.hooks import HookEvent
+        await hooks.fire(HookEvent[event_name], payload)
+    except Exception:
+        pass
+
+
 # ── In-memory task store (per-session) ───────────────────────────────────
 
 class TaskStore:
@@ -90,6 +107,7 @@ class TaskCreateTool(Tool):
     async def execute(self, subject: str, description: str) -> ToolResult:
         store = TaskStore.get_store()
         task = store.create(subject, description)
+        await _fire_task_hook("TASK_CREATED", {"task": task})
         return ToolResult(
             output=f"Task #{task['id']} created: {subject}\nStatus: {task['status']}",
             metadata={"task": task},
@@ -181,6 +199,8 @@ class TaskUpdateTool(Tool):
 
         updated = store.update(taskId, **updates)
         if updated:
+            if status == "completed":
+                await _fire_task_hook("TASK_COMPLETED", {"task": updated})
             return ToolResult(
                 output=f"Task #{taskId} updated: {updated['subject']} → {updated['status']}",
                 metadata={"task": updated},
