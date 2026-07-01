@@ -41,6 +41,15 @@ is protected, what is not, and what you should not rely on. The invariants below
   results through the same untrusted-content wrapper above regardless of provider.
 - **Subagent isolation.** Subagents run with their own context and tool pool; optional git-worktree
   isolation for filesystem separation.
+- **Scoped settings, managed lock (Phase 60).** `Config.load()` layers `permission_mode` /
+  `sandbox_enabled` / `permission_rules` / `hooks` from managed (`/etc/d2c/settings.yaml`) → user
+  (`~/.d2c/settings.yaml`) → project → local YAML. A value set at the managed scope **cannot be
+  overridden** by any lower scope — attempted overrides are recorded and surfaced as warnings, never
+  silently applied. `permission_rules`/`hooks` are **unioned** across scopes rather than replaced, so
+  a managed deny rule always survives into the engine regardless of what a project/local scope adds
+  (the permission engine checks all deny rules before any allow rule). Project/local settings are
+  trust-gated the same as `.env`/CLAUDE.md. Malformed entries are reported, not applied, and never
+  crash the session.
 
 ## Known limitations (do not over-rely)
 
@@ -74,6 +83,9 @@ is protected, what is not, and what you should not rely on. The invariants below
   local extensions.
 - Do not put secrets in tool inputs/prompts expecting redaction to catch every shape — redaction
   covers known secret shapes, not arbitrary sensitive strings.
+- Do not put secrets in scoped settings YAML (`settings.yaml`/`settings.local.yaml`) — those files
+  are meant for policy (permission mode, rules, hooks), not credentials; keep secrets in `.env` or
+  environment variables, which have their own (still not foolproof) redaction/trust handling.
 
 ## Reporting
 

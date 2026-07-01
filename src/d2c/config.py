@@ -12,6 +12,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from d2c.permissions import PermissionRule
 from d2c.tools.pool import Rule
 
 # ── DeepSeek model name mapping ─────────────────────────────────────────
@@ -155,7 +156,12 @@ class Config:
 
     # --- Permission (Phase 3) ---
     permission_mode: str = "default"
-    permission_rules: list[Rule] = field(default_factory=list)
+    # PermissionEngine.from_config() accepts any mix of these three shapes;
+    # Phase 60 settings loading always produces plain dicts.
+    permission_rules: list[Rule | PermissionRule | dict] = field(default_factory=list)
+
+    # --- Scoped settings (Phase 60) ---
+    settings_warnings: list[str] = field(default_factory=list)
 
     # --- Compaction (Phase 5) ---
     tool_result_max_chars: int = 30_000
@@ -210,11 +216,15 @@ class Config:
     def load(cls, cwd: Path | None = None) -> "Config":
         """Load configuration from environment, .env files, and project files.
 
-        Resolution order (later wins):
+        Resolution order (later wins), Phase 60 folds in above env/defaults:
         1. Hardcoded defaults
         2. Home .d2c/.env
         3. Project .env (walked up to root)
         4. Shell environment variables (DEEPSEEK_API_KEY, etc.)
+        5. Layered settings (managed > user > project > local) for
+           permission_mode/sandbox_enabled/permission_rules/hooks — a scalar
+           set by any settings scope overrides its env/default value; a
+           managed-set scalar cannot be overridden by a lower settings scope.
         """
         project_dir = cwd or Path.cwd()
 
@@ -224,7 +234,8 @@ class Config:
         # Only load project .env if workspace is trusted
         from d2c.trust import get_trust_gate
 
-        if get_trust_gate().is_project_trusted:
+        trusted = get_trust_gate().is_project_trusted
+        if trusted:
             _load_project_dotenv(project_dir)
 
         # Read from environment
@@ -245,11 +256,24 @@ class Config:
             Path.home() / ".d2c" / "logs" / "audit.jsonl"
         )
 
+        # Phase 60: layered settings (managed > user > project > local) sit
+        # above env/defaults. Malformed files never raise — they surface as
+        # settings_warnings via validate().
+        from d2c.settings import load_settings
+
+        merged_settings = load_settings(project_dir, trusted)
+        permission_mode = merged_settings.permission_mode or "default"
+        if merged_settings.sandbox_enabled is not None:
+            sandbox_enabled = merged_settings.sandbox_enabled
+
         return cls(
             model=model,
             deepseek_api_key=api_key,
             deepseek_base_url=base_url,
             cwd=project_dir,
+            permission_mode=permission_mode,
+            permission_rules=list(merged_settings.permission_rules),
+            hooks=list(merged_settings.hooks),
             sandbox_enabled=sandbox_enabled,
             websearch_provider=websearch_provider,
             websearch_api_key=websearch_api_key,
@@ -259,6 +283,7 @@ class Config:
             audit_log_path=audit_log_path,
             log_prompts=_flag("D2C_LOG_PROMPTS"),
             log_tool_outputs=_flag("D2C_LOG_TOOL_OUTPUTS"),
+            settings_warnings=merged_settings.warnings(),
         )
 
     def validate(self) -> list[str]:
@@ -277,5 +302,9 @@ class Config:
                 f"Model '{self.model}' is not a recognized DeepSeek model. "
                 f"Known models: {', '.join(DEEPSEEK_MODEL_DEFAULTS.keys())}"
             )
+
+        # Phase 60: malformed settings files / blocked managed-lock override
+        # attempts surface here rather than raising during load().
+        issues.extend(f"Settings: {w}" for w in self.settings_warnings)
 
         return issues

@@ -44,6 +44,9 @@ export D2C_AUDIT_LOG_PATH=~/.d2c/logs/audit.jsonl            # default
 export D2C_LOG_LEVEL=INFO                                     # DEBUG|INFO|WARNING|ERROR
 export D2C_LOG_PROMPTS=0                                      # log full prompts (privacy: off)
 export D2C_LOG_TOOL_OUTPUTS=0                                # log full tool outputs (privacy: off)
+
+# optional — override the managed settings.yaml location (see "Scoped settings" below):
+export D2C_MANAGED_SETTINGS_PATH=/etc/d2c/settings.yaml       # default
 ```
 
 **Audit logging** (opt-in) writes one redacted JSON object per line correlated by
@@ -177,6 +180,36 @@ Key subsystems (see [`CLAUDE.md`](./CLAUDE.md) for the full map):
 ## Workspace trust
 
 d2c gates project-local features behind a trust decision. In an untrusted workspace it skips project `.env`, plugins, skills, MCP, and memory, and forces `default`/`plan` permission mode. Use `--trust` / `--no-trust` to control it.
+
+## Scoped settings
+
+`Config.load()` layers governance settings from four YAML scopes, same precedence pattern as the
+CLAUDE.md hierarchy:
+
+| Scope | Location | Trust-gated? |
+|---|---|---|
+| managed | `/etc/d2c/settings.yaml` (or `D2C_MANAGED_SETTINGS_PATH`) | no — always loaded |
+| user | `~/.d2c/settings.yaml` | no — always loaded |
+| project | `.d2c/settings.yaml` | yes — untrusted workspaces skip it |
+| local | `.d2c/settings.local.yaml` (gitignore this) | yes — untrusted workspaces skip it |
+
+Supported keys: `permission_mode`, `sandbox_enabled` (scalars — the highest scope that sets one
+wins outright; a value set by `managed` **cannot** be overridden by `user`/`project`/`local`, only
+recorded as a blocked override attempt), and `permission_rules` / `hooks` (lists — unioned across
+every scope, so a `managed` deny rule always applies regardless of what a lower scope allows: the
+permission engine checks all deny rules before any allow rule). A malformed settings file, an
+invalid `permission_mode`, or an invalid rule/hook entry is reported as a warning (surfaced via
+`config.validate()` and `python -m d2c --doctor`) and skipped — it never crashes the session. Don't
+put secrets in settings YAML; keep those in `.env`/environment variables.
+
+```yaml
+# /etc/d2c/settings.yaml — example managed lockdown
+permission_mode: default
+permission_rules:
+  - type: deny
+    pattern: Bash
+    reason: "shell disabled by org policy"
+```
 
 ## Security
 

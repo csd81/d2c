@@ -275,6 +275,52 @@ def check_skills_plugins(cwd: Path, trusted: bool) -> DoctorResult:
     return _p("Skills", f"bundled ok ({', '.join(names)})")
 
 
+def check_settings(cwd: Path, trusted: bool) -> DoctorResult:
+    """Phase 60: layered settings (managed > user > project > local)."""
+    from d2c.settings import load_settings
+
+    merged = load_settings(cwd, trusted)
+
+    if merged.errors:
+        return _f(
+            "Settings",
+            f"{len(merged.errors)} malformed entr{'y' if len(merged.errors) == 1 else 'ies'}: "
+            + "; ".join(str(e) for e in merged.errors[:3])
+            + (" ..." if len(merged.errors) > 3 else ""),
+            fix="Fix the listed settings.yaml file(s); malformed entries are skipped, not applied.",
+        )
+
+    scopes_loaded = [f.scope.name.lower() for f in merged.loaded_files]
+    detail = f"scopes loaded: {', '.join(scopes_loaded) or 'none'}"
+    if merged.sources:
+        winners = ", ".join(f"{k}<-{v.name.lower()}" for k, v in merged.sources.items())
+        detail += f"; {winners}"
+    if merged.overridden_attempts:
+        return _w(
+            "Settings",
+            f"{detail}; {len(merged.overridden_attempts)} override attempt(s) blocked by "
+            "managed/higher-scope lock: " + "; ".join(str(a) for a in merged.overridden_attempts),
+        )
+    project_or_local_skipped = not trusted and (
+        project_settings_exists(cwd) or local_settings_exists(cwd)
+    )
+    if project_or_local_skipped:
+        detail += " (project/local settings present but skipped — untrusted workspace)"
+    return _p("Settings", detail if scopes_loaded or merged.sources else "no settings files found")
+
+
+def project_settings_exists(cwd: Path) -> bool:
+    from d2c.settings import project_settings_path
+
+    return project_settings_path(cwd).exists()
+
+
+def local_settings_exists(cwd: Path) -> bool:
+    from d2c.settings import local_settings_path
+
+    return local_settings_path(cwd).exists()
+
+
 # ── Orchestration + rendering ─────────────────────────────────────────
 
 
@@ -291,6 +337,7 @@ def run_doctor(config: Any, cwd: Path, trusted: bool, live: bool = False) -> lis
         check_audit(config),
         check_mcp(cwd, trusted),
         check_skills_plugins(cwd, trusted),
+        check_settings(cwd, trusted),
     ]
     if live:
         results.append(check_websearch_live(config))
