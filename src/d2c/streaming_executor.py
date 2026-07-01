@@ -165,10 +165,22 @@ class StreamingToolExecutor:
                 tool_input=tool_use.input,
                 tool_category=tool.category,
             )
+            # Phase 38: fail CLOSED — a permission-evaluation error must not
+            # execute the tool.
             try:
                 perm_result = await self._permission_engine.evaluate_async(perm_request)
-            except Exception:
-                perm_result = None
+            except Exception as e:
+                if self._hooks:
+                    from d2c.hooks import HookEvent
+                    await self._hooks.fire(HookEvent.PERMISSION_DENIED, {
+                        "tool_name": tool_use.name,
+                        "reason": f"permission evaluation error: {type(e).__name__}",
+                    })
+                return ToolResult(
+                    output=f"Permission check failed ({type(e).__name__}); denying for safety.",
+                    error=True,
+                    metadata={"denied": True, "permission_error": True},
+                )
 
             if perm_result and perm_result.decision == PermissionDecision.DENY:
                 result = ToolResult(

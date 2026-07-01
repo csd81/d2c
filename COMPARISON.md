@@ -78,9 +78,8 @@ design.
 
 ## 3. Gaps and bugs (scaffolded but inert, or behaviorally wrong)
 
-> **Status update:** The gaps below describe the pre-Phase-34 state. **Phases 34–35 resolved most
-> of them** (see `plans/phase34-wire-inert-subsystems.md` and `plans/phase35-output-token-recovery.md`).
-> Resolved items are marked ✅ inline.
+> **Status update:** The gaps below describe the pre-Phase-34 state. **Phases 34–38 resolved most of
+> them** (see the `plans/phase34`…`phase38` docs). Resolved items are marked ✅ inline.
 
 Several features exist as complete-looking modules but are **never wired into the loop**, so at
 runtime they do nothing. Two are outright correctness bugs.
@@ -125,8 +124,16 @@ runtime they do nothing. Two are outright correctness bugs.
     `/resume`, `/fork` are real (and the REPL is now multi-turn); unknown `/x` is reported locally and
     never sent to the model. Covered by `tests/test_repl_commands.py`.
 11. **`_check_safe_shell` auto-allows `rm`, `mv`, `sed`** under `acceptEdits` via first-word-only
-    matching. The paper lists these among acceptEdits auto-approvals, but combined with first-word
-    parsing it's weaker than the paper's structural analysis implies. *Still unresolved (out of scope).*
+    matching. ✅ *Fixed in Phase 38.* Replaced with structural classification
+    (`classify_accept_edits_shell`): only read-only / create-only / test-lint-format commands are
+    auto-approved; `rm`, `mv`, `sed -i`, `find -delete`, pipe-to-shell, interpreter `-c`, `chmod`,
+    `sudo`, … are **denied**; uncertain commands ask. Covered by `tests/test_phase38.py` and the
+    `acceptEdits` cases in `tests/test_permissions.py`.
+12. **Fail-open permission gate.** ✅ *Fixed in Phase 38.* Both the non-streaming (`_execute_one_tool`)
+    and streaming (`StreamingToolExecutor`) paths previously treated a permission-evaluation exception
+    as *allow*. They now **fail closed** — a permission error returns a denial and the tool never
+    executes (verified with a side-effect tool in `tests/test_phase38.py`; the denial does not leak
+    the exception message).
 
 ---
 
@@ -137,9 +144,8 @@ runtime they do nothing. Two are outright correctness bugs.
 - **Pre-trust ordering CVEs (§11.3):** the paper documents CVE-2025-59536 etc., caused by extension
   code running before the trust dialog. `d2c` resolves trust *before* `Config.load` / plugin load,
   so it structurally avoids that specific temporal gap.
-- **Fail-open permission:** in `d2c`, if `evaluate_async` throws, the tool is treated as *allowed*.
-  The paper's thesis is defense-in-depth / deny-first; fail-open is the opposite posture and worth
-  flagging.
+- ~~**Fail-open permission:** if `evaluate_async` throws, the tool is treated as *allowed*.~~
+  ✅ *Fixed in Phase 38 — the permission gate now fails closed in both executor paths.*
 
 ---
 
@@ -160,6 +166,9 @@ vs 54; a subset of the 27 hook events firing) and a few **deliberately out-of-sc
 
 1. **KAIROS** background heartbeat mode — un-instantiated (paper flags it as unconfirmed too).
 2. **WebSearch** — stub; needs a real search backend, not wiring.
-3. **`_check_safe_shell`** first-word-only matching auto-allows `rm`/`mv`/`sed` under `acceptEdits`.
-4. **Windows sandbox backend** — explicit stub (falls back to the process backend).
-5. Remaining unfired lifecycle hooks (`CWD_CHANGED`, `FILE_CHANGED`, elicitation, …).
+3. **Windows sandbox backend** — explicit stub (falls back to the process backend).
+4. Remaining unfired lifecycle hooks (`CWD_CHANGED`, `FILE_CHANGED`, elicitation, …).
+5. **ASK is non-interactive in the executors** — outside the acceptEdits/deny path, an `ASK` decision
+   currently falls through to execution (there's no interactive prompt wired into the async
+   executors). Deny-first rules and the Phase 38 acceptEdits denials still hold; wiring true
+   interactive approval is a larger, separate change.

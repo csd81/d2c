@@ -108,6 +108,10 @@ class StubPermissionEngine:
         from d2c.permissions import PermissionResult
         return PermissionResult(PermissionDecision.ALLOW, reason="stub: allow all")
 
+    async def evaluate_async(self, request):
+        from d2c.permissions import PermissionResult
+        return PermissionResult(PermissionDecision.ALLOW, reason="stub: allow all")
+
 
 @dataclass
 class LoopConfig:
@@ -313,11 +317,24 @@ async def _execute_one_tool(
         tool_category=tool.category,
     )
 
-    try:
-        perm_result = await permission_engine.evaluate_async(perm_request)
-    except Exception:
-        # If permission engine fails, default to allow (fail-open for safety)
-        perm_result = None
+    # Phase 38: permission gate fails CLOSED. When an engine is present but its
+    # evaluation raises, the tool must not execute. (No engine at all — a
+    # test-only path — skips the gate.)
+    perm_result = None
+    if permission_engine is not None:
+        try:
+            perm_result = await permission_engine.evaluate_async(perm_request)
+        except Exception as e:
+            if hooks:
+                await hooks.fire(HookEvent.PERMISSION_DENIED, {
+                    "tool_name": tu.name,
+                    "reason": f"permission evaluation error: {type(e).__name__}",
+                })
+            return ToolResult(
+                output=f"Permission check failed ({type(e).__name__}); denying for safety.",
+                error=True,
+                metadata={"denied": True, "permission_error": True},
+            )
 
     if perm_result and perm_result.decision == PermissionDecision.DENY:
         result = ToolResult(

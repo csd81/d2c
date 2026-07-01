@@ -423,6 +423,121 @@ def _analyze_shell_command(cmd_str: str) -> Any | None:
     )
 
 
+# ── Phase 38: strict acceptEdits shell policy ─────────────────────────
+#
+# Unlike the AUTO classifier above (which is permissive and backed by a CoT
+# model), acceptEdits must decide structurally with NO model call. It uses a
+# tight allowlist: only read-only / create-only / test-lint-format commands
+# are auto-approved. Anything that deletes, moves, changes permissions, or runs
+# arbitrary code is denied; everything else asks. First-word matching is never
+# used to allow.
+
+_AE_READONLY = frozenset({
+    "ls", "dir", "cat", "type", "echo", "pwd", "cd", "head", "tail", "wc",
+    "sort", "uniq", "which", "where", "whoami", "hostname", "date", "printf",
+    "true", "diff", "tree", "stat", "file", "du", "df", "basename", "dirname",
+    "grep", "rg", "mkdir", "touch",
+})
+_AE_DEV = frozenset({
+    "pytest", "ruff", "mypy", "black", "isort", "flake8", "pylint",
+    "prettier", "eslint", "tsc",
+})
+_AE_GIT_READONLY_SUB = frozenset({
+    "status", "diff", "log", "show", "branch", "remote", "fetch", "ls-files",
+    "rev-parse", "describe", "blame", "tag", "config",
+})
+_AE_DESTRUCTIVE = frozenset({
+    "rm", "rmdir", "trash", "del", "rd", "shred", "unlink",
+    "mv", "move", "dd", "mkfs", "chmod", "chown", "chgrp", "icacls", "cacls",
+    "sudo", "su", "kill", "pkill", "reboot", "shutdown", "systemctl", "service",
+})
+_AE_INTERPRETERS = frozenset({
+    "bash", "sh", "zsh", "dash", "fish", "python", "python3",
+    "perl", "ruby", "node", "powershell", "pwsh", "cmd",
+})
+_AE_CODE_FLAGS = frozenset({"-c", "-e", "--command", "-Command", "/C", "/c"})
+_AE_FIND_DESTRUCTIVE = frozenset({
+    "-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprintf",
+})
+
+
+def _classify_ae_statement(stmt: "ParsedStatement") -> str:
+    """'allow' | 'deny' | 'ask' for a single acceptEdits shell statement."""
+    name = _extract_command_name(stmt.command)
+    args = stmt.args
+
+    # Output redirection can overwrite files → not auto-safe (input/fd-dup ok).
+    for redir in stmt.redirects:
+        r = redir.strip()
+        if r.startswith("<"):
+            continue
+        target = r.lstrip("<>").strip()
+        if target.startswith("&"):
+            continue
+        return "ask"
+
+    if name in _AE_DESTRUCTIVE:
+        return "deny"
+
+    if name == "sed":
+        return "deny" if any(a == "-i" or a.startswith("-i") for a in args) else "ask"
+
+    if name == "find":
+        return "deny" if any(a in _AE_FIND_DESTRUCTIVE for a in args) else "allow"
+
+    if name in _AE_INTERPRETERS:
+        if any(a in _AE_CODE_FLAGS for a in args):
+            return "deny"  # inline arbitrary code
+        if name in ("python", "python3") and "-m" in args:
+            return "allow"  # e.g. python -m pytest
+        return "ask"
+
+    if name == "git":
+        sub = next((a for a in args if not a.startswith("-")), None)
+        return "allow" if sub in _AE_GIT_READONLY_SUB else "ask"
+
+    if name in _AE_READONLY or name in _AE_DEV:
+        return "allow"
+
+    return "ask"
+
+
+def classify_accept_edits_shell(command: str) -> str:
+    """Structural safety verdict for a shell command under acceptEdits.
+
+    Returns 'allow' (auto-approve), 'deny' (block outright), or 'ask'
+    (require explicit approval). Every statement must be independently safe
+    for an 'allow'; a single destructive statement forces 'deny'.
+    """
+    from d2c.permissions import PermissionDecision
+
+    cmd = command.strip()
+    if not cmd:
+        return "ask"
+
+    # Reuse the deep analyzer only to catch clearly-dangerous DENY patterns
+    # (pipe-to-shell, rm -rf on system paths, nested-shell payloads).
+    deep = _analyze_shell_command(cmd)
+    if deep is not None and deep.decision == PermissionDecision.DENY:
+        return "deny"
+
+    try:
+        statements = parse_shell_command(cmd)
+    except Exception:
+        return "ask"
+    if not statements:
+        return "ask"
+
+    verdict = "allow"
+    for stmt in statements:
+        s = _classify_ae_statement(stmt)
+        if s == "deny":
+            return "deny"
+        if s == "ask":
+            verdict = "ask"
+    return verdict
+
+
 class AutoClassifier:
     """Two-stage safety classifier for AUTO permission mode.
 

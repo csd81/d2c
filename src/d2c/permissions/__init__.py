@@ -244,15 +244,25 @@ class PermissionEngine:
         return PermissionResult(PermissionDecision.ASK)
 
     def _check_safe_shell(self, request: PermissionRequest) -> PermissionResult:
-        """Paper Section 5: acceptEdits auto-approves safe shell commands."""
-        SAFE_COMMANDS = {"mkdir", "rmdir", "touch", "rm", "mv", "cp", "sed", "ls", "cat", "echo", "pwd", "find", "grep", "head", "tail", "wc", "sort", "uniq"}
-        cmd = request.tool_input.get("command", "").strip()
-        if not cmd:
-            return PermissionResult(PermissionDecision.ASK)
+        """acceptEdits shell policy (Phase 38).
 
-        first_word = cmd.split()[0] if cmd else ""
-        if first_word in SAFE_COMMANDS:
+        Structural, not first-word-only: a command is auto-approved only if
+        every statement is read-only / create-only / a test-lint-format tool.
+        Clearly-destructive commands (rm, mv, sed -i, find -delete,
+        pipe-to-shell, interpreter -c, chmod, sudo, ...) are DENIED — since the
+        executor only blocks on DENY, ASK would let them through — and
+        everything uncertain requires explicit approval.
+        """
+        from d2c.permissions.classifier import classify_accept_edits_shell
+
+        verdict = classify_accept_edits_shell(request.tool_input.get("command", ""))
+        if verdict == "allow":
             return PermissionResult(PermissionDecision.ALLOW)
+        if verdict == "deny":
+            return PermissionResult(
+                PermissionDecision.DENY,
+                reason="acceptEdits: destructive shell command requires explicit approval",
+            )
         return PermissionResult(PermissionDecision.ASK)
 
     def _is_safety_critical(self, request: PermissionRequest) -> bool:
