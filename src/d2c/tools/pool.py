@@ -15,23 +15,23 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from d2c.tools.agent_tool import AgentTool
+from d2c.tools.background_status import BackgroundStatusTool
 from d2c.tools.bash_tool import BashTool
 from d2c.tools.edit_tool import FileEditTool
+from d2c.tools.fs_tools import FileInfoTool, ListDirTool
+from d2c.tools.git_tools import GitDiffTool, GitStatusTool
 from d2c.tools.glob_tool import GlobTool
 from d2c.tools.grep_tool import GrepTool
+from d2c.tools.memory_tool import MemoryTool
 from d2c.tools.notebook_edit import NotebookEditTool
 from d2c.tools.read_tool import FileReadTool
 from d2c.tools.skill_tool import SkillTool
+from d2c.tools.structured_edit import JsonEditTool, ReplaceManyTool
 from d2c.tools.task_tools import TaskCreateTool, TaskListTool, TaskUpdateTool
 from d2c.tools.tool_search import DeferredToolSchema, ToolSearchTool
 from d2c.tools.web_fetch import WebFetchTool
 from d2c.tools.web_search import WebSearchTool
 from d2c.tools.write_tool import FileWriteTool
-from d2c.tools.background_status import BackgroundStatusTool
-from d2c.tools.memory_tool import MemoryTool
-from d2c.tools.git_tools import GitStatusTool, GitDiffTool
-from d2c.tools.fs_tools import ListDirTool, FileInfoTool
-from d2c.tools.structured_edit import ReplaceManyTool, JsonEditTool
 
 if TYPE_CHECKING:
     from d2c.tools import Tool
@@ -63,6 +63,7 @@ class Rule:
 @dataclass
 class Config:
     """Minimal config for Phase 1. Expanded in later phases."""
+
     cwd: Path = field(default_factory=Path.cwd)
     permission_mode: str = "default"
     permission_rules: list[Rule] = field(default_factory=list)
@@ -73,6 +74,7 @@ class Config:
 
     def __post_init__(self):
         import platform
+
         if not self.os:
             self.os = platform.system()
 
@@ -83,6 +85,7 @@ class Config:
 
 def getAllBaseTools(config: Config) -> list[Tool]:
     from d2c.skills.loader import load_all_skills
+
     skills = load_all_skills(config.cwd)
     tools: list[Tool] = [
         # Read tools
@@ -140,9 +143,11 @@ def getAllBaseTools(config: Config) -> list[Tool]:
 
 
 def filterToolsByDenyRules(tools: list[Tool], rules: list[Rule]) -> list[Tool]:
-    return [t for t in tools if not any(
-        r.rule_type == RuleType.DENY and r.matches_tool(t.name) for r in rules
-    )]
+    return [
+        t
+        for t in tools
+        if not any(r.rule_type == RuleType.DENY and r.matches_tool(t.name) for r in rules)
+    ]
 
 
 async def assembleMCPTools(cwd: Path | None = None) -> list[Tool]:
@@ -153,9 +158,9 @@ async def assembleMCPTools(cwd: Path | None = None) -> list[Tool]:
 
     Connection failures are logged but do not prevent session startup.
     """
-    from d2c.mcp import MCPTool, MCPServerConfig
-    from d2c.mcp.discovery import discover_servers
+    from d2c.mcp import MCPTool
     from d2c.mcp.client import MCPClient
+    from d2c.mcp.discovery import discover_servers
 
     servers = discover_servers(cwd)
     mcp_tools: list[Tool] = []
@@ -178,12 +183,14 @@ async def assembleMCPTools(cwd: Path | None = None) -> list[Tool]:
 
             logger.info(
                 "MCP server '%s': %d tools discovered",
-                server_config.name, len(server_tools),
+                server_config.name,
+                len(server_tools),
             )
         except Exception as e:
             logger.warning(
                 "MCP server '%s' connection failed: %s. Continuing without it.",
-                server_config.name, e,
+                server_config.name,
+                e,
             )
             # Try to close partial connection
             try:

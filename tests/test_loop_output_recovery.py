@@ -8,7 +8,8 @@ through. These tests mock the model so no network access is required.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -25,10 +26,9 @@ from d2c.loop import (
     queryLoop,
 )
 from d2c.tools import PermissionCategory, Tool, ToolResult
-from unittest.mock import AsyncMock, MagicMock, patch
-
 
 # ── Mocks ─────────────────────────────────────────────────────────────
+
 
 class MockContentBlock:
     def __init__(self, block_type: str, text: str = "", **kwargs):
@@ -56,7 +56,11 @@ def tool_block(stop_reason: str = "end_turn") -> MockResponse:
 class MockReadTool(Tool):
     name = "Read"
     description = "Read a file"
-    input_schema = {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}
+    input_schema = {
+        "type": "object",
+        "properties": {"file_path": {"type": "string"}},
+        "required": ["file_path"],
+    }
     category = PermissionCategory.READ
     is_concurrent_safe = True
 
@@ -105,6 +109,7 @@ class MockStream:
 
 async def _drive(config: LoopConfig, create_side_effect, budgets: list):
     """Run queryLoop with a mocked non-streaming client, recording max_tokens."""
+
     async def side_effect(**kwargs):
         budgets.append(kwargs["max_tokens"])
         return create_side_effect()
@@ -120,6 +125,7 @@ async def _drive(config: LoopConfig, create_side_effect, budgets: list):
 
 
 # ── Tests ─────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_first_truncation_retries_with_doubled_budget():
@@ -168,9 +174,9 @@ async def test_counter_resets_after_non_truncated_turn():
     def make():
         calls[0] += 1
         if calls[0] == 1:
-            return text_block("partial", stop_reason="max_tokens")   # retry → attempts=1
+            return text_block("partial", stop_reason="max_tokens")  # retry → attempts=1
         if calls[0] == 2:
-            return tool_block(stop_reason="end_turn")                # tool turn → reset
+            return tool_block(stop_reason="end_turn")  # tool turn → reset
         if calls[0] == 3:
             return text_block("partial2", stop_reason="max_tokens")  # retry again from base
         return text_block("done", stop_reason="end_turn")

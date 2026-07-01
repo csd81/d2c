@@ -13,9 +13,9 @@ from typing import Any
 
 from d2c.mcp import MCPServerConfig
 from d2c.mcp.transports import MCPTransport
-from d2c.mcp.transports.stdio import MCPTransportError, StdioTransport
-from d2c.mcp.transports.sse import SSETransport
 from d2c.mcp.transports.http import HTTPTransport
+from d2c.mcp.transports.sse import SSETransport
+from d2c.mcp.transports.stdio import MCPTransportError, StdioTransport
 from d2c.mcp.transports.websocket import WebSocketTransport
 
 logger = logging.getLogger(__name__)
@@ -100,8 +100,7 @@ class MCPClient:
             )
         else:
             raise MCPTransportError(
-                f"Unknown transport type: {transport_type}. "
-                f"Supported: stdio, sse, http, websocket"
+                f"Unknown transport type: {transport_type}. Supported: stdio, sse, http, websocket"
             )
 
     async def connect(self) -> None:
@@ -110,16 +109,19 @@ class MCPClient:
         await self._transport.connect()
 
         # JSON-RPC initialize handshake
-        init_result = await self._send_request("initialize", {
-            "protocolVersion": MCP_PROTOCOL_VERSION,
-            "capabilities": {
-                "tools": {},
+        init_result = await self._send_request(
+            "initialize",
+            {
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "capabilities": {
+                    "tools": {},
+                },
+                "clientInfo": {
+                    "name": "d2c",
+                    "version": "0.1.0",
+                },
             },
-            "clientInfo": {
-                "name": "d2c",
-                "version": "0.1.0",
-            },
-        })
+        )
 
         self._server_capabilities = init_result.get("capabilities", {})
         self._server_info = init_result.get("serverInfo", {})
@@ -151,10 +153,13 @@ class MCPClient:
         if not self._transport:
             raise MCPTransportError("Not connected")
 
-        return await self._send_request("tools/call", {
-            "name": name,
-            "arguments": arguments,
-        })
+        return await self._send_request(
+            "tools/call",
+            {
+                "name": name,
+                "arguments": arguments,
+            },
+        )
 
     async def close(self) -> None:
         """Close the connection and unregister."""

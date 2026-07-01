@@ -136,10 +136,7 @@ class FileHistory:
         history_dir = base_dir / "file-history"
         if not history_dir.exists():
             return []
-        return sorted(
-            d.name for d in history_dir.iterdir()
-            if d.is_dir()
-        )
+        return sorted(d.name for d in history_dir.iterdir() if d.is_dir())
 
     @classmethod
     def rewind_session(cls, base_dir: Path, session_id: str, cwd: Path | None = None) -> list[Path]:

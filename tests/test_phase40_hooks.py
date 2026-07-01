@@ -6,32 +6,43 @@ import pytest
 
 import d2c.main as main
 from d2c.config import Config
-from d2c.hooks import HookEvent, HookRegistry, HookDefinition, HookType, HookResult
+from d2c.hooks import HookDefinition, HookEvent, HookRegistry, HookResult, HookType
 from d2c.main import ReplState, SlashCommand, handle_slash_command
 from d2c.persistence import SessionManager
 from d2c.tools import set_active_hooks, set_file_history_tracker
 
-
 # Categorization of every HookEvent. Update this when wiring/retiring events.
 FIRED = {
-    HookEvent.SESSION_START, HookEvent.SESSION_END, HookEvent.SETUP, HookEvent.STOP,
-    HookEvent.USER_PROMPT_SUBMIT, HookEvent.PRE_TOOL_USE, HookEvent.POST_TOOL_USE,
-    HookEvent.POST_TOOL_USE_FAILURE, HookEvent.PERMISSION_DENIED,
-    HookEvent.PRE_COMPACT, HookEvent.POST_COMPACT,
-    HookEvent.SUBAGENT_START, HookEvent.SUBAGENT_STOP,
-    HookEvent.WORKTREE_CREATE, HookEvent.WORKTREE_REMOVE,
-    HookEvent.TASK_CREATED, HookEvent.TASK_COMPLETED,
-    HookEvent.FILE_CHANGED, HookEvent.INSTRUCTIONS_LOADED,
+    HookEvent.SESSION_START,
+    HookEvent.SESSION_END,
+    HookEvent.SETUP,
+    HookEvent.STOP,
+    HookEvent.USER_PROMPT_SUBMIT,
+    HookEvent.PRE_TOOL_USE,
+    HookEvent.POST_TOOL_USE,
+    HookEvent.POST_TOOL_USE_FAILURE,
+    HookEvent.PERMISSION_DENIED,
+    HookEvent.PRE_COMPACT,
+    HookEvent.POST_COMPACT,
+    HookEvent.SUBAGENT_START,
+    HookEvent.SUBAGENT_STOP,
+    HookEvent.WORKTREE_CREATE,
+    HookEvent.WORKTREE_REMOVE,
+    HookEvent.TASK_CREATED,
+    HookEvent.TASK_COMPLETED,
+    HookEvent.FILE_CHANGED,
+    HookEvent.INSTRUCTIONS_LOADED,
 }
 # No current runtime source — intentionally inactive (documented, not broken).
 INTENTIONALLY_INACTIVE = {
-    HookEvent.CONFIG_CHANGE,     # config is immutable after load
-    HookEvent.CWD_CHANGED,       # cwd is immutable after load
-    HookEvent.ELICITATION, HookEvent.ELICITATION_RESULT,  # no elicitation flow
-    HookEvent.NOTIFICATION,      # no notification surface
+    HookEvent.CONFIG_CHANGE,  # config is immutable after load
+    HookEvent.CWD_CHANGED,  # cwd is immutable after load
+    HookEvent.ELICITATION,
+    HookEvent.ELICITATION_RESULT,  # no elicitation flow
+    HookEvent.NOTIFICATION,  # no notification surface
     HookEvent.PERMISSION_REQUEST,  # executors don't interactively prompt
-    HookEvent.STOP_FAILURE,      # no stop-failure path
-    HookEvent.TEAMMATE_IDLE,     # no multi-agent teams
+    HookEvent.STOP_FAILURE,  # no stop-failure path
+    HookEvent.TEAMMATE_IDLE,  # no multi-agent teams
 }
 
 
@@ -50,24 +61,28 @@ def _recording_registry(*events):
     captured: list[tuple] = []
     reg = HookRegistry()
     for ev in events:
+
         async def cb(ctx, _ev=ev):
             captured.append((_ev, ctx))
             return HookResult()
+
         reg.register(HookDefinition(event=ev, hook_type=HookType.CALLBACK, callback=cb))
     return reg, captured
 
 
 # ── 1. Inventory ──────────────────────────────────────────────────────
 
+
 def test_every_hook_event_is_categorized():
     all_events = set(HookEvent)
     assert FIRED.isdisjoint(INTENTIONALLY_INACTIVE)
-    assert FIRED | INTENTIONALLY_INACTIVE == all_events, (
-        all_events - (FIRED | INTENTIONALLY_INACTIVE)
+    assert FIRED | INTENTIONALLY_INACTIVE == all_events, all_events - (
+        FIRED | INTENTIONALLY_INACTIVE
     )
 
 
 # ── 4. FILE_CHANGED timing + payload ──────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_file_changed_fires_after_write(tmp_dir, trusted_gate):
@@ -92,8 +107,8 @@ async def test_file_changed_fires_after_write(tmp_dir, trusted_gate):
 
 @pytest.mark.asyncio
 async def test_file_changed_fires_after_edit(tmp_dir, trusted_gate):
-    from d2c.tools.read_tool import FileReadTool
     from d2c.tools.edit_tool import FileEditTool
+    from d2c.tools.read_tool import FileReadTool
 
     reg, captured = _recording_registry(HookEvent.FILE_CHANGED)
     set_active_hooks(reg)
@@ -123,6 +138,7 @@ async def test_file_changed_not_fired_on_failed_write(tmp_dir, trusted_gate):
 
 # ── 3. Session lifecycle on /clear ────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_clear_fires_session_lifecycle(tmp_dir, monkeypatch):
     monkeypatch.setattr(main, "SessionManager", partial(SessionManager, base_dir=tmp_dir))
@@ -147,6 +163,7 @@ async def test_clear_fires_session_lifecycle(tmp_dir, monkeypatch):
 
 # ── 7. Observability hook failure does not crash the tool ─────────────
 
+
 @pytest.mark.asyncio
 async def test_observability_hook_failure_is_isolated(tmp_dir, trusted_gate):
     from d2c.tools.write_tool import FileWriteTool
@@ -156,7 +173,9 @@ async def test_observability_hook_failure_is_isolated(tmp_dir, trusted_gate):
     async def boom(ctx):
         raise RuntimeError("hook blew up")
 
-    reg.register(HookDefinition(event=HookEvent.FILE_CHANGED, hook_type=HookType.CALLBACK, callback=boom))
+    reg.register(
+        HookDefinition(event=HookEvent.FILE_CHANGED, hook_type=HookType.CALLBACK, callback=boom)
+    )
     set_active_hooks(reg)
 
     f = tmp_dir / "ok.txt"

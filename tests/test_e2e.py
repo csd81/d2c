@@ -7,16 +7,12 @@ Model responses are mocked at the API level — exercise all real code paths.
 
 from __future__ import annotations
 
-import asyncio
-import json
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Helpers ───────────────────────────────────────────────────────────
+
 
 def _make_tool_use_response(text: str, tool_uses: list[dict] | None = None):
     """Build a mock model response with optional tool_use blocks."""
@@ -42,6 +38,7 @@ def _make_text_response(text: str):
 
 # ── Full agent loop E2E tests ─────────────────────────────────────────
 
+
 class TestAgentLoopE2E:
     """End-to-end tests of the full agent loop with mocked model."""
 
@@ -50,10 +47,9 @@ class TestAgentLoopE2E:
         """User asks a question, model responds with text, no tools needed."""
         from d2c.config import Config
         from d2c.context import SystemContext, assembleMessages, getSystemPrompt, getUserContext
-        from d2c.loop import LoopConfig, queryLoop
-        from d2c.loop import TextResponse, StopEvent
-        from d2c.permissions import PermissionEngine
         from d2c.hooks import HookRegistry
+        from d2c.loop import LoopConfig, StopEvent, TextResponse, queryLoop
+        from d2c.permissions import PermissionEngine
         from d2c.tools.pool import Config as PoolConfig
         from d2c.tools.pool import assembleToolPool
 
@@ -79,7 +75,10 @@ class TestAgentLoopE2E:
 
         # Assemble context
         system_context = SystemContext(
-            git_status=None, platform="test", cwd="/test", date="2025-01-01",
+            git_status=None,
+            platform="test",
+            cwd="/test",
+            date="2025-01-01",
         )
         full_prompt, messages = assembleMessages(
             loop_config.system_prompt,
@@ -112,11 +111,10 @@ class TestAgentLoopE2E:
     async def test_read_tool_chain(self, tmp_path):
         """Model reads a file, processes content, returns answer."""
         from d2c.config import Config
-        from d2c.context import SystemContext, assembleMessages, getSystemPrompt, getUserContext
-        from d2c.loop import LoopConfig, queryLoop
-        from d2c.loop import TextResponse, ToolExecutionEvent
-        from d2c.permissions import PermissionEngine, PermissionMode
+        from d2c.context import SystemContext, assembleMessages
         from d2c.hooks import HookRegistry
+        from d2c.loop import LoopConfig, TextResponse, ToolExecutionEvent, queryLoop
+        from d2c.permissions import PermissionEngine, PermissionMode
         from d2c.tools.pool import Config as PoolConfig
         from d2c.tools.pool import assembleToolPool
 
@@ -147,7 +145,10 @@ class TestAgentLoopE2E:
         )
 
         system_context = SystemContext(
-            git_status=None, platform="test", cwd=str(tmp_path), date="2025-01-01",
+            git_status=None,
+            platform="test",
+            cwd=str(tmp_path),
+            date="2025-01-01",
         )
         full_prompt, messages = assembleMessages(
             loop_config.system_prompt,
@@ -159,9 +160,12 @@ class TestAgentLoopE2E:
 
         # Multi-turn: first call returns tool_use, second returns text
         responses = [
-            _make_tool_use_response("Let me read that file.", [
-                {"id": "tu1", "name": "Read", "input": {"file_path": str(test_file)}},
-            ]),
+            _make_tool_use_response(
+                "Let me read that file.",
+                [
+                    {"id": "tu1", "name": "Read", "input": {"file_path": str(test_file)}},
+                ],
+            ),
             _make_text_response("The file contains: hello world, foo bar"),
         ]
         call_count = 0
@@ -195,11 +199,10 @@ class TestAgentLoopE2E:
     async def test_write_then_read_chain(self, tmp_path):
         """Model writes a file, then reads it back in the same session."""
         from d2c.config import Config
-        from d2c.context import SystemContext, assembleMessages, getSystemPrompt, getUserContext
-        from d2c.loop import LoopConfig, queryLoop
-        from d2c.loop import TextResponse, ToolExecutionEvent
-        from d2c.permissions import PermissionEngine, PermissionMode
+        from d2c.context import SystemContext, assembleMessages
         from d2c.hooks import HookRegistry
+        from d2c.loop import LoopConfig, TextResponse, ToolExecutionEvent, queryLoop
+        from d2c.permissions import PermissionEngine, PermissionMode
         from d2c.tools.pool import Config as PoolConfig
         from d2c.tools.pool import assembleToolPool
 
@@ -228,7 +231,10 @@ class TestAgentLoopE2E:
         )
 
         system_context = SystemContext(
-            git_status=None, platform="test", cwd=str(tmp_path), date="2025-01-01",
+            git_status=None,
+            platform="test",
+            cwd=str(tmp_path),
+            date="2025-01-01",
         )
         full_prompt, messages = assembleMessages(
             loop_config.system_prompt,
@@ -240,15 +246,25 @@ class TestAgentLoopE2E:
 
         # Multi-turn: write tool → read tool → text response
         responses = [
-            _make_tool_use_response("Writing file.", [
-                {"id": "tu1", "name": "Write", "input": {
-                    "file_path": str(output_file),
-                    "content": "Hello E2E",
-                }},
-            ]),
-            _make_tool_use_response("Now verifying.", [
-                {"id": "tu2", "name": "Read", "input": {"file_path": str(output_file)}},
-            ]),
+            _make_tool_use_response(
+                "Writing file.",
+                [
+                    {
+                        "id": "tu1",
+                        "name": "Write",
+                        "input": {
+                            "file_path": str(output_file),
+                            "content": "Hello E2E",
+                        },
+                    },
+                ],
+            ),
+            _make_tool_use_response(
+                "Now verifying.",
+                [
+                    {"id": "tu2", "name": "Read", "input": {"file_path": str(output_file)}},
+                ],
+            ),
             _make_text_response("File contains 'Hello E2E' — verified."),
         ]
         call_count = 0
@@ -289,11 +305,10 @@ class TestAgentLoopE2E:
     async def test_bash_tool_chain(self, tmp_path):
         """Model runs a bash command, uses output in response."""
         from d2c.config import Config
-        from d2c.context import SystemContext, assembleMessages, getSystemPrompt, getUserContext
-        from d2c.loop import LoopConfig, queryLoop
-        from d2c.loop import TextResponse, ToolExecutionEvent
-        from d2c.permissions import PermissionEngine, PermissionMode
+        from d2c.context import SystemContext, assembleMessages
         from d2c.hooks import HookRegistry
+        from d2c.loop import LoopConfig, TextResponse, ToolExecutionEvent, queryLoop
+        from d2c.permissions import PermissionEngine, PermissionMode
         from d2c.tools.pool import Config as PoolConfig
         from d2c.tools.pool import assembleToolPool
 
@@ -320,7 +335,10 @@ class TestAgentLoopE2E:
         )
 
         system_context = SystemContext(
-            git_status=None, platform="test", cwd=str(tmp_path), date="2025-01-01",
+            git_status=None,
+            platform="test",
+            cwd=str(tmp_path),
+            date="2025-01-01",
         )
         full_prompt, messages = assembleMessages(
             loop_config.system_prompt,
@@ -331,9 +349,12 @@ class TestAgentLoopE2E:
         loop_config.system_prompt = full_prompt
 
         responses = [
-            _make_tool_use_response("Running echo.", [
-                {"id": "tu1", "name": "Bash", "input": {"command": "echo hello"}},
-            ]),
+            _make_tool_use_response(
+                "Running echo.",
+                [
+                    {"id": "tu1", "name": "Bash", "input": {"command": "echo hello"}},
+                ],
+            ),
             _make_text_response("The command output was: hello"),
         ]
         call_count = 0
@@ -365,6 +386,7 @@ class TestAgentLoopE2E:
 
 # ── Config → Session → Loop integration tests ────────────────────────
 
+
 class TestConfigSessionIntegration:
     """Full integration from config loading through session persistence."""
 
@@ -373,9 +395,9 @@ class TestConfigSessionIntegration:
         """Config.load → assembleToolPool → LoopConfig → queryLoop."""
         from d2c.config import Config
         from d2c.context import SystemContext, assembleMessages, getSystemPrompt, getUserContext
-        from d2c.loop import LoopConfig, queryLoop, TextResponse
-        from d2c.permissions import PermissionEngine
         from d2c.hooks import HookRegistry
+        from d2c.loop import LoopConfig, TextResponse, queryLoop
+        from d2c.permissions import PermissionEngine
         from d2c.tools.pool import Config as PoolConfig
         from d2c.tools.pool import assembleToolPool
 
@@ -403,7 +425,10 @@ class TestConfigSessionIntegration:
         )
 
         system_context = SystemContext(
-            git_status=None, platform="test", cwd="/test", date="2025-01-01",
+            git_status=None,
+            platform="test",
+            cwd="/test",
+            date="2025-01-01",
         )
         full_prompt, messages = assembleMessages(
             loop_config.system_prompt,
@@ -434,11 +459,11 @@ class TestConfigSessionIntegration:
     async def test_session_persistence_e2e(self, tmp_path):
         """Full session lifecycle: create → run loop → read transcript → resume."""
         from d2c.config import Config
-        from d2c.context import SystemContext, assembleMessages, getSystemPrompt, getUserContext
-        from d2c.loop import LoopConfig, queryLoop, TextResponse
-        from d2c.permissions import PermissionEngine, PermissionMode
+        from d2c.context import SystemContext, assembleMessages
         from d2c.hooks import HookRegistry
-        from d2c.persistence import SessionEntry, SessionStore, SessionManager, _utc_now
+        from d2c.loop import LoopConfig, queryLoop
+        from d2c.permissions import PermissionEngine, PermissionMode
+        from d2c.persistence import SessionEntry, SessionManager, _utc_now
         from d2c.tools.pool import Config as PoolConfig
         from d2c.tools.pool import assembleToolPool
 
@@ -460,7 +485,8 @@ class TestConfigSessionIntegration:
             max_turns=3,
             tools=tools,
             permission_engine=PermissionEngine(
-                mode=PermissionMode.DONT_ASK, rules=[],
+                mode=PermissionMode.DONT_ASK,
+                rules=[],
             ),
             hooks=HookRegistry(),
             config=config,
@@ -469,7 +495,10 @@ class TestConfigSessionIntegration:
         )
 
         system_context = SystemContext(
-            git_status=None, platform="test", cwd=str(tmp_path), date="2025-01-01",
+            git_status=None,
+            platform="test",
+            cwd=str(tmp_path),
+            date="2025-01-01",
         )
         full_prompt, messages = assembleMessages(
             loop_config.system_prompt,
@@ -480,10 +509,14 @@ class TestConfigSessionIntegration:
         loop_config.system_prompt = full_prompt
 
         # Record user message (as main.py does before calling queryLoop)
-        store.append(SessionEntry(
-            role="user", content="Test session persistence.",
-            timestamp=_utc_now(), entry_type="message",
-        ))
+        store.append(
+            SessionEntry(
+                role="user",
+                content="Test session persistence.",
+                timestamp=_utc_now(),
+                entry_type="message",
+            )
+        )
 
         with patch("d2c.loop.anthropic.AsyncAnthropic") as mock_cls:
             mock_client = MagicMock()
@@ -512,10 +545,10 @@ class TestConfigSessionIntegration:
     async def test_hooks_integration_e2e(self, tmp_path):
         """Verify hooks fire during the full agent loop."""
         from d2c.config import Config
-        from d2c.context import SystemContext, assembleMessages, getSystemPrompt, getUserContext
-        from d2c.loop import LoopConfig, queryLoop, TextResponse, ToolExecutionEvent
+        from d2c.context import SystemContext, assembleMessages
+        from d2c.hooks import HookDefinition, HookEvent, HookRegistry, HookResult, HookType
+        from d2c.loop import LoopConfig, queryLoop
         from d2c.permissions import PermissionEngine, PermissionMode
-        from d2c.hooks import HookRegistry, HookDefinition, HookEvent, HookType, HookResult
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("hook test content")
@@ -528,17 +561,21 @@ class TestConfigSessionIntegration:
             return HookResult()
 
         hooks = HookRegistry()
-        hooks.register(HookDefinition(
-            event=HookEvent.PRE_TOOL_USE,
-            hook_type=HookType.CALLBACK,
-            callback=log_hook,
-        ))
+        hooks.register(
+            HookDefinition(
+                event=HookEvent.PRE_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=log_hook,
+            )
+        )
 
         config = Config.load()
         config.deepseek_api_key = "test-key"
         config.permission_mode = "dontAsk"
 
-        from d2c.tools.pool import Config as PoolConfig, assembleToolPool
+        from d2c.tools.pool import Config as PoolConfig
+        from d2c.tools.pool import assembleToolPool
+
         pool_config = PoolConfig(cwd=tmp_path)
         tools = await assembleToolPool(pool_config)
 
@@ -555,7 +592,10 @@ class TestConfigSessionIntegration:
         )
 
         system_context = SystemContext(
-            git_status=None, platform="test", cwd=str(tmp_path), date="2025-01-01",
+            git_status=None,
+            platform="test",
+            cwd=str(tmp_path),
+            date="2025-01-01",
         )
         full_prompt, messages = assembleMessages(
             loop_config.system_prompt,
@@ -566,9 +606,12 @@ class TestConfigSessionIntegration:
         loop_config.system_prompt = full_prompt
 
         responses = [
-            _make_tool_use_response("Reading.", [
-                {"id": "tu1", "name": "Read", "input": {"file_path": str(test_file)}},
-            ]),
+            _make_tool_use_response(
+                "Reading.",
+                [
+                    {"id": "tu1", "name": "Read", "input": {"file_path": str(test_file)}},
+                ],
+            ),
             _make_text_response("File contains: hook test content"),
         ]
         call_count = 0
@@ -594,15 +637,17 @@ class TestConfigSessionIntegration:
 
 # ── CLI entry point tests ─────────────────────────────────────────────
 
+
 class TestCLIEntryPoints:
     """Test the main CLI entry points with mocked model."""
 
     def test_list_models_flag(self, capsys):
         """--list-models should print available models."""
-        from d2c.main import main
         import sys
 
-        with patch.object(sys, 'argv', ['d2c', '--list-models']):
+        from d2c.main import main
+
+        with patch.object(sys, "argv", ["d2c", "--list-models"]):
             try:
                 main()
             except SystemExit:
@@ -616,8 +661,9 @@ class TestCLIEntryPoints:
     @pytest.mark.asyncio
     async def test_run_headless_basic(self):
         """run_headless should execute a single prompt and return."""
-        from d2c.main import run_headless
         import argparse
+
+        from d2c.main import run_headless
 
         args = argparse.Namespace(
             model="deepseek-v4-pro",
@@ -641,9 +687,9 @@ class TestCLIEntryPoints:
     @pytest.mark.asyncio
     async def test_run_headless_read_file(self, tmp_path):
         """run_headless with a file read tool chain."""
-        from d2c.main import run_headless
         import argparse
-        import os
+
+        from d2c.main import run_headless
 
         test_file = tmp_path / "data.txt"
         test_file.write_text("e2e data")
@@ -658,9 +704,12 @@ class TestCLIEntryPoints:
         )
 
         responses = [
-            _make_tool_use_response("Reading.", [
-                {"id": "tu1", "name": "Read", "input": {"file_path": str(test_file)}},
-            ]),
+            _make_tool_use_response(
+                "Reading.",
+                [
+                    {"id": "tu1", "name": "Read", "input": {"file_path": str(test_file)}},
+                ],
+            ),
             _make_text_response("Found: e2e data"),
         ]
         call_count = 0
@@ -682,6 +731,7 @@ class TestCLIEntryPoints:
 
 # ── Concurrent tool execution E2E tests ───────────────────────────────
 
+
 class TestConcurrentToolsE2E:
     """Verify concurrent-safe tool partitioning in the full loop."""
 
@@ -689,11 +739,12 @@ class TestConcurrentToolsE2E:
     async def test_multiple_reads_parallel(self, tmp_path):
         """Multiple Read calls should execute in the same partition (parallel)."""
         from d2c.config import Config
-        from d2c.context import SystemContext, assembleMessages, getSystemPrompt, getUserContext
-        from d2c.loop import LoopConfig, queryLoop, ToolExecutionEvent
-        from d2c.permissions import PermissionEngine, PermissionMode
+        from d2c.context import SystemContext, assembleMessages
         from d2c.hooks import HookRegistry
-        from d2c.tools.pool import Config as PoolConfig, assembleToolPool
+        from d2c.loop import LoopConfig, ToolExecutionEvent, queryLoop
+        from d2c.permissions import PermissionEngine, PermissionMode
+        from d2c.tools.pool import Config as PoolConfig
+        from d2c.tools.pool import assembleToolPool
 
         # Create multiple files
         for i in range(3):
@@ -719,7 +770,10 @@ class TestConcurrentToolsE2E:
         )
 
         system_context = SystemContext(
-            git_status=None, platform="test", cwd=str(tmp_path), date="2025-01-01",
+            git_status=None,
+            platform="test",
+            cwd=str(tmp_path),
+            date="2025-01-01",
         )
         full_prompt, messages = assembleMessages(
             loop_config.system_prompt,
@@ -731,11 +785,26 @@ class TestConcurrentToolsE2E:
 
         # Model requests 3 reads at once
         responses = [
-            _make_tool_use_response("Reading all files.", [
-                {"id": "tu1", "name": "Read", "input": {"file_path": str(tmp_path / "file0.txt")}},
-                {"id": "tu2", "name": "Read", "input": {"file_path": str(tmp_path / "file1.txt")}},
-                {"id": "tu3", "name": "Read", "input": {"file_path": str(tmp_path / "file2.txt")}},
-            ]),
+            _make_tool_use_response(
+                "Reading all files.",
+                [
+                    {
+                        "id": "tu1",
+                        "name": "Read",
+                        "input": {"file_path": str(tmp_path / "file0.txt")},
+                    },
+                    {
+                        "id": "tu2",
+                        "name": "Read",
+                        "input": {"file_path": str(tmp_path / "file1.txt")},
+                    },
+                    {
+                        "id": "tu3",
+                        "name": "Read",
+                        "input": {"file_path": str(tmp_path / "file2.txt")},
+                    },
+                ],
+            ),
             _make_text_response("All files read successfully."),
         ]
         call_count = 0
@@ -769,7 +838,6 @@ class TestConcurrentToolsE2E:
         """Bash + Read should be in separate partitions (Bash serializes)."""
         from d2c.loop import partitionToolCalls
         from d2c.tools import ToolUse
-
         from d2c.tools.bash_tool import BashTool
         from d2c.tools.read_tool import FileReadTool
 
@@ -794,6 +862,7 @@ class TestConcurrentToolsE2E:
 
 # ── Error recovery E2E tests ──────────────────────────────────────────
 
+
 class TestErrorRecoveryE2E:
     """End-to-end error recovery and resilience."""
 
@@ -801,11 +870,12 @@ class TestErrorRecoveryE2E:
     async def test_tool_error_recovery(self, tmp_path):
         """When a tool errors, the model gets the error and can retry."""
         from d2c.config import Config
-        from d2c.context import SystemContext, assembleMessages, getSystemPrompt, getUserContext
-        from d2c.loop import LoopConfig, queryLoop, TextResponse, ToolExecutionEvent
-        from d2c.permissions import PermissionEngine, PermissionMode
+        from d2c.context import SystemContext, assembleMessages
         from d2c.hooks import HookRegistry
-        from d2c.tools.pool import Config as PoolConfig, assembleToolPool
+        from d2c.loop import LoopConfig, TextResponse, ToolExecutionEvent, queryLoop
+        from d2c.permissions import PermissionEngine, PermissionMode
+        from d2c.tools.pool import Config as PoolConfig
+        from d2c.tools.pool import assembleToolPool
 
         config = Config.load()
         config.deepseek_api_key = "test-key"
@@ -827,7 +897,10 @@ class TestErrorRecoveryE2E:
         )
 
         system_context = SystemContext(
-            git_status=None, platform="test", cwd=str(tmp_path), date="2025-01-01",
+            git_status=None,
+            platform="test",
+            cwd=str(tmp_path),
+            date="2025-01-01",
         )
         full_prompt, messages = assembleMessages(
             loop_config.system_prompt,
@@ -840,9 +913,12 @@ class TestErrorRecoveryE2E:
         # Model tries to read nonexistent file, then recovers
         nonexistent = str(tmp_path / "does_not_exist.txt")
         responses = [
-            _make_tool_use_response("Attempting read.", [
-                {"id": "tu1", "name": "Read", "input": {"file_path": nonexistent}},
-            ]),
+            _make_tool_use_response(
+                "Attempting read.",
+                [
+                    {"id": "tu1", "name": "Read", "input": {"file_path": nonexistent}},
+                ],
+            ),
             _make_text_response("The file does not exist. Let me create it instead."),
         ]
         call_count = 0
@@ -871,17 +947,21 @@ class TestErrorRecoveryE2E:
         assert tool_events[0].result.error is True
         # Model should have responded to the error
         assert len(text_events) == 1
-        assert "does not exist" in text_events[0].text.lower() or "create" in text_events[0].text.lower()
+        assert (
+            "does not exist" in text_events[0].text.lower()
+            or "create" in text_events[0].text.lower()
+        )
 
     @pytest.mark.asyncio
     async def test_max_turns_enforced(self, tmp_path):
         """Loop should stop when max_turns is reached."""
         from d2c.config import Config
-        from d2c.context import SystemContext, assembleMessages, getSystemPrompt, getUserContext
-        from d2c.loop import LoopConfig, queryLoop, StopEvent
-        from d2c.permissions import PermissionEngine, PermissionMode
+        from d2c.context import SystemContext, assembleMessages
         from d2c.hooks import HookRegistry
-        from d2c.tools.pool import Config as PoolConfig, assembleToolPool
+        from d2c.loop import LoopConfig, StopEvent, queryLoop
+        from d2c.permissions import PermissionEngine, PermissionMode
+        from d2c.tools.pool import Config as PoolConfig
+        from d2c.tools.pool import assembleToolPool
 
         config = Config.load()
         config.deepseek_api_key = "test-key"
@@ -903,7 +983,10 @@ class TestErrorRecoveryE2E:
         )
 
         system_context = SystemContext(
-            git_status=None, platform="test", cwd=str(tmp_path), date="2025-01-01",
+            git_status=None,
+            platform="test",
+            cwd=str(tmp_path),
+            date="2025-01-01",
         )
         full_prompt, messages = assembleMessages(
             loop_config.system_prompt,
@@ -919,11 +1002,14 @@ class TestErrorRecoveryE2E:
 
         with patch("d2c.loop.anthropic.AsyncAnthropic") as mock_cls:
             mock_client = MagicMock()
-            mock_client.messages.create = AsyncMock(return_value=_make_tool_use_response(
-                "Reading.", [
-                    {"id": "tu_loop", "name": "Read", "input": {"file_path": str(test_file)}},
-                ],
-            ))
+            mock_client.messages.create = AsyncMock(
+                return_value=_make_tool_use_response(
+                    "Reading.",
+                    [
+                        {"id": "tu_loop", "name": "Read", "input": {"file_path": str(test_file)}},
+                    ],
+                )
+            )
             mock_cls.return_value = mock_client
 
             events = []

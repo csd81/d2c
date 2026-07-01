@@ -113,6 +113,6 @@ class PromptHistory:
             return 0
         try:
             text = self._history_path.read_text(encoding="utf-8")
-            return len([l for l in text.strip().split("\n") if l.strip()])
+            return len([ln for ln in text.strip().split("\n") if ln.strip()])
         except OSError:
             return 0

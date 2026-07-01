@@ -12,17 +12,17 @@ from unittest.mock import MagicMock
 import pytest
 
 from d2c.compact import (
-    CompactConfig,
     CACHE_BLOCK_SIZE,
+    CompactConfig,
+    _compute_system_tools_tokens,
     _find_cache_alignment_point,
     _inject_cache_control,
-    _compute_system_tools_tokens,
     applySnip,
     estimate_tokens,
 )
 
-
 # ── Fixtures ───────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def config():
@@ -45,6 +45,7 @@ def loop_config(config):
 
 
 # ── Cache alignment point tests ────────────────────────────────────────
+
 
 class TestFindCacheAlignmentPoint:
     def test_finds_best_1024_alignment(self, config):
@@ -106,9 +107,9 @@ class TestFindCacheAlignmentPoint:
     def test_large_single_message(self, config):
         """A large message spanning multiple 1024 blocks — alignment after it."""
         msgs = [
-            {"role": "user", "content": "x" * 200},   # ~50 tokens
+            {"role": "user", "content": "x" * 200},  # ~50 tokens
             {"role": "tool", "content": "y" * 5000},  # ~1250 tokens
-            {"role": "user", "content": "z" * 200},   # ~50 tokens
+            {"role": "user", "content": "z" * 200},  # ~50 tokens
         ]
         result = _find_cache_alignment_point(msgs, config, system_tokens=500)
         assert result is not None
@@ -116,6 +117,7 @@ class TestFindCacheAlignmentPoint:
 
 
 # ── Cache control injection tests ──────────────────────────────────────
+
 
 class TestInjectCacheControl:
     def test_injects_into_string_content(self):
@@ -128,10 +130,13 @@ class TestInjectCacheControl:
 
     def test_injects_into_content_list(self):
         """cache_control appended to last block in a content list."""
-        msg = {"role": "assistant", "content": [
-            {"type": "text", "text": "I'll do that."},
-            {"type": "tool_use", "id": "t1", "name": "bash", "input": {}},
-        ]}
+        msg = {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "I'll do that."},
+                {"type": "tool_use", "id": "t1", "name": "bash", "input": {}},
+            ],
+        }
         result = _inject_cache_control(msg)
         assert len(result["content"]) == 2
         assert result["content"][-1].get("cache_control") == {"type": "ephemeral"}
@@ -147,15 +152,14 @@ class TestInjectCacheControl:
 
 # ── Cache-aligned applySnip tests ──────────────────────────────────────
 
+
 class TestCacheAlignedSnip:
     def test_standard_snip_without_system_tokens(self, config):
         """When system_tokens is None, standard snip behavior applies."""
         msgs = [
             {"role": "system", "content": "You are helpful."},
             {"role": "user", "content": "Task 1: the original question."},
-        ] + [
-            {"role": "user", "content": f"msg {i}"} for i in range(20)
-        ]
+        ] + [{"role": "user", "content": f"msg {i}"} for i in range(20)]
         config.snip_keep_last = 4
         result = applySnip(msgs, config, system_tokens=None)
         # Standard snip: system + first user + last 4 = 6
@@ -215,6 +219,7 @@ class TestCacheAlignedSnip:
 
 
 # ── Cache-aligned applyContextCollapse tests ───────────────────────────
+
 
 class TestCacheAlignedContextCollapse:
     @pytest.mark.asyncio
@@ -280,6 +285,7 @@ class TestCacheAlignedContextCollapse:
 
 # ── System+tools token computation tests ───────────────────────────────
 
+
 class TestComputeSystemToolsTokens:
     def test_returns_positive_for_normal_input(self, config):
         """Computes a reasonable token estimate for system + tools."""
@@ -311,16 +317,14 @@ class TestComputeSystemToolsTokens:
 
 # ── Integration: applyFullContextShapers with alignment ────────────────
 
+
 class TestFullPipelineWithAlignment:
     @pytest.mark.asyncio
     async def test_pipeline_with_system_tokens(self, loop_config):
         """applyFullContextShapers passes system_tokens through to shapers."""
         from d2c.compact import applyFullContextShapers
 
-        msgs = [
-            {"role": "user", "content": "x" * 180}
-            for _ in range(15)
-        ]
+        msgs = [{"role": "user", "content": "x" * 180} for _ in range(15)]
         result = await applyFullContextShapers(msgs, loop_config, system_tokens=100)
         assert isinstance(result, list)
         # Pipeline should complete without error
@@ -331,10 +335,7 @@ class TestFullPipelineWithAlignment:
         """applyFullContextShapers works without system_tokens (backwards compat)."""
         from d2c.compact import applyFullContextShapers
 
-        msgs = [
-            {"role": "user", "content": f"msg {i}"}
-            for i in range(5)
-        ]
+        msgs = [{"role": "user", "content": f"msg {i}"} for i in range(5)]
         result = await applyFullContextShapers(msgs, loop_config)
         assert isinstance(result, list)
         assert len(result) > 0

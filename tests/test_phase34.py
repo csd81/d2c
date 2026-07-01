@@ -7,23 +7,22 @@ enforcement, and the new background-status / auto-memory tools.
 
 import pytest
 
-from d2c.hooks import HookRegistry, HookDefinition, HookEvent, HookType, HookResult
+from d2c.hooks import HookDefinition, HookEvent, HookRegistry, HookResult, HookType
+from d2c.path_rules import PathScopedRules
 from d2c.permissions import (
+    PermissionDecision,
     PermissionEngine,
     PermissionMode,
     PermissionRequest,
-    PermissionDecision,
 )
-from d2c.path_rules import PathScopedRules
 from d2c.tools import (
     PermissionCategory,
     set_active_hooks,
     set_file_history_tracker,
-    set_active_memory_loader,
 )
 
-
 # ── 1.1 Read-before-Write gate ────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_read_marks_file_so_write_is_allowed(tmp_dir, trusted_gate):
@@ -46,6 +45,7 @@ async def test_read_marks_file_so_write_is_allowed(tmp_dir, trusted_gate):
 
 
 # ── 1.4 File-history checkpoints ──────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_write_creates_file_history_checkpoint(tmp_dir):
@@ -75,6 +75,7 @@ async def test_write_creates_file_history_checkpoint(tmp_dir):
 
 # ── 2.1 Task lifecycle hooks ──────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_task_tools_fire_lifecycle_hooks():
     from d2c.tools.task_tools import TaskCreateTool, TaskUpdateTool
@@ -86,8 +87,12 @@ async def test_task_tools_fire_lifecycle_hooks():
         return HookResult()
 
     reg = HookRegistry()
-    reg.register(HookDefinition(event=HookEvent.TASK_CREATED, hook_type=HookType.CALLBACK, callback=_cb))
-    reg.register(HookDefinition(event=HookEvent.TASK_COMPLETED, hook_type=HookType.CALLBACK, callback=_cb))
+    reg.register(
+        HookDefinition(event=HookEvent.TASK_CREATED, hook_type=HookType.CALLBACK, callback=_cb)
+    )
+    reg.register(
+        HookDefinition(event=HookEvent.TASK_COMPLETED, hook_type=HookType.CALLBACK, callback=_cb)
+    )
     set_active_hooks(reg)
     try:
         created = await TaskCreateTool().execute(subject="do it", description="d")
@@ -105,17 +110,18 @@ async def test_task_tools_fire_lifecycle_hooks():
 
 # ── 3.1 Path-scoped rules reach the permission engine ─────────────────
 
+
 def test_path_rules_enforced_by_engine(tmp_dir, trusted_gate):
     rules_dir = tmp_dir / ".d2c" / "rules"
     rules_dir.mkdir(parents=True)
     (rules_dir / "no_read.md").write_text(
-        '---\n'
-        'rules:\n'
-        '  - type: deny\n'
+        "---\n"
+        "rules:\n"
+        "  - type: deny\n"
         '    pattern: "Read"\n'
         '    reason: "no reads in this tree"\n'
         'path: "."\n'
-        '---\n'
+        "---\n"
     )
 
     # dontAsk would normally ALLOW everything; the path rule must still DENY.
@@ -133,15 +139,18 @@ def test_path_rules_enforced_by_engine(tmp_dir, trusted_gate):
 
 def test_from_config_attaches_path_rules():
     from d2c.config import Config
+
     engine = PermissionEngine.from_config(Config(permission_mode="default"))
     assert engine._path_rules is not None
 
 
 # ── 3.2 / 3.3 New tools registered ────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_new_tools_present_in_pool(trusted_gate):
-    from d2c.tools.pool import Config as PoolConfig, assembleToolPool
+    from d2c.tools.pool import Config as PoolConfig
+    from d2c.tools.pool import assembleToolPool
 
     tools = await assembleToolPool(PoolConfig())
     names = {t.name for t in tools}

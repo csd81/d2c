@@ -18,6 +18,7 @@ def reset_read_files():
 def reset_trust():
     """Reset the global trust gate between tests."""
     from d2c.trust import reset_trust_gate
+
     reset_trust_gate()
     yield
     reset_trust_gate()
@@ -33,6 +34,7 @@ def tmp_dir():
 def trusted_gate(tmp_dir):
     """Create a trust gate that has decided True."""
     from d2c.trust import WorkSpaceTrustGate, set_trust_gate
+
     gate = WorkSpaceTrustGate(tmp_dir)
     gate.decide(True)
     set_trust_gate(gate)
@@ -43,6 +45,7 @@ def trusted_gate(tmp_dir):
 def untrusted_gate(tmp_dir):
     """Create a trust gate that has decided False."""
     from d2c.trust import WorkSpaceTrustGate, set_trust_gate
+
     gate = WorkSpaceTrustGate(tmp_dir)
     gate.decide(False)
     set_trust_gate(gate)

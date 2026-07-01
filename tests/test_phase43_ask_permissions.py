@@ -6,15 +6,15 @@ import pytest
 
 from d2c.config import Config
 from d2c.loop import _execute_one_tool
-from d2c.streaming_executor import StreamingToolExecutor
 from d2c.permissions import (
+    PermissionDecision,
     PermissionEngine,
     PermissionMode,
     PermissionRequest,
     PermissionResult,
-    PermissionDecision,
     resolve_permission_decision,
 )
+from d2c.streaming_executor import StreamingToolExecutor
 from d2c.tools import PermissionCategory, Tool, ToolResult, ToolUse
 
 
@@ -55,6 +55,7 @@ def _tu():
 
 # ── Shared resolver ───────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_resolver_ask_no_callback_denies():
     req = PermissionRequest(tool_name="X", tool_input={}, tool_category=PermissionCategory.SHELL)
@@ -62,14 +63,19 @@ async def test_resolver_ask_no_callback_denies():
     out = await resolve_permission_decision(req, ask, None)
     assert out.decision == PermissionDecision.DENY
 
-    assert (await resolve_permission_decision(req, ask, _approve)).decision == PermissionDecision.ALLOW
-    assert (await resolve_permission_decision(req, ask, _reject)).decision == PermissionDecision.DENY
+    assert (
+        await resolve_permission_decision(req, ask, _approve)
+    ).decision == PermissionDecision.ALLOW
+    assert (
+        await resolve_permission_decision(req, ask, _reject)
+    ).decision == PermissionDecision.DENY
     assert (await resolve_permission_decision(req, ask, _boom)).decision == PermissionDecision.DENY
     # No engine → None passes through (caller executes).
     assert await resolve_permission_decision(req, None, None) is None
 
 
 # ── Non-streaming executor (headless == no callback) ──────────────────
+
 
 @pytest.mark.asyncio
 async def test_ask_no_callback_does_not_execute():
@@ -106,15 +112,19 @@ async def test_ask_callback_exception_denies():
 
 # ── Streaming executor ────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_streaming_ask_without_approval_does_not_execute():
     tool = SideEffectTool()
     ex = StreamingToolExecutor(
-        tools_map={"SideEffect": tool}, permission_engine=_default_engine(),
-        hooks=None, session_store=None, approval_callback=None,
+        tools_map={"SideEffect": tool},
+        permission_engine=_default_engine(),
+        hooks=None,
+        session_store=None,
+        approval_callback=None,
     )
     ex.submit(_tu())
-    (_, res), = await ex.get_results()
+    ((_, res),) = await ex.get_results()
     assert tool.executed is False
     assert res.error is True
 
@@ -123,16 +133,20 @@ async def test_streaming_ask_without_approval_does_not_execute():
 async def test_streaming_executes_after_approval():
     tool = SideEffectTool()
     ex = StreamingToolExecutor(
-        tools_map={"SideEffect": tool}, permission_engine=_default_engine(),
-        hooks=None, session_store=None, approval_callback=_approve,
+        tools_map={"SideEffect": tool},
+        permission_engine=_default_engine(),
+        hooks=None,
+        session_store=None,
+        approval_callback=_approve,
     )
     ex.submit(_tu())
-    (_, res), = await ex.get_results()
+    ((_, res),) = await ex.get_results()
     assert tool.executed is True
     assert res.error is False
 
 
 # ── MCP server ────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_mcp_ask_returns_permission_required(tmp_dir, trusted_gate):
@@ -162,18 +176,28 @@ async def test_mcp_without_engine_executes(tmp_dir, trusted_gate):
 
 # ── Interactive prompt ────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_interactive_prompt_defaults_to_deny_on_empty(monkeypatch, capsys):
     from d2c.main import interactive_approval
+
     monkeypatch.setattr(builtins, "input", lambda *a: "")
-    req = PermissionRequest(tool_name="Bash", tool_input={"command": "ls"}, tool_category=PermissionCategory.SHELL)
-    assert await interactive_approval(req, PermissionResult(PermissionDecision.ASK, reason="?")) is False
+    req = PermissionRequest(
+        tool_name="Bash", tool_input={"command": "ls"}, tool_category=PermissionCategory.SHELL
+    )
+    assert (
+        await interactive_approval(req, PermissionResult(PermissionDecision.ASK, reason="?"))
+        is False
+    )
 
 
 @pytest.mark.asyncio
 async def test_interactive_prompt_accepts_yes_rejects_no(monkeypatch):
     from d2c.main import interactive_approval
-    req = PermissionRequest(tool_name="Bash", tool_input={"command": "ls"}, tool_category=PermissionCategory.SHELL)
+
+    req = PermissionRequest(
+        tool_name="Bash", tool_input={"command": "ls"}, tool_category=PermissionCategory.SHELL
+    )
     res = PermissionResult(PermissionDecision.ASK, reason="?")
 
     for ans in ("y", "yes", "Y", "YES"):

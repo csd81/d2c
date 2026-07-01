@@ -5,12 +5,10 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from d2c.file_history import FileHistory, FileHistoryTracker
 
-
 # ── FileHistory tests ───────────────────────────────────────────────────
+
 
 class TestFileHistory:
     def test_checkpoint_saves_file_copy(self):
@@ -200,6 +198,7 @@ class TestFileHistory:
 
 
 # ── FileHistoryTracker tests ────────────────────────────────────────────
+
 
 class TestFileHistoryTracker:
     def test_before_write_checkpoints(self):

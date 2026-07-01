@@ -11,23 +11,23 @@ Auto memory: persistent file-based entries stored in ~/.d2c/memory/.
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from d2c.config import Config
+    from d2c.path_rules import PathScopedRules
 
 
 # ── Types ────────────────────────────────────────────────────────────
 
+
 class MemoryLevel(Enum):
-    MANAGED = 1   # /etc/d2c/CLAUDE.md
-    USER = 2      # ~/.d2c/CLAUDE.md
-    PROJECT = 3   # CLAUDE.md, .d2c/CLAUDE.md, .d2c/rules/*.md
-    LOCAL = 4     # CLAUDE.local.md (gitignored)
+    MANAGED = 1  # /etc/d2c/CLAUDE.md
+    USER = 2  # ~/.d2c/CLAUDE.md
+    PROJECT = 3  # CLAUDE.md, .d2c/CLAUDE.md, .d2c/rules/*.md
+    LOCAL = 4  # CLAUDE.local.md (gitignored)
 
 
 @dataclass
@@ -35,10 +35,11 @@ class MemoryFile:
     path: Path
     level: MemoryLevel
     content: str
-    priority: int   # higher = loaded later = more model attention
+    priority: int  # higher = loaded later = more model attention
 
 
 # ── CLAUDE.md hierarchy loader ───────────────────────────────────────
+
 
 def loadClaudeMdHierarchy(cwd: Path) -> str:
     """Load 4-level CLAUDE.md hierarchy from root to cwd.
@@ -71,6 +72,7 @@ def loadClaudeMdHierarchy(cwd: Path) -> str:
     # Level 3 & 4: Project + Local (traverse root → cwd)
     # Only loaded if workspace is trusted
     from d2c.trust import get_trust_gate
+
     if get_trust_gate().is_project_trusted:
         cwd = cwd.resolve()
         root = Path(cwd.anchor)
@@ -128,6 +130,7 @@ def assembleMemoryContent(
 
 
 # ── @include directive processing ─────────────────────────────────────
+
 
 def processMemoryFile(
     content: str,
@@ -190,6 +193,7 @@ def parseIncludePath(directive: str, base_dir: Path) -> Path | None:
 
 # ── Auto memory ───────────────────────────────────────────────────────
 
+
 class AutoMemoryStore:
     """Persistent file-based memory. Paper Section 7.2.
 
@@ -208,13 +212,7 @@ class AutoMemoryStore:
         filename = f"{memory_type}_{_sanitize_filename(name)}.md"
         filepath = self.MEMORY_DIR / filename
 
-        frontmatter = (
-            f"---\n"
-            f"name: {name}\n"
-            f"description: {description}\n"
-            f"type: {memory_type}\n"
-            f"---\n"
-        )
+        frontmatter = f"---\nname: {name}\ndescription: {description}\ntype: {memory_type}\n---\n"
         filepath.write_text(frontmatter + "\n" + content, encoding="utf-8")
         self._update_index(name, filename, description)
         return filepath
@@ -276,6 +274,7 @@ class AutoMemoryStore:
 
 # ── Lazy memory loader ────────────────────────────────────────────────
 
+
 class LazyMemoryLoader:
     """Paper: nested-directory CLAUDE.md files loaded lazily on file access.
 
@@ -305,6 +304,7 @@ class LazyMemoryLoader:
         """
         # Skip project-level lazy loading if workspace is not trusted
         from d2c.trust import get_trust_gate
+
         if not get_trust_gate().is_project_trusted:
             return None
 
@@ -365,6 +365,7 @@ class LazyMemoryLoader:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
+
 
 def _read_file_safe(path: Path) -> str | None:
     """Safe file read — returns None on any error."""

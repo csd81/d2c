@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,15 +18,15 @@ from d2c.context import (
 )
 from d2c.loop import (
     LoopConfig,
+    StopEvent,
     StubHookRegistry,
     StubPermissionEngine,
     TextResponse,
     ToolExecutionEvent,
-    StopEvent,
+    _assistant_message_with_tools,
     _build_anthropic_messages,
     _extract_tool_uses,
     _response_text,
-    _assistant_message_with_tools,
     _tool_result_message,
     dispatchTools,
     partitionToolCalls,
@@ -36,8 +34,8 @@ from d2c.loop import (
 )
 from d2c.tools import PermissionCategory, Tool, ToolResult, ToolUse
 
-
 # ── Mock model response ──────────────────────────────────────────────
+
 
 class MockContentBlock:
     def __init__(self, block_type: str, text: str = "", **kwargs):
@@ -72,6 +70,7 @@ def make_tool_use_response(tool_uses: list[tuple[str, str, dict]]) -> MockRespon
 class NameVal:
     def __init__(self, val: str):
         self._val = val
+
     def __eq__(self, other):
         if hasattr(other, "value"):
             return self._val == other.value
@@ -84,10 +83,15 @@ class DictVal(dict):
 
 # ── Mock tool ────────────────────────────────────────────────────────
 
+
 class MockReadTool(Tool):
     name = "Read"
     description = "Read a file"
-    input_schema = {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}
+    input_schema = {
+        "type": "object",
+        "properties": {"file_path": {"type": "string"}},
+        "required": ["file_path"],
+    }
     category = PermissionCategory.READ
     is_concurrent_safe = True
 
@@ -98,7 +102,11 @@ class MockReadTool(Tool):
 class MockWriteTool(Tool):
     name = "Write"
     description = "Write a file"
-    input_schema = {"type": "object", "properties": {"file_path": {"type": "string"}, "content": {"type": "string"}}, "required": ["file_path", "content"]}
+    input_schema = {
+        "type": "object",
+        "properties": {"file_path": {"type": "string"}, "content": {"type": "string"}},
+        "required": ["file_path", "content"],
+    }
     category = PermissionCategory.WRITE
     is_concurrent_safe = False
 
@@ -123,6 +131,7 @@ def make_loop_config(model="deepseek-v4-pro", max_turns=25, tools=None) -> LoopC
 
 # ── Context tests ────────────────────────────────────────────────────
 
+
 def test_get_system_prompt():
     prompt = getSystemPrompt()
     assert "d2c" in prompt
@@ -130,7 +139,9 @@ def test_get_system_prompt():
 
 
 def test_system_context_format():
-    ctx = SystemContext(git_status="on branch 'main'", platform="Linux", cwd="/home/user/project", date="2026-06-30")
+    ctx = SystemContext(
+        git_status="on branch 'main'", platform="Linux", cwd="/home/user/project", date="2026-06-30"
+    )
     formatted = ctx.format()
     assert "main" in formatted
     assert "Linux" in formatted
@@ -176,6 +187,7 @@ def test_estimate_tokens():
 
 # ── Message format tests ─────────────────────────────────────────────
 
+
 def test_build_anthropic_messages_simple():
     messages = [
         {"role": "user", "content": "hello"},
@@ -201,7 +213,13 @@ def test_build_anthropic_messages_tool_result():
 
 def test_build_anthropic_messages_assistant_with_blocks():
     messages = [
-        {"role": "assistant", "content": [{"type": "text", "text": "hello"}, {"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": "/x"}}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "hello"},
+                {"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": "/x"}},
+            ],
+        },
     ]
     result = _build_anthropic_messages(messages)
     assert len(result) == 1
@@ -246,6 +264,7 @@ def test_tool_result_message():
 
 
 # ── Tool dispatch tests ──────────────────────────────────────────────
+
 
 def test_partition_concurrent_and_write():
     tools_map = {"Read": MockReadTool(), "Write": MockWriteTool()}
@@ -292,6 +311,7 @@ def test_partition_all_write():
 async def test_dispatch_tools():
     tools_map = {"Read": MockReadTool()}
     from d2c.loop import LoopState
+
     state = LoopState(messages=[])
 
     tool_uses = [ToolUse(id="1", name="Read", input={"file_path": "/test.txt"})]
@@ -306,6 +326,7 @@ async def test_dispatch_tools():
 
 # ── queryLoop tests (mocked model) ───────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_loop_text_only_response():
     """Model returns text only → loop stops after 1 turn."""
@@ -313,7 +334,9 @@ async def test_loop_text_only_response():
 
     with patch("d2c.loop.anthropic.AsyncAnthropic") as mock_cls:
         mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(return_value=make_text_response("Hello, how can I help?"))
+        mock_client.messages.create = AsyncMock(
+            return_value=make_text_response("Hello, how can I help?")
+        )
         mock_cls.return_value = mock_client
 
         events = []
@@ -341,7 +364,9 @@ async def test_loop_tool_use_then_text():
             call_count[0] += 1
             if call_count[0] == 1:
                 # Wait, I need to construct a tool_use response properly
-                block = MockContentBlock("tool_use", id="tu_1", name="Read", input={"file_path": "/test.txt"})
+                block = MockContentBlock(
+                    "tool_use", id="tu_1", name="Read", input={"file_path": "/test.txt"}
+                )
                 return MockResponse(content=[block])
             else:
                 return make_text_response("I read the file. It contains hello world.")
@@ -371,7 +396,9 @@ async def test_loop_max_turns():
 
         # Always return tool_use (never stop naturally)
         async def side_effect(**kwargs):
-            block = MockContentBlock("tool_use", id="tu_1", name="Read", input={"file_path": "/test.txt"})
+            block = MockContentBlock(
+                "tool_use", id="tu_1", name="Read", input={"file_path": "/test.txt"}
+            )
             return MockResponse(content=[block])
 
         mock_client.messages.create = AsyncMock(side_effect=side_effect)

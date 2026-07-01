@@ -17,8 +17,8 @@ from d2c.memory import (
     processMemoryFile,
 )
 
-
 # ── Fixtures ───────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def tmp_home(monkeypatch, tmp_path):
@@ -37,6 +37,7 @@ def memory_store(tmp_home):
 
 
 # ── MemoryFile / MemoryLevel tests ─────────────────────────────────────
+
 
 class TestMemoryFile:
     def test_memory_file_creation(self):
@@ -64,6 +65,7 @@ class TestMemoryLevel:
 
 
 # ── assembleMemoryContent tests ────────────────────────────────────────
+
 
 class TestAssembleMemoryContent:
     def test_single_file(self):
@@ -94,6 +96,7 @@ class TestAssembleMemoryContent:
 
 
 # ── @include directive tests ───────────────────────────────────────────
+
 
 class TestParseIncludePath:
     def test_relative(self):
@@ -134,7 +137,7 @@ class TestProcessMemoryFile:
     def test_include_relative(self, tmp_path):
         included = tmp_path / "included.md"
         included.write_text("included content")
-        content = f"before\n@./included.md\nafter"
+        content = "before\n@./included.md\nafter"
         result = processMemoryFile(content, tmp_path, set())
         assert "before" in result
         assert "included content" in result
@@ -170,6 +173,7 @@ class TestProcessMemoryFile:
 
 
 # ── CLAUDE.md hierarchy tests ──────────────────────────────────────────
+
 
 class TestLoadClaudeMdHierarchy:
     def test_empty_when_no_files(self, tmp_path):
@@ -236,6 +240,7 @@ class TestLoadClaudeMdHierarchy:
 
 # ── Auto memory tests ──────────────────────────────────────────────────
 
+
 class TestAutoMemoryStore:
     def test_save_creates_file(self, memory_store):
         filepath = memory_store.save("test", "user", "A test memory", "Content here")
@@ -293,6 +298,7 @@ class TestAutoMemoryStore:
 
 
 # ── Lazy memory loader tests ───────────────────────────────────────────
+
 
 class TestLazyMemoryLoader:
     def test_returns_none_for_cwd(self, tmp_path):
@@ -361,19 +367,24 @@ class TestLazyMemoryLoader:
 
 # ── Integration test ───────────────────────────────────────────────────
 
+
 class TestGetUserContext:
     def test_includes_memory_when_available(self, tmp_path):
         (tmp_path / "CLAUDE.md").write_text("Test memory")
         from d2c.config import Config
+
         config = Config(cwd=tmp_path)
         from d2c.context import getUserContext
+
         result = getUserContext(config)
         assert "Test memory" in result
         assert "Today's date" in result
 
     def test_no_memory_when_empty(self, tmp_path):
         from d2c.config import Config
+
         config = Config(cwd=tmp_path)
         from d2c.context import getUserContext
+
         result = getUserContext(config)
         assert "Today's date" in result

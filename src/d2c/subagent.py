@@ -12,23 +12,23 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from d2c.tools import PermissionCategory
 
 if TYPE_CHECKING:
-    from d2c.tools import Tool
     from d2c.config import Config
-    from d2c.hooks import HookRegistry
     from d2c.persistence import SessionStore
+    from d2c.tools import Tool
 
 logger = logging.getLogger(__name__)
 
 
 # ── Subagent types ────────────────────────────────────────────────────
+
 
 class SubagentType(Enum):
     EXPLORE = "Explore"
@@ -39,17 +39,19 @@ class SubagentType(Enum):
 
 # ── Definition & result ───────────────────────────────────────────────
 
+
 @dataclass
 class SubagentDefinition:
     """Paper Section 8.1: agent definition with configuration."""
+
     name: str
     description: str
     system_prompt: str
     subagent_type: SubagentType
-    tools: list[str] | None = None          # allowlist
+    tools: list[str] | None = None  # allowlist
     disallowed_tools: list[str] | None = None  # denylist
-    model: str | None = None                 # override model
-    permission_mode: str | None = None       # override permission mode
+    model: str | None = None  # override model
+    permission_mode: str | None = None  # override permission mode
     max_turns: int = 25
     background: bool = False
 
@@ -57,6 +59,7 @@ class SubagentDefinition:
 @dataclass
 class SubagentResult:
     """Paper Section 8.3: summary-only return to parent."""
+
     summary: str
     tool_calls: int = 0
     turns: int = 0
@@ -66,6 +69,7 @@ class SubagentResult:
 
 
 # ── Tool pool builder ─────────────────────────────────────────────────
+
 
 def build_subagent_tool_pool(
     definition: SubagentDefinition,
@@ -87,10 +91,15 @@ def build_subagent_tool_pool(
     # Built-in type restrictions
     if definition.subagent_type == SubagentType.EXPLORE:
         # Paper: "primarily read/search-oriented; write and edit in deny-list"
-        result = [t for t in result if t.category in (
-            PermissionCategory.READ,
-            PermissionCategory.META,
-        )]
+        result = [
+            t
+            for t in result
+            if t.category
+            in (
+                PermissionCategory.READ,
+                PermissionCategory.META,
+            )
+        ]
 
     # Plan agents get standard tools — their job is planning, not execution restriction
 
@@ -98,6 +107,7 @@ def build_subagent_tool_pool(
 
 
 # ── Subagent spawner ──────────────────────────────────────────────────
+
 
 async def spawn_subagent(
     definition: SubagentDefinition,
@@ -121,16 +131,18 @@ async def spawn_subagent(
       - "worktree": git worktree isolation (requires git repo)
     """
     # Deferred imports to avoid circular dependency
-    from d2c.tools.pool import assembleToolPool, Config as PoolConfig
-    from d2c.loop import LoopConfig, queryLoop
-    from d2c.loop import TextResponse, ToolExecutionEvent, StopEvent
+    from d2c.context import assembleMessages, getSystemContext, getUserContext
+    from d2c.hooks import HookEvent, HookRegistry
+    from d2c.loop import LoopConfig, StopEvent, TextResponse, ToolExecutionEvent, queryLoop
     from d2c.permissions import PermissionEngine, PermissionMode
-    from d2c.context import getSystemPrompt, getUserContext, getSystemContext, assembleMessages
-    from d2c.persistence import SessionStore, SessionEntry, _utc_now
-    from d2c.hooks import HookRegistry, HookEvent, HookDefinition, HookType
+    from d2c.persistence import SessionStore
+    from d2c.tools.pool import Config as PoolConfig
+    from d2c.tools.pool import assembleToolPool
     from d2c.worktree import (
-        WorktreeManager, WorktreeContext,
-        NotAGitRepoError, WorktreeCreationError,
+        NotAGitRepoError,
+        WorktreeContext,
+        WorktreeCreationError,
+        WorktreeManager,
     )
 
     # ── Worktree isolation ──────────────────────────────────────────
@@ -148,11 +160,14 @@ async def spawn_subagent(
 
             # Fire WorktreeCreate hook
             if parent_hooks:
-                await parent_hooks.fire(HookEvent.WORKTREE_CREATE, {
-                    "worktree_path": str(worktree_ctx.worktree_path),
-                    "branch": worktree_ctx.branch_name,
-                    "subagent_id": subagent_id,
-                })
+                await parent_hooks.fire(
+                    HookEvent.WORKTREE_CREATE,
+                    {
+                        "worktree_path": str(worktree_ctx.worktree_path),
+                        "branch": worktree_ctx.branch_name,
+                        "subagent_id": subagent_id,
+                    },
+                )
         except NotAGitRepoError:
             return SubagentResult(
                 summary="Worktree isolation requires a git repository. Use isolation_mode='default'.",
@@ -200,11 +215,14 @@ async def spawn_subagent(
 
         # Phase 15: Fire SubagentStart on parent hooks
         if parent_hooks:
-            await parent_hooks.fire(HookEvent.SUBAGENT_START, {
-                "subagent_id": subagent_id,
-                "subagent_type": definition.subagent_type,
-                "task": task_prompt[:500],
-            })
+            await parent_hooks.fire(
+                HookEvent.SUBAGENT_START,
+                {
+                    "subagent_id": subagent_id,
+                    "subagent_type": definition.subagent_type,
+                    "task": task_prompt[:500],
+                },
+            )
 
         # Build loop config with worktree cwd
         loop_config = LoopConfig(
@@ -243,20 +261,23 @@ async def spawn_subagent(
                 elif isinstance(event, TextResponse):
                     final_text = event.text
                 elif isinstance(event, StopEvent):
-                    turns = getattr(event, 'metadata', {}).get('turns', 0) or turns
+                    turns = getattr(event, "metadata", {}).get("turns", 0) or turns
         except Exception as e:
             # Capture diff even on error
             if worktree_ctx and worktree_manager:
                 diff_output = worktree_manager.get_changes(worktree_ctx)
             # Phase 34: Fire SubagentStop even on failure
             if parent_hooks:
-                await parent_hooks.fire(HookEvent.SUBAGENT_STOP, {
-                    "subagent_id": subagent_id,
-                    "summary": f"Subagent error: {e}",
-                    "tool_calls": tool_calls,
-                    "turns": turns,
-                    "success": False,
-                })
+                await parent_hooks.fire(
+                    HookEvent.SUBAGENT_STOP,
+                    {
+                        "subagent_id": subagent_id,
+                        "summary": f"Subagent error: {e}",
+                        "tool_calls": tool_calls,
+                        "turns": turns,
+                        "success": False,
+                    },
+                )
             return SubagentResult(
                 summary=f"Subagent error: {e}",
                 tool_calls=tool_calls,
@@ -272,13 +293,16 @@ async def spawn_subagent(
 
         # Phase 34: Fire SubagentStop on parent hooks
         if parent_hooks:
-            await parent_hooks.fire(HookEvent.SUBAGENT_STOP, {
-                "subagent_id": subagent_id,
-                "summary": final_text,
-                "tool_calls": tool_calls,
-                "turns": turns,
-                "success": True,
-            })
+            await parent_hooks.fire(
+                HookEvent.SUBAGENT_STOP,
+                {
+                    "subagent_id": subagent_id,
+                    "summary": final_text,
+                    "tool_calls": tool_calls,
+                    "turns": turns,
+                    "success": True,
+                },
+            )
 
         return SubagentResult(
             summary=final_text,
@@ -299,10 +323,13 @@ async def spawn_subagent(
 
             # Fire WorktreeRemove hook
             if parent_hooks:
-                await parent_hooks.fire(HookEvent.WORKTREE_REMOVE, {
-                    "worktree_path": str(worktree_ctx.worktree_path),
-                    "branch": worktree_ctx.branch_name,
-                })
+                await parent_hooks.fire(
+                    HookEvent.WORKTREE_REMOVE,
+                    {
+                        "worktree_path": str(worktree_ctx.worktree_path),
+                        "branch": worktree_ctx.branch_name,
+                    },
+                )
 
 
 # ── Subagent definition loader ────────────────────────────────────────
@@ -377,6 +404,7 @@ def load_subagent_definition(name: str) -> SubagentDefinition:
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
+
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
     """Parse YAML frontmatter from markdown. Returns (metadata, body)."""
     if not text.startswith("---"):
@@ -405,6 +433,7 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
 
 
 # ── Background subagent manager ────────────────────────────────────────
+
 
 class BackgroundSubagentManager:
     """Paper Section 8: fire-and-forget subagent execution.

@@ -19,6 +19,7 @@ def _require_read(path: Path) -> ToolResult | None:
     """Enforce Read-before-Write on an existing file. Returns an error result
     if the guard fails, else None."""
     from d2c.tools.write_tool import is_file_read
+
     if path.exists() and not is_file_read(str(path)):
         return ToolResult(
             output=f"Error: must Read the file first before editing: {path}.",
@@ -29,7 +30,7 @@ def _require_read(path: Path) -> ToolResult | None:
 
 async def _finish_write(path: Path, new_content: str, output: str, metadata: dict) -> ToolResult:
     """Checkpoint, write, mark-read, fire FILE_CHANGED, surface memory."""
-    from d2c.tools import get_file_history_tracker, fire_active_hook, notify_file_access
+    from d2c.tools import fire_active_hook, get_file_history_tracker, notify_file_access
     from d2c.tools.write_tool import mark_file_read
 
     tracker = get_file_history_tracker()
@@ -40,10 +41,17 @@ async def _finish_write(path: Path, new_content: str, output: str, metadata: dic
     except OSError as e:
         return ToolResult(output=f"Error writing file: {e}", error=True)
     mark_file_read(str(path))
-    await fire_active_hook("FILE_CHANGED", {
-        "path": str(path), "tool": metadata.get("_tool", "Edit"), "operation": metadata.get("_op", "edit"),
-    })
-    result = ToolResult(output=output, metadata={k: v for k, v in metadata.items() if not k.startswith("_")})
+    await fire_active_hook(
+        "FILE_CHANGED",
+        {
+            "path": str(path),
+            "tool": metadata.get("_tool", "Edit"),
+            "operation": metadata.get("_op", "edit"),
+        },
+    )
+    result = ToolResult(
+        output=output, metadata={k: v for k, v in metadata.items() if not k.startswith("_")}
+    )
     return notify_file_access(path, result)
 
 
@@ -78,11 +86,16 @@ class ReplaceManyTool(Tool):
     is_concurrent_safe: ClassVar[bool] = False
 
     async def execute(
-        self, file_path: str = "", replacements: list[dict] | None = None, **kwargs: Any,
+        self,
+        file_path: str = "",
+        replacements: list[dict] | None = None,
+        **kwargs: Any,
     ) -> ToolResult:
         path = Path(file_path)
         if not path.is_absolute():
-            return ToolResult(output=f"Error: file_path must be absolute, got: {file_path}", error=True)
+            return ToolResult(
+                output=f"Error: file_path must be absolute, got: {file_path}", error=True
+            )
         if not path.exists():
             return ToolResult(output=f"Error: file not found: {file_path}", error=True)
         if path.is_dir():
@@ -91,7 +104,9 @@ class ReplaceManyTool(Tool):
         if guard:
             return guard
         if not replacements:
-            return ToolResult(output="Error: replacements list is required and non-empty.", error=True)
+            return ToolResult(
+                output="Error: replacements list is required and non-empty.", error=True
+            )
 
         try:
             content = path.read_text(encoding="utf-8")
@@ -104,7 +119,9 @@ class ReplaceManyTool(Tool):
             old = r.get("old_string", "")
             new = r.get("new_string", "")
             if old == "":
-                return ToolResult(output=f"Error: replacement #{i + 1} has an empty old_string.", error=True)
+                return ToolResult(
+                    output=f"Error: replacement #{i + 1} has an empty old_string.", error=True
+                )
             if old not in working:
                 # Atomic: nothing is written when any replacement can't apply.
                 return ToolResult(
@@ -118,9 +135,14 @@ class ReplaceManyTool(Tool):
             return ToolResult(output="No changes (replacements produced identical content).")
 
         return await _finish_write(
-            path, working,
+            path,
+            working,
             output=f"Applied {applied} replacement(s) to {file_path}.",
-            metadata={"replacements_applied": applied, "_tool": "ReplaceMany", "_op": "replace_many"},
+            metadata={
+                "replacements_applied": applied,
+                "_tool": "ReplaceMany",
+                "_op": "replace_many",
+            },
         )
 
 
@@ -135,7 +157,11 @@ class JsonEditTool(Tool):
         "type": "object",
         "properties": {
             "file_path": {"type": "string", "description": "Absolute path to the JSON file."},
-            "operation": {"type": "string", "enum": ["set", "delete"], "description": "set or delete."},
+            "operation": {
+                "type": "string",
+                "enum": ["set", "delete"],
+                "description": "set or delete.",
+            },
             "path": {
                 "type": "string",
                 "description": "Dotted key path, e.g. 'scripts.test' or 'a.0.b' (list index).",
@@ -148,12 +174,18 @@ class JsonEditTool(Tool):
     is_concurrent_safe: ClassVar[bool] = False
 
     async def execute(
-        self, file_path: str = "", operation: str = "", path: str = "",
-        value: Any = None, **kwargs: Any,
+        self,
+        file_path: str = "",
+        operation: str = "",
+        path: str = "",
+        value: Any = None,
+        **kwargs: Any,
     ) -> ToolResult:
         fp = Path(file_path)
         if not fp.is_absolute():
-            return ToolResult(output=f"Error: file_path must be absolute, got: {file_path}", error=True)
+            return ToolResult(
+                output=f"Error: file_path must be absolute, got: {file_path}", error=True
+            )
         if not fp.exists():
             return ToolResult(output=f"Error: file not found: {file_path}", error=True)
         guard = _require_read(fp)
@@ -188,7 +220,9 @@ class JsonEditTool(Tool):
                 elif isinstance(node, dict):
                     node[last] = value
                 else:
-                    return ToolResult(output=f"Error: cannot set key on non-container at '{path}'.", error=True)
+                    return ToolResult(
+                        output=f"Error: cannot set key on non-container at '{path}'.", error=True
+                    )
             else:  # delete
                 if isinstance(node, list):
                     del node[int(last)]
@@ -197,13 +231,21 @@ class JsonEditTool(Tool):
                         return ToolResult(output=f"Error: key '{path}' not found.", error=True)
                     del node[last]
                 else:
-                    return ToolResult(output=f"Error: cannot delete key on non-container at '{path}'.", error=True)
+                    return ToolResult(
+                        output=f"Error: cannot delete key on non-container at '{path}'.", error=True
+                    )
         except (KeyError, IndexError, ValueError):
             return ToolResult(output=f"Error: path '{path}' not found.", error=True)
 
         new_content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
         return await _finish_write(
-            fp, new_content,
+            fp,
+            new_content,
             output=f"JSON {operation} at '{path}' in {file_path}.",
-            metadata={"operation": operation, "path": path, "_tool": "JsonEdit", "_op": "json_edit"},
+            metadata={
+                "operation": operation,
+                "path": path,
+                "_tool": "JsonEdit",
+                "_op": "json_edit",
+            },
         )

@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -17,8 +15,8 @@ from d2c.streaming_executor import (
 from d2c.tools import Tool, ToolResult, ToolUse
 from d2c.tools.bash_tool import BashTool
 
-
 # ── Fake tools for testing ──────────────────────────────────────────────
+
 
 class _FakeFastTool(Tool):
     name = "FakeFast"
@@ -65,6 +63,7 @@ class _FakeUnknownTool(Tool):
 
 
 # ── StreamToolParser tests ──────────────────────────────────────────────
+
 
 class TestStreamToolParser:
     def test_parses_single_tool_use(self):
@@ -155,6 +154,7 @@ class TestStreamToolParser:
 
 
 # ── StreamingToolExecutor tests ────────────────────────────────────────
+
 
 class TestStreamingToolExecutor:
     def _tools_map(self):
@@ -299,13 +299,17 @@ class TestStreamingToolExecutor:
         hooks = MagicMock()
         hooks.fire = AsyncMock()
         hooks.fire.return_value = MagicMock(
-            decision="deny", error="Blocked by hook",
-            updated_input=None, updated_output=None, additional_context=None,
+            decision="deny",
+            error="Blocked by hook",
+            updated_input=None,
+            updated_output=None,
+            additional_context=None,
             veto=False,
         )
 
         executor = StreamingToolExecutor(
-            self._tools_map(), hooks=hooks,
+            self._tools_map(),
+            hooks=hooks,
         )
         tu = ToolUse(id="1", name="FakeFast", input={})
         executor.submit(tu)

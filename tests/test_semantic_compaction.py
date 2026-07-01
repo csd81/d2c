@@ -6,10 +6,9 @@ handle concurrent task scheduling, and fall back gracefully on failure.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -17,6 +16,7 @@ import pytest
 @pytest.fixture
 def loop_config():
     from d2c.compact import CompactConfig
+
     config = CompactConfig(
         microcompact_summary_max_chars=500,
         collapse_min_turns=2,
@@ -35,14 +35,23 @@ def tool_messages():
     """Messages with consecutive tool-result pairs."""
     return [
         {"role": "user", "content": "Run the tests."},
-        {"role": "assistant", "content": [
-            {"type": "tool_use", "id": "t1", "name": "bash", "input": {"command": "npm test"}},
-        ]},
-        {"role": "tool", "content": "FAIL: test_auth (AssertionError: expected 200, got 401)\nFAIL: test_login\n2 tests failed."},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "t1", "name": "bash", "input": {"command": "npm test"}},
+            ],
+        },
+        {
+            "role": "tool",
+            "content": "FAIL: test_auth (AssertionError: expected 200, got 401)\nFAIL: test_login\n2 tests failed.",
+        },
         {"role": "user", "content": "Fix the auth bug."},
-        {"role": "assistant", "content": [
-            {"type": "tool_use", "id": "t2", "name": "read", "input": {"path": "auth.py"}},
-        ]},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "t2", "name": "read", "input": {"path": "auth.py"}},
+            ],
+        },
         {"role": "tool", "content": "..." + "def authenticate():\n    return check_token()\n" * 20},
     ]
 
@@ -104,14 +113,20 @@ class TestMicrocompactLLM:
         # Add more tool pairs to force concurrent summarization
         extra = [
             {"role": "user", "content": "Task 3"},
-            {"role": "assistant", "content": [
-                {"type": "tool_use", "id": "t3", "name": "write", "input": {}},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "t3", "name": "write", "input": {}},
+                ],
+            },
             {"role": "tool", "content": "Wrote file."},
             {"role": "user", "content": "Task 4"},
-            {"role": "assistant", "content": [
-                {"type": "tool_use", "id": "t4", "name": "edit", "input": {}},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "t4", "name": "edit", "input": {}},
+                ],
+            },
             {"role": "tool", "content": "Edited file."},
         ]
         msgs = tool_messages + extra
@@ -124,7 +139,9 @@ class TestContextCollapseLLM:
 
     @pytest.mark.asyncio
     async def test_context_collapse_segments_and_summarizes(
-        self, loop_config, history_messages,
+        self,
+        loop_config,
+        history_messages,
     ):
         """Context collapse segments history and queries LLM."""
         from d2c.compact import applyContextCollapse
@@ -137,7 +154,9 @@ class TestContextCollapseLLM:
 
     @pytest.mark.asyncio
     async def test_context_collapse_fallback_on_failure(
-        self, loop_config, history_messages,
+        self,
+        loop_config,
+        history_messages,
     ):
         """When summarization fails, context collapse still produces output."""
         from d2c.compact import applyContextCollapse
@@ -152,7 +171,8 @@ class TestContextCollapseLLM:
 
     @pytest.mark.asyncio
     async def test_context_collapse_preserves_system_messages(
-        self, loop_config,
+        self,
+        loop_config,
     ):
         """System messages are always preserved at the top."""
         from d2c.compact import applyContextCollapse
@@ -176,7 +196,8 @@ class TestContextCollapseLLM:
 
     @pytest.mark.asyncio
     async def test_context_collapse_noop_below_threshold(
-        self, loop_config,
+        self,
+        loop_config,
     ):
         """Fewer than min_turns*2 messages → no collapse."""
         from d2c.compact import applyContextCollapse
@@ -235,7 +256,9 @@ class TestSummarizeSegmentContent:
 
         long_text = "x" * 500
         result = await _summarize_segment_content(
-            long_text, loop_config, summary_type="tools",
+            long_text,
+            loop_config,
+            summary_type="tools",
         )
         assert isinstance(result, str)
         # Fallback returns truncated text + heuristic suffix
@@ -252,23 +275,29 @@ class TestSummarizationFallback:
 
         text = "Error details: " + "stack trace " * 100
         result = await _summarize_segment_content(
-            text, loop_config, summary_type="tools",
+            text,
+            loop_config,
+            summary_type="tools",
         )
         # Should have some content — either LLM summary or fallback
         assert len(result) > 0
 
     @pytest.mark.asyncio
     async def test_microcompact_survives_all_summarization_failures(
-        self, loop_config,
+        self,
+        loop_config,
     ):
         """Even if all summarization tasks fail, microcompact returns valid messages."""
         from d2c.compact import applyMicrocompact
 
         msgs = [
             {"role": "user", "content": "Task 1"},
-            {"role": "assistant", "content": [
-                {"type": "tool_use", "id": "t1", "name": "bash", "input": {}},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "t1", "name": "bash", "input": {}},
+                ],
+            },
             {"role": "tool", "content": "output"},
             {"role": "user", "content": "Task 2"},
         ]
@@ -279,19 +308,16 @@ class TestSummarizationFallback:
 
     @pytest.mark.asyncio
     async def test_context_collapse_survives_all_summarization_failures(
-        self, loop_config,
+        self,
+        loop_config,
     ):
         """Even if all summarization tasks fail, context collapse returns valid messages."""
         from d2c.compact import applyContextCollapse
 
         loop_config.compact_config.collapse_min_turns = 2
         loop_config.compact_config.collapse_segment_size = 3
-        msgs = [
-            {"role": "user", "content": f"Task {i}"}
-            for i in range(10)
-        ] + [
-            {"role": "assistant", "content": f"Response {i}"}
-            for i in range(10)
+        msgs = [{"role": "user", "content": f"Task {i}"} for i in range(10)] + [
+            {"role": "assistant", "content": f"Response {i}"} for i in range(10)
         ]
         result = await applyContextCollapse(msgs, loop_config)
         assert isinstance(result, list)

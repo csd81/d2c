@@ -111,8 +111,11 @@ class GrepTool(Tool):
             search_path=search_path,
             glob=glob,
             output_mode=output_mode,
-            A=A, B=B, C=C,
-            n=n, i=i,
+            A=A,
+            B=B,
+            C=C,
+            n=n,
+            i=i,
             head_limit=head_limit,
             multiline=multiline,
         )
@@ -126,16 +129,28 @@ class GrepTool(Tool):
             search_path=search_path,
             glob=glob,
             output_mode=output_mode,
-            A=A, B=B, C=C,
-            n=n, i=i,
+            A=A,
+            B=B,
+            C=C,
+            n=n,
+            i=i,
             head_limit=head_limit,
             multiline=multiline,
         )
 
     async def _try_ripgrep(
-        self, pattern: str, search_path: Path, glob: str | None,
-        output_mode: str, A: int | None, B: int | None, C: int | None,
-        n: bool, i: bool, head_limit: int, multiline: bool,
+        self,
+        pattern: str,
+        search_path: Path,
+        glob: str | None,
+        output_mode: str,
+        A: int | None,
+        B: int | None,
+        C: int | None,
+        n: bool,
+        i: bool,
+        head_limit: int,
+        multiline: bool,
     ) -> ToolResult | None:
         """Try to use ripgrep. Returns None if rg is not available."""
         rg_path = self._find_rg()
@@ -174,7 +189,8 @@ class GrepTool(Tool):
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=30,
+                proc.communicate(),
+                timeout=30,
             )
         except asyncio.TimeoutError:
             return ToolResult(
@@ -202,7 +218,8 @@ class GrepTool(Tool):
         lines = output_text.strip().split("\n")
         if head_limit and head_limit > 0 and len(lines) > head_limit:
             lines = lines[:head_limit]
-            output_text = "\n".join(lines) + f"\n... (truncated, {len(matches := output_text.strip().split(chr(10)))} total)"
+            output_text = "\n".join(lines)
+            output_text += f"\n... (truncated, {len(output_text.strip().split(chr(10)))} total)"
 
         count = len(output_text.strip().split("\n")) if output_text.strip() else 0
 
@@ -212,9 +229,18 @@ class GrepTool(Tool):
         )
 
     def _python_grep(
-        self, pattern: str, search_path: Path, glob: str | None,
-        output_mode: str, A: int | None, B: int | None, C: int | None,
-        n: bool, i: bool, head_limit: int, multiline: bool,
+        self,
+        pattern: str,
+        search_path: Path,
+        glob: str | None,
+        output_mode: str,
+        A: int | None,
+        B: int | None,
+        C: int | None,
+        n: bool,
+        i: bool,
+        head_limit: int,
+        multiline: bool,
     ) -> ToolResult:
         """Python fallback for content search."""
         import fnmatch
@@ -264,7 +290,7 @@ class GrepTool(Tool):
                     else:
                         results.append(f"--- {file_path} ---")
                         for m in matches:
-                            line_num = content[:m.start()].count("\n") + 1
+                            line_num = content[: m.start()].count("\n") + 1
                             prefix = f"{file_path}:{line_num}:" if n else ""
                             start = max(0, m.start())
                             end = min(len(content), m.end())
@@ -314,6 +340,7 @@ class GrepTool(Tool):
 
         # Also check PATH
         import shutil
+
         which = shutil.which(rg_name)
         if which:
             paths_to_check.insert(0, which)

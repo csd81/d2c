@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sys
 from typing import Any
 
 from d2c.mcp.transports import MCPTransport
@@ -23,9 +22,13 @@ class StdioTransport(MCPTransport):
     Each message is a single line of JSON, terminated by newline.
     """
 
-    def __init__(self, command: str, args: list[str] | None = None,
-                 env: dict[str, str] | None = None,
-                 timeout_ms: int = 30_000) -> None:
+    def __init__(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+        timeout_ms: int = 30_000,
+    ) -> None:
         self._command = command
         self._args = args or []
         self._env = env or {}
@@ -54,8 +57,7 @@ class StdioTransport(MCPTransport):
             self._connected = True
         except FileNotFoundError:
             raise MCPTransportError(
-                f"Command not found: {self._command}. "
-                f"Make sure the MCP server is installed."
+                f"Command not found: {self._command}. Make sure the MCP server is installed."
             )
         except Exception as e:
             raise MCPTransportError(f"Failed to spawn {self._command}: {e}")
@@ -90,9 +92,7 @@ class StdioTransport(MCPTransport):
                         timeout=self._timeout_ms,
                     )
                 except asyncio.TimeoutError:
-                    raise MCPTransportError(
-                        f"Timeout waiting for response from {self._command}"
-                    )
+                    raise MCPTransportError(f"Timeout waiting for response from {self._command}")
 
                 if not chunk:  # EOF
                     raise MCPTransportError(
@@ -122,4 +122,5 @@ class StdioTransport(MCPTransport):
 
 class MCPTransportError(Exception):
     """Raised when an MCP transport encounters an error."""
+
     pass

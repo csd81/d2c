@@ -42,7 +42,11 @@ class ListDirTool(Tool):
     is_concurrent_safe: ClassVar[bool] = True
 
     async def execute(
-        self, path: str = "", show_hidden: bool = False, depth: int = 1, **kwargs: Any,
+        self,
+        path: str = "",
+        show_hidden: bool = False,
+        depth: int = 1,
+        **kwargs: Any,
     ) -> ToolResult:
         p = Path(path)
         if not p.is_absolute():
@@ -79,11 +83,13 @@ class ListDirTool(Tool):
                         size = c.stat().st_size
                     except OSError:
                         size = None
-                entries.append({
-                    "name": f"{prefix}{c.name}" + ("/" if is_dir else ""),
-                    "type": "dir" if is_dir else "file",
-                    "size": size,
-                })
+                entries.append(
+                    {
+                        "name": f"{prefix}{c.name}" + ("/" if is_dir else ""),
+                        "type": "dir" if is_dir else "file",
+                        "size": size,
+                    }
+                )
                 if is_dir and level < depth:
                     walk(c, level + 1, f"{prefix}{c.name}/")
 
@@ -102,7 +108,12 @@ class ListDirTool(Tool):
 
         return ToolResult(
             output=f"{path}:\n{body}",
-            metadata={"path": str(p), "count": len(entries), "truncated": truncated, "entries": entries},
+            metadata={
+                "path": str(p),
+                "count": len(entries),
+                "truncated": truncated,
+                "entries": entries,
+            },
         )
 
 

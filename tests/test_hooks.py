@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -15,8 +15,8 @@ from d2c.hooks import (
     HookType,
 )
 
-
 # ── Fixtures ───────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def registry():
@@ -29,6 +29,7 @@ def sample_context():
 
 
 # ── HookDefinition tests ───────────────────────────────────────────────
+
 
 class TestHookDefinition:
     def test_command_hook(self):
@@ -43,6 +44,7 @@ class TestHookDefinition:
     def test_callback_hook(self):
         async def my_callback(ctx):
             return HookResult()
+
         hd = HookDefinition(
             event=HookEvent.STOP,
             hook_type=HookType.CALLBACK,
@@ -52,6 +54,7 @@ class TestHookDefinition:
 
 
 # ── HookResult tests ───────────────────────────────────────────────────
+
 
 class TestHookResult:
     def test_default_values(self):
@@ -70,6 +73,7 @@ class TestHookResult:
 
 
 # ── HookRegistry tests ─────────────────────────────────────────────────
+
 
 class TestHookRegistry:
     def test_register_hook(self, registry):
@@ -100,11 +104,13 @@ class TestHookRegistry:
         async def cb(ctx):
             return HookResult(decision="deny", error="test deny")
 
-        registry.register(HookDefinition(
-            event=HookEvent.PRE_TOOL_USE,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.PRE_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
         result = asyncio.run(registry.fire(HookEvent.PRE_TOOL_USE, {}))
         assert result.decision == "deny"
         assert result.error == "test deny"
@@ -116,16 +122,20 @@ class TestHookRegistry:
         async def cb2(ctx):
             return HookResult(additional_context="extra info")
 
-        registry.register(HookDefinition(
-            event=HookEvent.PRE_TOOL_USE,
-            hook_type=HookType.CALLBACK,
-            callback=cb1,
-        ))
-        registry.register(HookDefinition(
-            event=HookEvent.PRE_TOOL_USE,
-            hook_type=HookType.CALLBACK,
-            callback=cb2,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.PRE_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=cb1,
+            )
+        )
+        registry.register(
+            HookDefinition(
+                event=HookEvent.PRE_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=cb2,
+            )
+        )
 
         result = asyncio.run(registry.fire(HookEvent.PRE_TOOL_USE, {}))
         assert result.decision == "allow"
@@ -139,12 +149,20 @@ class TestHookRegistry:
         async def cb2(ctx):
             return HookResult(decision="deny")
 
-        registry.register(HookDefinition(
-            event=HookEvent.PRE_TOOL_USE, hook_type=HookType.CALLBACK, callback=cb1,
-        ))
-        registry.register(HookDefinition(
-            event=HookEvent.PRE_TOOL_USE, hook_type=HookType.CALLBACK, callback=cb2,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.PRE_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=cb1,
+            )
+        )
+        registry.register(
+            HookDefinition(
+                event=HookEvent.PRE_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=cb2,
+            )
+        )
 
         result = asyncio.run(registry.fire(HookEvent.PRE_TOOL_USE, {}))
         assert result.decision == "deny"
@@ -156,12 +174,20 @@ class TestHookRegistry:
         async def cb2(ctx):
             return HookResult(veto=True)
 
-        registry.register(HookDefinition(
-            event=HookEvent.STOP, hook_type=HookType.CALLBACK, callback=cb1,
-        ))
-        registry.register(HookDefinition(
-            event=HookEvent.STOP, hook_type=HookType.CALLBACK, callback=cb2,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.STOP,
+                hook_type=HookType.CALLBACK,
+                callback=cb1,
+            )
+        )
+        registry.register(
+            HookDefinition(
+                event=HookEvent.STOP,
+                hook_type=HookType.CALLBACK,
+                callback=cb2,
+            )
+        )
 
         result = asyncio.run(registry.fire(HookEvent.STOP, {}))
         assert result.veto is True
@@ -173,15 +199,25 @@ class TestHookRegistry:
         async def cb2(ctx):
             return HookResult(updated_input={"path": "/second"})
 
-        registry.register(HookDefinition(
-            event=HookEvent.PRE_TOOL_USE, hook_type=HookType.CALLBACK, callback=cb1,
-        ))
-        registry.register(HookDefinition(
-            event=HookEvent.PRE_TOOL_USE, hook_type=HookType.CALLBACK, callback=cb2,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.PRE_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=cb1,
+            )
+        )
+        registry.register(
+            HookDefinition(
+                event=HookEvent.PRE_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=cb2,
+            )
+        )
 
         result = asyncio.run(registry.fire(HookEvent.PRE_TOOL_USE, {}))
-        assert result.updated_input == {"path": "/second"}  # b.updated_input or a.updated_input → b wins
+        assert result.updated_input == {
+            "path": "/second"
+        }  # b.updated_input or a.updated_input → b wins
 
     def test_context_concatenation(self, registry):
         async def cb1(ctx):
@@ -190,12 +226,20 @@ class TestHookRegistry:
         async def cb2(ctx):
             return HookResult(additional_context="Second context")
 
-        registry.register(HookDefinition(
-            event=HookEvent.STOP, hook_type=HookType.CALLBACK, callback=cb1,
-        ))
-        registry.register(HookDefinition(
-            event=HookEvent.STOP, hook_type=HookType.CALLBACK, callback=cb2,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.STOP,
+                hook_type=HookType.CALLBACK,
+                callback=cb1,
+            )
+        )
+        registry.register(
+            HookDefinition(
+                event=HookEvent.STOP,
+                hook_type=HookType.CALLBACK,
+                callback=cb2,
+            )
+        )
 
         result = asyncio.run(registry.fire(HookEvent.STOP, {}))
         assert "First context" in (result.additional_context or "")
@@ -208,12 +252,20 @@ class TestHookRegistry:
         async def works(ctx):
             return HookResult(decision="allow")
 
-        registry.register(HookDefinition(
-            event=HookEvent.PRE_TOOL_USE, hook_type=HookType.CALLBACK, callback=broken,
-        ))
-        registry.register(HookDefinition(
-            event=HookEvent.PRE_TOOL_USE, hook_type=HookType.CALLBACK, callback=works,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.PRE_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=broken,
+            )
+        )
+        registry.register(
+            HookDefinition(
+                event=HookEvent.PRE_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=works,
+            )
+        )
 
         result = asyncio.run(registry.fire(HookEvent.PRE_TOOL_USE, {}))
         # Should not crash; should merge error from first + allow from second
@@ -231,18 +283,27 @@ class TestHookRegistry:
             call_log.append("stop")
             return HookResult()
 
-        registry.register(HookDefinition(
-            event=HookEvent.PRE_TOOL_USE, hook_type=HookType.CALLBACK, callback=pretool_cb,
-        ))
-        registry.register(HookDefinition(
-            event=HookEvent.STOP, hook_type=HookType.CALLBACK, callback=stop_cb,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.PRE_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=pretool_cb,
+            )
+        )
+        registry.register(
+            HookDefinition(
+                event=HookEvent.STOP,
+                hook_type=HookType.CALLBACK,
+                callback=stop_cb,
+            )
+        )
 
         asyncio.run(registry.fire(HookEvent.PRE_TOOL_USE, {}))
         assert call_log == ["pretool"]
 
     def test_command_hook_passes_context(self, registry):
         """Command hooks receive JSON context on stdin."""
+
         # Mock subprocess execution
         async def mock_execute(self, context):
             return HookResult(decision="allow")
@@ -270,6 +331,7 @@ class TestHookRegistry:
 
     def test_from_config(self):
         from d2c.config import Config
+
         config = Config(
             hooks=[
                 {"event": "PreToolUse", "type": "command", "command": "python audit.py"},
@@ -282,6 +344,7 @@ class TestHookRegistry:
 
     def test_from_config_empty(self):
         from d2c.config import Config
+
         config = Config()
         registry = HookRegistry.from_config(config)
         # All event lists should be empty
@@ -290,6 +353,7 @@ class TestHookRegistry:
 
 
 # ── HookEvent tests ────────────────────────────────────────────────────
+
 
 class TestHookEvent:
     def test_event_values(self):
@@ -306,6 +370,7 @@ class TestHookEvent:
 
 # ── Integration tests with loop ────────────────────────────────────────
 
+
 class TestHookIntegration:
     @pytest.mark.asyncio
     async def test_pre_tool_use_deny_blocks_execution(self):
@@ -320,15 +385,18 @@ class TestHookIntegration:
             assert ctx["tool_name"] == "Read"
             return HookResult(decision="deny", error="Read is not allowed today")
 
-        registry.register(HookDefinition(
-            event=HookEvent.PRE_TOOL_USE,
-            hook_type=HookType.CALLBACK,
-            callback=deny_cb,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.PRE_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=deny_cb,
+            )
+        )
 
         tools_map = {"Read": FileReadTool()}
         tu = ToolUse(id="t1", name="Read", input={"file_path": "/nonexistent.txt"})
         from d2c.permissions import PermissionEngine, PermissionMode
+
         engine = PermissionEngine(mode=PermissionMode.DONT_ASK)
 
         result = await _execute_one_tool(tu, tools_map, engine, hooks=registry)
@@ -350,16 +418,20 @@ class TestHookIntegration:
                 updated_input={"file_path": str(__file__)},  # redirect to existing file
             )
 
-        registry.register(HookDefinition(
-            event=HookEvent.PRE_TOOL_USE,
-            hook_type=HookType.CALLBACK,
-            callback=modify_cb,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.PRE_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=modify_cb,
+            )
+        )
 
         from d2c.tools.read_tool import FileReadTool
+
         tools_map = {"Read": FileReadTool()}
         tu = ToolUse(id="t1", name="Read", input={"file_path": "/nonexistent.txt"})
         from d2c.permissions import PermissionEngine, PermissionMode
+
         engine = PermissionEngine(mode=PermissionMode.DONT_ASK)
 
         result = await _execute_one_tool(tu, tools_map, engine, hooks=registry)
@@ -381,16 +453,20 @@ class TestHookIntegration:
             return HookResult()
 
         registry = HookRegistry()
-        registry.register(HookDefinition(
-            event=HookEvent.POST_TOOL_USE,
-            hook_type=HookType.CALLBACK,
-            callback=post_cb,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.POST_TOOL_USE,
+                hook_type=HookType.CALLBACK,
+                callback=post_cb,
+            )
+        )
 
         from d2c.tools.read_tool import FileReadTool
+
         tools_map = {"Read": FileReadTool()}
         tu = ToolUse(id="t1", name="Read", input={"file_path": __file__})
         from d2c.permissions import PermissionEngine, PermissionMode
+
         engine = PermissionEngine(mode=PermissionMode.DONT_ASK)
 
         result = await _execute_one_tool(tu, tools_map, engine, hooks=registry)
@@ -410,11 +486,13 @@ class TestHookIntegration:
             veto_called = True
             return HookResult(veto=True)
 
-        registry.register(HookDefinition(
-            event=HookEvent.STOP,
-            hook_type=HookType.CALLBACK,
-            callback=veto_cb,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.STOP,
+                hook_type=HookType.CALLBACK,
+                callback=veto_cb,
+            )
+        )
 
         result = await registry.fire(HookEvent.STOP, {"response_text": "test"})
         assert result.veto is True
@@ -423,23 +501,40 @@ class TestHookIntegration:
 
 # ── Phase 15: New hook events (27 total) ──────────────────────────────────
 
+
 class TestAllHookEvents:
     """Verify all 27 hook event values are correct."""
 
     def test_all_27_events_present(self):
         """Ensure all 27 events defined in paper Section 6.1 exist."""
         expected = {
-            "SessionStart", "Setup", "SessionEnd", "Stop", "StopFailure",
-            "PreToolUse", "PostToolUse", "PostToolUseFailure",
-            "PermissionDenied", "PermissionRequest",
-            "PreCompact", "PostCompact",
-            "SubagentStart", "SubagentStop", "TeammateIdle",
-            "TaskCreated", "TaskCompleted",
-            "Elicitation", "ElicitationResult",
+            "SessionStart",
+            "Setup",
+            "SessionEnd",
+            "Stop",
+            "StopFailure",
+            "PreToolUse",
+            "PostToolUse",
+            "PostToolUseFailure",
+            "PermissionDenied",
+            "PermissionRequest",
+            "PreCompact",
+            "PostCompact",
+            "SubagentStart",
+            "SubagentStop",
+            "TeammateIdle",
+            "TaskCreated",
+            "TaskCompleted",
+            "Elicitation",
+            "ElicitationResult",
             "Notification",
             "UserPromptSubmit",
-            "InstructionsLoaded", "ConfigChange", "CwdChanged", "FileChanged",
-            "WorktreeCreate", "WorktreeRemove",
+            "InstructionsLoaded",
+            "ConfigChange",
+            "CwdChanged",
+            "FileChanged",
+            "WorktreeCreate",
+            "WorktreeRemove",
         }
         actual = {e.value for e in HookEvent}
         missing = expected - actual
@@ -457,6 +552,7 @@ class TestAllHookEvents:
     def test_from_config_ignores_unknown_events(self):
         """Unknown event strings raise ValueError (strict validation)."""
         from d2c.config import Config
+
         config = Config(
             hooks=[
                 {"event": "SessionEnd", "type": "callback"},
@@ -477,15 +573,22 @@ class TestNewEventFiring:
             called.append(ctx)
             return HookResult()
 
-        registry.register(HookDefinition(
-            event=HookEvent.SETUP,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
-        result = asyncio.run(registry.fire(HookEvent.SETUP, {
-            "session_id": "s1",
-            "model": "deepseek-v4-pro",
-        }))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.SETUP,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
+        result = asyncio.run(
+            registry.fire(
+                HookEvent.SETUP,
+                {
+                    "session_id": "s1",
+                    "model": "deepseek-v4-pro",
+                },
+            )
+        )
         assert len(called) == 1
         assert called[0]["session_id"] == "s1"
         assert called[0]["model"] == "deepseek-v4-pro"
@@ -498,14 +601,21 @@ class TestNewEventFiring:
             called.append(ctx)
             return HookResult()
 
-        registry.register(HookDefinition(
-            event=HookEvent.SESSION_END,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
-        result = asyncio.run(registry.fire(HookEvent.SESSION_END, {
-            "session_id": "s1",
-        }))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.SESSION_END,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
+        result = asyncio.run(
+            registry.fire(
+                HookEvent.SESSION_END,
+                {
+                    "session_id": "s1",
+                },
+            )
+        )
         assert len(called) == 1
         assert called[0]["session_id"] == "s1"
 
@@ -517,16 +627,23 @@ class TestNewEventFiring:
             called.append(ctx)
             return HookResult()
 
-        registry.register(HookDefinition(
-            event=HookEvent.SUBAGENT_START,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
-        result = asyncio.run(registry.fire(HookEvent.SUBAGENT_START, {
-            "subagent_id": "abc12345",
-            "subagent_type": "general-purpose",
-            "task": "Investigate the bug",
-        }))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.SUBAGENT_START,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
+        result = asyncio.run(
+            registry.fire(
+                HookEvent.SUBAGENT_START,
+                {
+                    "subagent_id": "abc12345",
+                    "subagent_type": "general-purpose",
+                    "task": "Investigate the bug",
+                },
+            )
+        )
         assert len(called) == 1
         assert called[0]["subagent_id"] == "abc12345"
         assert called[0]["subagent_type"] == "general-purpose"
@@ -539,15 +656,22 @@ class TestNewEventFiring:
             called.append(ctx)
             return HookResult()
 
-        registry.register(HookDefinition(
-            event=HookEvent.POST_COMPACT,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
-        result = asyncio.run(registry.fire(HookEvent.POST_COMPACT, {
-            "pre_count": 50,
-            "post_count": 10,
-        }))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.POST_COMPACT,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
+        result = asyncio.run(
+            registry.fire(
+                HookEvent.POST_COMPACT,
+                {
+                    "pre_count": 50,
+                    "post_count": 10,
+                },
+            )
+        )
         assert len(called) == 1
         assert called[0]["pre_count"] == 50
         assert called[0]["post_count"] == 10
@@ -560,15 +684,22 @@ class TestNewEventFiring:
             called.append(ctx)
             return HookResult()
 
-        registry.register(HookDefinition(
-            event=HookEvent.NOTIFICATION,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
-        result = asyncio.run(registry.fire(HookEvent.NOTIFICATION, {
-            "message": "Build completed",
-            "level": "info",
-        }))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.NOTIFICATION,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
+        result = asyncio.run(
+            registry.fire(
+                HookEvent.NOTIFICATION,
+                {
+                    "message": "Build completed",
+                    "level": "info",
+                },
+            )
+        )
         assert len(called) == 1
         assert called[0]["message"] == "Build completed"
         assert called[0]["level"] == "info"
@@ -581,15 +712,22 @@ class TestNewEventFiring:
             called.append(ctx)
             return HookResult()
 
-        registry.register(HookDefinition(
-            event=HookEvent.TASK_CREATED,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
-        result = asyncio.run(registry.fire(HookEvent.TASK_CREATED, {
-            "task_id": "task-1",
-            "subject": "Fix login bug",
-        }))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.TASK_CREATED,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
+        result = asyncio.run(
+            registry.fire(
+                HookEvent.TASK_CREATED,
+                {
+                    "task_id": "task-1",
+                    "subject": "Fix login bug",
+                },
+            )
+        )
         assert len(called) == 1
         assert called[0]["task_id"] == "task-1"
 
@@ -601,14 +739,21 @@ class TestNewEventFiring:
             called.append(ctx)
             return HookResult()
 
-        registry.register(HookDefinition(
-            event=HookEvent.TASK_COMPLETED,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
-        result = asyncio.run(registry.fire(HookEvent.TASK_COMPLETED, {
-            "task_id": "task-1",
-        }))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.TASK_COMPLETED,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
+        result = asyncio.run(
+            registry.fire(
+                HookEvent.TASK_COMPLETED,
+                {
+                    "task_id": "task-1",
+                },
+            )
+        )
         assert len(called) == 1
 
     def test_elicitation_events_fire(self):
@@ -619,23 +764,37 @@ class TestNewEventFiring:
             calls.append(ctx)
             return HookResult()
 
-        registry.register(HookDefinition(
-            event=HookEvent.ELICITATION,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
-        registry.register(HookDefinition(
-            event=HookEvent.ELICITATION_RESULT,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.ELICITATION,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
+        registry.register(
+            HookDefinition(
+                event=HookEvent.ELICITATION_RESULT,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
 
-        asyncio.run(registry.fire(HookEvent.ELICITATION, {
-            "question": "Which file to modify?",
-        }))
-        asyncio.run(registry.fire(HookEvent.ELICITATION_RESULT, {
-            "response": "src/main.py",
-        }))
+        asyncio.run(
+            registry.fire(
+                HookEvent.ELICITATION,
+                {
+                    "question": "Which file to modify?",
+                },
+            )
+        )
+        asyncio.run(
+            registry.fire(
+                HookEvent.ELICITATION_RESULT,
+                {
+                    "response": "src/main.py",
+                },
+            )
+        )
         assert len(calls) == 2
 
     def test_config_change_event_fires(self):
@@ -646,16 +805,23 @@ class TestNewEventFiring:
             called.append(ctx)
             return HookResult()
 
-        registry.register(HookDefinition(
-            event=HookEvent.CONFIG_CHANGE,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
-        result = asyncio.run(registry.fire(HookEvent.CONFIG_CHANGE, {
-            "key": "permission_mode",
-            "old_value": "default",
-            "new_value": "auto",
-        }))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.CONFIG_CHANGE,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
+        result = asyncio.run(
+            registry.fire(
+                HookEvent.CONFIG_CHANGE,
+                {
+                    "key": "permission_mode",
+                    "old_value": "default",
+                    "new_value": "auto",
+                },
+            )
+        )
         assert len(called) == 1
         assert called[0]["key"] == "permission_mode"
 
@@ -667,23 +833,37 @@ class TestNewEventFiring:
             calls.append(ctx)
             return HookResult()
 
-        registry.register(HookDefinition(
-            event=HookEvent.WORKTREE_CREATE,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
-        registry.register(HookDefinition(
-            event=HookEvent.WORKTREE_REMOVE,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.WORKTREE_CREATE,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
+        registry.register(
+            HookDefinition(
+                event=HookEvent.WORKTREE_REMOVE,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
 
-        asyncio.run(registry.fire(HookEvent.WORKTREE_CREATE, {
-            "path": "/tmp/worktree-abc",
-        }))
-        asyncio.run(registry.fire(HookEvent.WORKTREE_REMOVE, {
-            "path": "/tmp/worktree-abc",
-        }))
+        asyncio.run(
+            registry.fire(
+                HookEvent.WORKTREE_CREATE,
+                {
+                    "path": "/tmp/worktree-abc",
+                },
+            )
+        )
+        asyncio.run(
+            registry.fire(
+                HookEvent.WORKTREE_REMOVE,
+                {
+                    "path": "/tmp/worktree-abc",
+                },
+            )
+        )
         assert len(calls) == 2
 
     def test_instructions_loaded_event_fires(self):
@@ -694,15 +874,22 @@ class TestNewEventFiring:
             called.append(ctx)
             return HookResult()
 
-        registry.register(HookDefinition(
-            event=HookEvent.INSTRUCTIONS_LOADED,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
-        result = asyncio.run(registry.fire(HookEvent.INSTRUCTIONS_LOADED, {
-            "path": "/project/CLAUDE.md",
-            "size": 1024,
-        }))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.INSTRUCTIONS_LOADED,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
+        result = asyncio.run(
+            registry.fire(
+                HookEvent.INSTRUCTIONS_LOADED,
+                {
+                    "path": "/project/CLAUDE.md",
+                    "size": 1024,
+                },
+            )
+        )
         assert len(called) == 1
 
     def test_multiple_new_events_merge_correctly(self):
@@ -715,16 +902,20 @@ class TestNewEventFiring:
         async def cb2(ctx):
             return HookResult(additional_context="Cleanup: saving state")
 
-        registry.register(HookDefinition(
-            event=HookEvent.SESSION_END,
-            hook_type=HookType.CALLBACK,
-            callback=cb1,
-        ))
-        registry.register(HookDefinition(
-            event=HookEvent.SESSION_END,
-            hook_type=HookType.CALLBACK,
-            callback=cb2,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.SESSION_END,
+                hook_type=HookType.CALLBACK,
+                callback=cb1,
+            )
+        )
+        registry.register(
+            HookDefinition(
+                event=HookEvent.SESSION_END,
+                hook_type=HookType.CALLBACK,
+                callback=cb2,
+            )
+        )
 
         result = asyncio.run(registry.fire(HookEvent.SESSION_END, {}))
         assert "Audit log" in (result.additional_context or "")
@@ -740,16 +931,20 @@ class TestNewEventFiring:
         async def works(ctx):
             return HookResult(additional_context="still works")
 
-        registry.register(HookDefinition(
-            event=HookEvent.POST_COMPACT,
-            hook_type=HookType.CALLBACK,
-            callback=broken,
-        ))
-        registry.register(HookDefinition(
-            event=HookEvent.POST_COMPACT,
-            hook_type=HookType.CALLBACK,
-            callback=works,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.POST_COMPACT,
+                hook_type=HookType.CALLBACK,
+                callback=broken,
+            )
+        )
+        registry.register(
+            HookDefinition(
+                event=HookEvent.POST_COMPACT,
+                hook_type=HookType.CALLBACK,
+                callback=works,
+            )
+        )
 
         result = asyncio.run(registry.fire(HookEvent.POST_COMPACT, {}))
         assert result.error is not None  # First hook's error recorded
@@ -764,17 +959,24 @@ class TestNewEventFiring:
             ctx_received.append(ctx)
             return HookResult()
 
-        registry.register(HookDefinition(
-            event=HookEvent.SUBAGENT_START,
-            hook_type=HookType.CALLBACK,
-            callback=cb,
-        ))
+        registry.register(
+            HookDefinition(
+                event=HookEvent.SUBAGENT_START,
+                hook_type=HookType.CALLBACK,
+                callback=cb,
+            )
+        )
 
-        asyncio.run(registry.fire(HookEvent.SUBAGENT_START, {
-            "subagent_id": "abc",
-            "subagent_type": "explore",
-            "task": "Find all callers of foo()",
-        }))
+        asyncio.run(
+            registry.fire(
+                HookEvent.SUBAGENT_START,
+                {
+                    "subagent_id": "abc",
+                    "subagent_type": "explore",
+                    "task": "Find all callers of foo()",
+                },
+            )
+        )
 
         assert len(ctx_received) == 1
         ctx = ctx_received[0]
@@ -786,6 +988,7 @@ class TestNewEventFiring:
     def test_from_config_supports_new_events(self):
         """from_config handles all new event types."""
         from d2c.config import Config
+
         config = Config(
             hooks=[
                 {"event": "SessionEnd", "type": "command", "command": "echo done"},

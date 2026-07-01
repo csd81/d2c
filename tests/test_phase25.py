@@ -8,15 +8,15 @@ from unittest.mock import AsyncMock
 import pytest
 
 from d2c.kairos import (
+    ActionEvent,
     KairosAgent,
     KairosResponse,
-    TickEvent,
     SleepEvent,
-    ActionEvent,
+    TickEvent,
 )
 
-
 # ── Tests ─────────────────────────────────────────────────────────────
+
 
 class TestKairosEvents:
     def test_tick_event_fields(self):
@@ -154,6 +154,7 @@ class TestKairosAgent:
     def test_feature_flag_defaults_false(self):
         """kairos_enabled defaults to False in Config."""
         from d2c.config import Config
+
         config = Config.load()
         assert config.kairos_enabled is False
 

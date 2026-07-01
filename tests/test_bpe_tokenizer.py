@@ -6,9 +6,6 @@ including structured content blocks and fallback behavior.
 
 from __future__ import annotations
 
-import pytest
-
-
 # ── BPE counting tests ─────────────────────────────────────────────────
 
 
@@ -32,11 +29,13 @@ class TestBPECounting:
         from d2c.context import estimate_tokens
 
         single = estimate_tokens([{"role": "user", "content": "hi"}])
-        multiple = estimate_tokens([
-            {"role": "user", "content": "hi"},
-            {"role": "assistant", "content": "hello"},
-            {"role": "user", "content": "how are you"},
-        ])
+        multiple = estimate_tokens(
+            [
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "hello"},
+                {"role": "user", "content": "how are you"},
+            ]
+        )
         assert multiple > single
 
     def test_bpe_counting_empty_content(self):
@@ -60,10 +59,17 @@ class TestBPECounting:
         from d2c.context import estimate_tokens
 
         messages = [
-            {"role": "assistant", "content": [
-                {"type": "tool_use", "id": "tu_1", "name": "Read",
-                 "input": {"file_path": "/tmp/test.txt"}},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tu_1",
+                        "name": "Read",
+                        "input": {"file_path": "/tmp/test.txt"},
+                    },
+                ],
+            },
         ]
         tokens = estimate_tokens(messages)
         assert tokens > 0
@@ -73,10 +79,16 @@ class TestBPECounting:
         from d2c.context import estimate_tokens
 
         messages = [
-            {"role": "user", "content": [
-                {"type": "tool_result", "tool_use_id": "tu_1",
-                 "content": "file contents here\nline 2\nline 3"},
-            ]},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu_1",
+                        "content": "file contents here\nline 2\nline 3",
+                    },
+                ],
+            },
         ]
         tokens = estimate_tokens(messages)
         assert tokens > 0
@@ -86,15 +98,24 @@ class TestBPECounting:
         from d2c.context import estimate_tokens
 
         messages = [
-            {"role": "assistant", "content": [
-                {"type": "text", "text": "Let me read that file."},
-                {"type": "tool_use", "id": "tu_1", "name": "Read",
-                 "input": {"file_path": "/tmp/test.txt"}},
-            ]},
-            {"role": "user", "content": [
-                {"type": "tool_result", "tool_use_id": "tu_1",
-                 "content": "Hello from file"},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Let me read that file."},
+                    {
+                        "type": "tool_use",
+                        "id": "tu_1",
+                        "name": "Read",
+                        "input": {"file_path": "/tmp/test.txt"},
+                    },
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "tu_1", "content": "Hello from file"},
+                ],
+            },
         ]
         tokens = estimate_tokens(messages)
         # Should be more than a simple text message
@@ -164,7 +185,7 @@ class TestBPEIntegration:
 
     def test_compact_estimate_uses_bpe(self):
         """compact.estimate_tokens delegates to context.estimate_tokens."""
-        from d2c.compact import estimate_tokens, CompactConfig
+        from d2c.compact import CompactConfig, estimate_tokens
 
         messages = [
             {"role": "user", "content": "Hello world"},
@@ -173,7 +194,7 @@ class TestBPEIntegration:
         assert tokens > 0
 
     def test_compact_estimate_empty(self):
-        from d2c.compact import estimate_tokens, CompactConfig
+        from d2c.compact import CompactConfig, estimate_tokens
 
         tokens = estimate_tokens([], CompactConfig())
         assert tokens >= 0

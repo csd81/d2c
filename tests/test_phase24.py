@@ -16,8 +16,8 @@ from d2c.subagent import (
     reset_background_manager,
 )
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────
+
 
 @pytest.fixture(autouse=True)
 def reset_bg_manager():
@@ -39,8 +39,8 @@ def sample_definition():
 
 # ── BackgroundSubagentManager tests ───────────────────────────────────
 
-class TestBackgroundSubagentManager:
 
+class TestBackgroundSubagentManager:
     @pytest.mark.asyncio
     async def test_launch_returns_immediately(self, sample_definition):
         """Background subagent returns subagent_id immediately without waiting."""
@@ -51,6 +51,7 @@ class TestBackgroundSubagentManager:
             async def slow_spawn(*args, **kwargs):
                 await asyncio.sleep(60)
                 return SubagentResult(summary="done", success=True)
+
             mock_spawn.side_effect = slow_spawn
 
             subagent_id = await mgr.launch_background(
@@ -73,8 +74,10 @@ class TestBackgroundSubagentManager:
         mgr = BackgroundSubagentManager()
 
         with patch("d2c.subagent.spawn_subagent", new_callable=AsyncMock) as mock_spawn:
+
             async def quick_spawn(*args, **kwargs):
                 return SubagentResult(summary="done", success=True)
+
             mock_spawn.side_effect = quick_spawn
 
             subagent_id = await mgr.launch_background(
@@ -98,8 +101,10 @@ class TestBackgroundSubagentManager:
         mgr = BackgroundSubagentManager()
 
         with patch("d2c.subagent.spawn_subagent", new_callable=AsyncMock) as mock_spawn:
+
             async def failing_spawn(*args, **kwargs):
                 raise ValueError("test error")
+
             mock_spawn.side_effect = failing_spawn
 
             subagent_id = await mgr.launch_background(
@@ -124,9 +129,11 @@ class TestBackgroundSubagentManager:
         barrier = asyncio.Event()
 
         with patch("d2c.subagent.spawn_subagent", new_callable=AsyncMock) as mock_spawn:
+
             async def wait_spawn(*args, **kwargs):
                 await barrier.wait()
                 return SubagentResult(summary="ok", success=True)
+
             mock_spawn.side_effect = wait_spawn
 
             id1 = await mgr.launch_background(
@@ -166,9 +173,11 @@ class TestBackgroundSubagentManager:
         mgr = BackgroundSubagentManager()
 
         with patch("d2c.subagent.spawn_subagent", new_callable=AsyncMock) as mock_spawn:
+
             async def never_spawn(*args, **kwargs):
                 await asyncio.sleep(600)
                 return SubagentResult(summary="never", success=True)
+
             mock_spawn.side_effect = never_spawn
 
             subagent_id = await mgr.launch_background(
@@ -207,12 +216,13 @@ class TestBackgroundSubagentManager:
 
 # ── AgentTool background integration tests ────────────────────────────
 
+
 class TestAgentToolBackground:
     @pytest.mark.asyncio
     async def test_background_flag_returns_immediately(self):
         """AgentTool with background=True returns immediately with subagent ID."""
-        from d2c.tools.agent_tool import AgentTool
         from d2c.config import Config
+        from d2c.tools.agent_tool import AgentTool
 
         config = Config.load()
 
@@ -244,17 +254,19 @@ class TestAgentToolBackground:
     @pytest.mark.asyncio
     async def test_background_then_status_check(self):
         """Background agent can be tracked through status check flow."""
-        from d2c.tools.agent_tool import AgentTool
         from d2c.config import Config
+        from d2c.tools.agent_tool import AgentTool
 
         config = Config.load()
 
         tool = AgentTool(config=config)
 
         with patch("d2c.subagent.spawn_subagent") as mock_spawn:
+
             async def slow_spawn(*args, **kwargs):
                 await asyncio.sleep(0.5)
                 return SubagentResult(summary="All done.", tool_calls=2, turns=2, success=True)
+
             mock_spawn.side_effect = slow_spawn
 
             result = await tool.execute(
@@ -282,16 +294,18 @@ class TestAgentToolBackground:
     @pytest.mark.asyncio
     async def test_background_failure_tracked(self):
         """Background agent failure is captured in status manager."""
-        from d2c.tools.agent_tool import AgentTool
         from d2c.config import Config
+        from d2c.tools.agent_tool import AgentTool
 
         config = Config.load()
 
         tool = AgentTool(config=config)
 
         with patch("d2c.subagent.spawn_subagent") as mock_spawn:
+
             async def fail_spawn(*args, **kwargs):
                 raise RuntimeError("Background crash")
+
             mock_spawn.side_effect = fail_spawn
 
             result = await tool.execute(

@@ -13,11 +13,14 @@ from d2c.tools.glob_tool import GlobTool
 from d2c.tools.grep_tool import GrepTool
 from d2c.tools.notebook_edit import NotebookEditTool
 from d2c.tools.task_tools import (
-    TaskCreateTool, TaskUpdateTool, TaskListTool, TaskStore,
+    TaskCreateTool,
+    TaskListTool,
+    TaskStore,
+    TaskUpdateTool,
 )
 
-
 # ── GlobTool tests ────────────────────────────────────────────────────────
+
 
 class TestGlobTool:
     def test_finds_files_matching_pattern(self):
@@ -69,6 +72,7 @@ class TestGlobTool:
     def test_sorted_by_mtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             import time
+
             root = Path(tmp)
             first = root / "first.py"
             second = root / "second.py"
@@ -86,6 +90,7 @@ class TestGlobTool:
 
 # ── GrepTool tests ─────────────────────────────────────────────────────────
 
+
 class TestGrepTool:
     def test_finds_content_in_files(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -94,9 +99,13 @@ class TestGrepTool:
             (root / "b.py").write_text("def bar():\n    pass\n")
 
             tool = GrepTool(cwd=root)
-            result = asyncio.run(tool.execute(
-                "def foo", path=".", output_mode="files_with_matches",
-            ))
+            result = asyncio.run(
+                tool.execute(
+                    "def foo",
+                    path=".",
+                    output_mode="files_with_matches",
+                )
+            )
             assert not result.error
             assert "a.py" in result.output
             assert "b.py" not in result.output
@@ -107,9 +116,14 @@ class TestGrepTool:
             (root / "test.py").write_text("import os\nimport sys\nprint('hello')\n")
 
             tool = GrepTool(cwd=root)
-            result = asyncio.run(tool.execute(
-                "import", path="test.py", output_mode="content", n=True,
-            ))
+            result = asyncio.run(
+                tool.execute(
+                    "import",
+                    path="test.py",
+                    output_mode="content",
+                    n=True,
+                )
+            )
             assert not result.error
             assert "import os" in result.output
             assert "import sys" in result.output
@@ -120,9 +134,13 @@ class TestGrepTool:
             (root / "data.py").write_text("x = 1\ny = 2\nz = 3\n")
 
             tool = GrepTool(cwd=root)
-            result = asyncio.run(tool.execute(
-                "=", path=".", output_mode="count",
-            ))
+            result = asyncio.run(
+                tool.execute(
+                    "=",
+                    path=".",
+                    output_mode="count",
+                )
+            )
             assert not result.error
             assert result.metadata["count"] >= 1
 
@@ -132,9 +150,12 @@ class TestGrepTool:
             (root / "empty.txt").write_text("nothing here")
 
             tool = GrepTool(cwd=root)
-            result = asyncio.run(tool.execute(
-                "NONEXISTENT_PATTERN_XYZ", path=".",
-            ))
+            result = asyncio.run(
+                tool.execute(
+                    "NONEXISTENT_PATTERN_XYZ",
+                    path=".",
+                )
+            )
             # May find no matches
             assert not result.error
 
@@ -144,9 +165,14 @@ class TestGrepTool:
             (root / "test.txt").write_text("Hello WORLD\n")
 
             tool = GrepTool(cwd=root)
-            result = asyncio.run(tool.execute(
-                "world", path=".", output_mode="content", i=True,
-            ))
+            result = asyncio.run(
+                tool.execute(
+                    "world",
+                    path=".",
+                    output_mode="content",
+                    i=True,
+                )
+            )
             assert not result.error
             assert "WORLD" in result.output
 
@@ -156,9 +182,12 @@ class TestGrepTool:
             (root / "test.txt").write_text("hello")
 
             tool = GrepTool(cwd=root)
-            result = asyncio.run(tool.execute(
-                "[invalid", path=".",
-            ))
+            result = asyncio.run(
+                tool.execute(
+                    "[invalid",
+                    path=".",
+                )
+            )
             # Python fallback should catch invalid regex
             # If rg is available it will also error
             if result.error:
@@ -166,9 +195,12 @@ class TestGrepTool:
 
     def test_nonexistent_path(self):
         tool = GrepTool()
-        result = asyncio.run(tool.execute(
-            "pattern", path="/nonexistent/path/xyz",
-        ))
+        result = asyncio.run(
+            tool.execute(
+                "pattern",
+                path="/nonexistent/path/xyz",
+            )
+        )
         assert result.error is True
 
     def test_glob_filter(self):
@@ -178,15 +210,21 @@ class TestGrepTool:
             (root / "b.js").write_text("TODO: fix that")
 
             tool = GrepTool(cwd=root)
-            result = asyncio.run(tool.execute(
-                "TODO", path=".", glob="*.py", output_mode="files_with_matches",
-            ))
+            result = asyncio.run(
+                tool.execute(
+                    "TODO",
+                    path=".",
+                    glob="*.py",
+                    output_mode="files_with_matches",
+                )
+            )
             assert not result.error
             assert "a.py" in result.output
             assert "b.js" not in result.output
 
 
 # ── NotebookEditTool tests ─────────────────────────────────────────────────
+
 
 class TestNotebookEditTool:
     def _make_notebook(self, path: Path, cells: list[dict]) -> None:
@@ -202,10 +240,18 @@ class TestNotebookEditTool:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             nb_path = root / "test.ipynb"
-            self._make_notebook(nb_path, [
-                {"cell_type": "code", "source": ["print('hello')"], "outputs": [], "execution_count": None},
-                {"cell_type": "markdown", "source": ["# Title"], "metadata": {}},
-            ])
+            self._make_notebook(
+                nb_path,
+                [
+                    {
+                        "cell_type": "code",
+                        "source": ["print('hello')"],
+                        "outputs": [],
+                        "execution_count": None,
+                    },
+                    {"cell_type": "markdown", "source": ["# Title"], "metadata": {}},
+                ],
+            )
 
             tool = NotebookEditTool(cwd=root)
             result = asyncio.run(tool.execute(str(nb_path), action="read"))
@@ -217,14 +263,27 @@ class TestNotebookEditTool:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             nb_path = root / "test.ipynb"
-            self._make_notebook(nb_path, [
-                {"cell_type": "code", "source": ["print('old')"], "outputs": [], "execution_count": None},
-            ])
+            self._make_notebook(
+                nb_path,
+                [
+                    {
+                        "cell_type": "code",
+                        "source": ["print('old')"],
+                        "outputs": [],
+                        "execution_count": None,
+                    },
+                ],
+            )
 
             tool = NotebookEditTool(cwd=root)
-            result = asyncio.run(tool.execute(
-                str(nb_path), action="edit", cell_id=0, new_source="print('new')",
-            ))
+            result = asyncio.run(
+                tool.execute(
+                    str(nb_path),
+                    action="edit",
+                    cell_id=0,
+                    new_source="print('new')",
+                )
+            )
             assert not result.error
             assert "Cell [0] updated" in result.output
 
@@ -239,9 +298,14 @@ class TestNotebookEditTool:
             self._make_notebook(nb_path, [])
 
             tool = NotebookEditTool(cwd=root)
-            result = asyncio.run(tool.execute(
-                str(nb_path), action="add", new_source="x = 1", cell_type="code",
-            ))
+            result = asyncio.run(
+                tool.execute(
+                    str(nb_path),
+                    action="add",
+                    new_source="x = 1",
+                    cell_type="code",
+                )
+            )
             assert not result.error
 
             nb_data = json.loads(nb_path.read_text())
@@ -252,15 +316,32 @@ class TestNotebookEditTool:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             nb_path = root / "test.ipynb"
-            self._make_notebook(nb_path, [
-                {"cell_type": "code", "source": ["keep me"], "outputs": [], "execution_count": None},
-                {"cell_type": "code", "source": ["delete me"], "outputs": [], "execution_count": None},
-            ])
+            self._make_notebook(
+                nb_path,
+                [
+                    {
+                        "cell_type": "code",
+                        "source": ["keep me"],
+                        "outputs": [],
+                        "execution_count": None,
+                    },
+                    {
+                        "cell_type": "code",
+                        "source": ["delete me"],
+                        "outputs": [],
+                        "execution_count": None,
+                    },
+                ],
+            )
 
             tool = NotebookEditTool(cwd=root)
-            result = asyncio.run(tool.execute(
-                str(nb_path), action="delete", cell_id=1,
-            ))
+            result = asyncio.run(
+                tool.execute(
+                    str(nb_path),
+                    action="delete",
+                    cell_id=1,
+                )
+            )
             assert not result.error
             assert "Cell [1]" in result.output
 
@@ -275,17 +356,25 @@ class TestNotebookEditTool:
             self._make_notebook(nb_path, [])
 
             tool = NotebookEditTool(cwd=root)
-            result = asyncio.run(tool.execute(
-                str(nb_path), action="edit", cell_id=99, new_source="x",
-            ))
+            result = asyncio.run(
+                tool.execute(
+                    str(nb_path),
+                    action="edit",
+                    cell_id=99,
+                    new_source="x",
+                )
+            )
             assert result.error is True
             assert "Invalid cell_id" in result.output
 
     def test_read_nonexistent_file(self):
         tool = NotebookEditTool()
-        result = asyncio.run(tool.execute(
-            "/nonexistent/notebook.ipynb", action="read",
-        ))
+        result = asyncio.run(
+            tool.execute(
+                "/nonexistent/notebook.ipynb",
+                action="read",
+            )
+        )
         assert result.error is True
 
     def test_invalid_action(self):
@@ -342,18 +431,24 @@ class TestTaskStore:
 class TestTaskCreateTool:
     def test_creates_task(self):
         tool = TaskCreateTool()
-        result = asyncio.run(tool.execute(
-            subject="Add tests", description="Write unit tests for module X",
-        ))
+        result = asyncio.run(
+            tool.execute(
+                subject="Add tests",
+                description="Write unit tests for module X",
+            )
+        )
         assert not result.error
         assert "Add tests" in result.output
         assert "pending" in result.output
 
     def test_task_has_id(self):
         tool = TaskCreateTool()
-        result = asyncio.run(tool.execute(
-            subject="Refactor", description="Clean up the codebase",
-        ))
+        result = asyncio.run(
+            tool.execute(
+                subject="Refactor",
+                description="Clean up the codebase",
+            )
+        )
         assert result.metadata["task"]["id"] is not None
 
 
@@ -405,9 +500,12 @@ class TestTaskUpdateTool:
         update = TaskUpdateTool()
 
         asyncio.run(create.execute(subject="Old name", description="Desc"))
-        result = asyncio.run(update.execute(
-            taskId="1", subject="New name",
-        ))
+        result = asyncio.run(
+            update.execute(
+                taskId="1",
+                subject="New name",
+            )
+        )
         assert not result.error
         assert "New name" in result.output
 

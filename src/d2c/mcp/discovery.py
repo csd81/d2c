@@ -26,9 +26,11 @@ _ENV_VAR_RE = re.compile(r"\$\{(\w+)\}|\$(\w+)")
 
 def _expand_env_vars(value: str) -> str:
     """Expand ${VAR} and $VAR references in a string using os.environ."""
+
     def _replace(match: re.Match) -> str:
         var_name = match.group(1) or match.group(2)
         return os.environ.get(var_name, match.group(0))
+
     return _ENV_VAR_RE.sub(_replace, value)
 
 
@@ -41,10 +43,7 @@ def _expand_env_in_config(config: dict[str, Any]) -> dict[str, Any]:
         elif isinstance(value, dict):
             result[key] = _expand_env_in_config(value)
         elif isinstance(value, list):
-            result[key] = [
-                _expand_env_vars(v) if isinstance(v, str) else v
-                for v in value
-            ]
+            result[key] = [_expand_env_vars(v) if isinstance(v, str) else v for v in value]
         else:
             result[key] = value
     return result
@@ -167,6 +166,7 @@ def discover_servers(cwd: Path | None = None) -> list[MCPServerConfig]:
                 all_configs.append(cfg)
 
     from d2c.trust import get_trust_gate
+
     trusted = get_trust_gate().is_project_trusted
 
     if trusted:
@@ -194,7 +194,5 @@ def discover_servers(cwd: Path | None = None) -> list[MCPServerConfig]:
     # 3. D2C_MCP_SERVERS env var
     add_configs(_load_from_env_var())
 
-    logger.info("Discovered %d MCP server(s): %s",
-                 len(all_configs),
-                 [c.name for c in all_configs])
+    logger.info("Discovered %d MCP server(s): %s", len(all_configs), [c.name for c in all_configs])
     return all_configs

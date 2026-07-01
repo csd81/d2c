@@ -20,11 +20,12 @@ class MCPServerConfig:
     Paper Section 6: "MCP servers are configured via .d2c/mcp.json or the
     D2C_MCP_SERVERS environment variable."
     """
+
     name: str
-    command: str | None = None       # stdio: executable to spawn
+    command: str | None = None  # stdio: executable to spawn
     args: list[str] = field(default_factory=list)  # stdio: arguments
-    url: str | None = None           # SSE/HTTP/WebSocket endpoint
-    transport: str = "stdio"         # "stdio" | "sse" | "http" | "websocket"
+    url: str | None = None  # SSE/HTTP/WebSocket endpoint
+    transport: str = "stdio"  # "stdio" | "sse" | "http" | "websocket"
     env: dict[str, str] = field(default_factory=dict)
     timeout_ms: int = 30_000
     headers: dict[str, str] = field(default_factory=dict)  # HTTP/WS headers
@@ -39,6 +40,7 @@ class MCPTool(Tool):
     MCP tools override built-ins with the same name because the user
     explicitly configured the server.
     """
+
     is_concurrent_safe: bool = True  # MCP tools assumed safe for parallel
 
     def __init__(
@@ -59,6 +61,7 @@ class MCPTool(Tool):
     async def execute(self, **kwargs: Any) -> ToolResult:
         """Delegate execution to the MCP client for this server."""
         from d2c.mcp.client import get_client
+
         client = get_client(self._server_name)
         if client is None:
             return ToolResult(
@@ -67,7 +70,9 @@ class MCPTool(Tool):
             )
         result = await client.call_tool(self.name, kwargs)
         return ToolResult(
-            output=result.get("content", [{}])[0].get("text", str(result)) if isinstance(result, dict) else str(result),
+            output=result.get("content", [{}])[0].get("text", str(result))
+            if isinstance(result, dict)
+            else str(result),
             error=result.get("isError", False) if isinstance(result, dict) else False,
         )
 

@@ -45,7 +45,15 @@ class FileReadTool(Tool):
     category: ClassVar[PermissionCategory] = PermissionCategory.READ
     is_concurrent_safe: ClassVar[bool] = True
 
-    IMAGE_EXTENSIONS: ClassVar[set[str]] = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"}
+    IMAGE_EXTENSIONS: ClassVar[set[str]] = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".bmp",
+        ".webp",
+        ".svg",
+    }
 
     async def execute(
         self,
@@ -87,8 +95,9 @@ class FileReadTool(Tool):
         # Phase 34: register the file as read so Write/Edit's "must Read
         # first" guard is satisfiable, and surface any nested project memory.
         if not result.error:
-            from d2c.tools.write_tool import mark_file_read
             from d2c.tools import notify_file_access
+            from d2c.tools.write_tool import mark_file_read
+
             mark_file_read(str(path))
             result = notify_file_access(path, result)
 
@@ -173,11 +182,13 @@ class FileReadTool(Tool):
             b64 = base64.b64encode(data).decode("ascii")
             return ToolResult(
                 output=f"[Image: {path.name} ({len(data)} bytes, {mime_type})]",
-                attachments=[{
-                    "type": "image",
-                    "mime_type": mime_type,
-                    "data": b64,
-                }],
+                attachments=[
+                    {
+                        "type": "image",
+                        "mime_type": mime_type,
+                        "data": b64,
+                    }
+                ],
                 metadata={"file_size": len(data), "mime_type": mime_type},
             )
         except OSError as e:

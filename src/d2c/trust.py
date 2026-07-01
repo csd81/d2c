@@ -22,15 +22,18 @@ logger = logging.getLogger(__name__)
 
 # ── Data types ─────────────────────────────────────────────────────────
 
+
 @dataclass
 class TrustEntry:
     """A single trusted project path with metadata."""
-    path: str       # resolved absolute path (plain text, debuggable)
-    added: str      # ISO-8601 timestamp
+
+    path: str  # resolved absolute path (plain text, debuggable)
+    added: str  # ISO-8601 timestamp
     last_used: str  # ISO-8601 timestamp
 
 
 # ── Persistent store ───────────────────────────────────────────────────
+
 
 class TrustStore:
     """Persistent trust store at ~/.d2c/trusted.json.
@@ -149,6 +152,7 @@ class TrustStore:
 
 # ── Session gate ───────────────────────────────────────────────────────
 
+
 class WorkSpaceTrustGate:
     """Holds the trust decision for the current CLI session.
 
@@ -194,9 +198,7 @@ class WorkSpaceTrustGate:
         Made synchronous because input() is sync and main() is not async.
         """
         try:
-            answer = input(
-                "Trust this workspace? [y/N] "
-            ).strip().lower()
+            answer = input("Trust this workspace? [y/N] ").strip().lower()
             return answer in ("y", "yes")
         except (EOFError, KeyboardInterrupt):
             print()
@@ -236,6 +238,7 @@ def reset_trust_gate() -> None:
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
+
 
 def _utc_now_iso() -> str:
     """Return current UTC time as ISO-8601 string."""

@@ -14,23 +14,24 @@ as soon as pressure is relieved.
 from __future__ import annotations
 
 import asyncio
-import json
-from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import anthropic
 
 from d2c.hooks import HookEvent
 
 if TYPE_CHECKING:
-    from d2c.loop import LoopConfig
+    pass
 
 
 # ── Compact config ────────────────────────────────────────────────────
 
+
 @dataclass
 class CompactConfig:
     """Paper: per-tool-result budget cap, pressure threshold, context window."""
+
     tool_result_max_chars: int = 30_000
     pressure_threshold: float = 0.85
     context_window_tokens: int = 128_000
@@ -49,6 +50,7 @@ class CompactConfig:
 
 
 # ── Shapers pipeline (paper Section 7.3) ───────────────────────────────
+
 
 def applyContextShapers(
     messages: list[dict],
@@ -87,7 +89,7 @@ async def applyFullContextShapers(
 
     Phase 30: system_tokens enables cache-aligned snip/collapse boundaries.
     """
-    compact_config = getattr(loop_config, 'compact_config', None)
+    compact_config = getattr(loop_config, "compact_config", None)
     if compact_config is None:
         return messages
 
@@ -125,6 +127,7 @@ def checkPressure(
 
 # ── Shaper 1: Budget reduction ─────────────────────────────────────────
 
+
 def applyBudgetReduction(
     messages: list[dict],
     config: CompactConfig,
@@ -139,14 +142,17 @@ def applyBudgetReduction(
         if msg.get("role") == "tool" and isinstance(msg.get("content"), str):
             content = msg["content"]
             if len(content) > config.tool_result_max_chars:
-                truncated = content[:config.tool_result_max_chars]
-                truncated += f"\n... [truncated {len(content) - config.tool_result_max_chars} chars]"
+                truncated = content[: config.tool_result_max_chars]
+                truncated += (
+                    f"\n... [truncated {len(content) - config.tool_result_max_chars} chars]"
+                )
                 msg = {**msg, "content": truncated}
         result.append(msg)
     return result
 
 
 # ── Shaper 2: Snip ─────────────────────────────────────────────────────
+
 
 def applySnip(
     messages: list[dict],
@@ -169,7 +175,7 @@ def applySnip(
     if len(messages) <= config.snip_keep_last:
         return messages  # Nothing to snip
 
-    keep_recent = messages[-config.snip_keep_last:]
+    keep_recent = messages[-config.snip_keep_last :]
 
     # Find system messages and first user message
     keep_system = [m for m in messages if m.get("role") == "system"]
@@ -253,10 +259,10 @@ async def _summarize_segment_content(
 
     compact_model = (
         loop_config.compact_config.compact_model
-        if getattr(loop_config, 'compact_config', None)
+        if getattr(loop_config, "compact_config", None)
         else None
     )
-    model = compact_model or getattr(loop_config, 'model', 'deepseek-chat')
+    model = compact_model or getattr(loop_config, "model", "deepseek-chat")
 
     if summary_type == "tools":
         prompt = (
@@ -293,7 +299,7 @@ async def _summarize_segment_content(
             # Extract text from response
             text = ""
             for block in response.content:
-                if hasattr(block, 'text'):
+                if hasattr(block, "text"):
                     text += block.text
             return text.strip() or f"[summary: {segment_text[:max_chars]}]"
     except Exception:
@@ -305,6 +311,7 @@ async def _summarize_segment_content(
 
 # ── Shaper 3: Microcompact (Phase 29: LLM summarization) ────────────────
 
+
 async def applyMicrocompact(
     messages: list[dict],
     loop_config: Any,
@@ -315,7 +322,7 @@ async def applyMicrocompact(
     each group using a fast model. Falls back to character slicing on failure.
     Uses asyncio.Semaphore to limit concurrent API calls.
     """
-    config = getattr(loop_config, 'compact_config', None)
+    config = getattr(loop_config, "compact_config", None)
     if config is None or len(messages) < 4:
         return messages
 
@@ -375,7 +382,9 @@ async def applyMicrocompact(
                         # Schedule async summarization
                         task = asyncio.create_task(
                             _summarize_segment_content(
-                                segment_text, loop_config, summary_type="tools",
+                                segment_text,
+                                loop_config,
+                                summary_type="tools",
                             )
                         )
                         summary_tasks.append((placeholder_idx, task))
@@ -393,13 +402,14 @@ async def applyMicrocompact(
             if isinstance(summary_or_exc, BaseException):
                 # Fallback: use char-sliced version
                 summary_or_exc = ""
-            prefix = f"[Microcompact: summarized]\n"
+            prefix = "[Microcompact: summarized]\n"
             result[idx]["content"] = prefix + (str(summary_or_exc) or "(summary unavailable)")
 
     return result
 
 
 # ── Shaper 4: Context Collapse ────────────────────────────────────────
+
 
 async def applyContextCollapse(
     messages: list[dict],
@@ -417,7 +427,7 @@ async def applyContextCollapse(
     collapsed middle and recent messages is aligned to 1024-token
     cache blocks, and cache_control is injected at the boundary.
     """
-    config = getattr(loop_config, 'compact_config', None)
+    config = getattr(loop_config, "compact_config", None)
     if config is None or len(messages) < config.collapse_min_turns * 2:
         return messages
 
@@ -473,10 +483,7 @@ async def applyContextCollapse(
         if best_distance < CACHE_BLOCK_SIZE // 4:
             recent_start = best_recent_start
 
-    middle = [
-        m for i, m in enumerate(messages)
-        if i not in skip_indices and i < recent_start
-    ]
+    middle = [m for i, m in enumerate(messages) if i not in skip_indices and i < recent_start]
 
     if middle:
         segments = _segment_messages(middle, segment_size)
@@ -491,7 +498,9 @@ async def applyContextCollapse(
             result.append({"role": "user", "content": ""})
             task = asyncio.create_task(
                 _summarize_segment_content(
-                    segment_text, loop_config, summary_type="history",
+                    segment_text,
+                    loop_config,
+                    summary_type="history",
                 )
             )
             summary_tasks.append((placeholder_idx, task))
@@ -503,7 +512,7 @@ async def applyContextCollapse(
             for idx, summary_or_exc in zip(indices, results_list):
                 if isinstance(summary_or_exc, BaseException):
                     summary_or_exc = ""
-                prefix = f"[Context collapse: summarized]\n"
+                prefix = "[Context collapse: summarized]\n"
                 content = str(summary_or_exc) or "(summary unavailable)"
                 if idx < len(result):
                     result[idx]["content"] = prefix + content
@@ -518,6 +527,7 @@ async def applyContextCollapse(
 
 
 # ── Segment helpers ──────────────────────────────────────────────────
+
 
 def _segment_messages(messages: list[dict], segment_size: int) -> list[list[dict]]:
     """Split messages into segments of roughly segment_size each."""
@@ -566,6 +576,7 @@ def _summarize_segment(segment: list[dict], segment_idx: int) -> str:
 
 
 # ── Message content helpers ──────────────────────────────────────────
+
 
 def _has_tool_use(msg: dict) -> bool:
     """Check if a message contains tool_use blocks."""
@@ -616,6 +627,7 @@ def _content_str(msg: dict) -> str:
 
 # ── Token estimation (Phase 28: BPE tokenizer) ─────────────────────────
 
+
 def estimate_tokens(messages: list[dict], config: CompactConfig | None = None) -> int:
     """Precise token count using BPE tokenizer (cl100k_base).
 
@@ -623,6 +635,7 @@ def estimate_tokens(messages: list[dict], config: CompactConfig | None = None) -
     Falls back to character-based heuristic if tiktoken is unavailable.
     """
     from d2c.context import estimate_tokens as _bpe_estimate
+
     chars_per_token = config.chars_per_token if config else 3.5
     return _bpe_estimate(messages, chars_per_token)
 
@@ -633,6 +646,7 @@ def compute_pressure_limit(config: CompactConfig) -> int:
 
 
 # ── Shaper 2: Auto-compact ─────────────────────────────────────────────
+
 
 async def autoCompact(
     messages: list[dict],
@@ -651,15 +665,19 @@ async def autoCompact(
         return messages
 
     from d2c.observability import audit
+
     audit("compaction_start", shaper="auto_compact", pre_message_count=len(messages))
 
     # Phase 7: Fire PreCompact hook
-    hooks = getattr(loop_config, 'hooks', None)
+    hooks = getattr(loop_config, "hooks", None)
     if hooks is not None:
         try:
-            await hooks.fire(HookEvent.PRE_COMPACT, {
-                "message_count": len(messages),
-            })
+            await hooks.fire(
+                HookEvent.PRE_COMPACT,
+                {
+                    "message_count": len(messages),
+                },
+            )
         except Exception:
             pass  # Hook failure is non-fatal during compaction
 
@@ -687,13 +705,19 @@ async def autoCompact(
         summary = _extract_response_text(response)
     except Exception as e:
         # Compaction failure is non-fatal — continue with original messages
-        audit("compaction_error", level="ERROR", shaper="auto_compact", error_class=type(e).__name__)
+        audit(
+            "compaction_error", level="ERROR", shaper="auto_compact", error_class=type(e).__name__
+        )
         return messages
 
     # Build post-compact messages
     post_compact = buildPostCompactMessages(messages, summary)
-    audit("compaction_end", shaper="auto_compact",
-          pre_message_count=len(messages), post_message_count=len(post_compact))
+    audit(
+        "compaction_end",
+        shaper="auto_compact",
+        pre_message_count=len(messages),
+        post_message_count=len(post_compact),
+    )
 
     # Record compact boundary for persistence (paper Section 9)
     if loop_config.session_store and messages:
@@ -709,13 +733,16 @@ async def autoCompact(
         loop_config.session_store.append_compact_boundary(last_id)
 
     # Phase 15: Fire PostCompact hook
-    hooks = getattr(loop_config, 'hooks', None)
+    hooks = getattr(loop_config, "hooks", None)
     if hooks is not None:
         try:
-            await hooks.fire(HookEvent.POST_COMPACT, {
-                "pre_count": len(messages),
-                "post_count": len(post_compact),
-            })
+            await hooks.fire(
+                HookEvent.POST_COMPACT,
+                {
+                    "pre_count": len(messages),
+                    "post_count": len(post_compact),
+                },
+            )
         except Exception:
             pass  # Hook failure is non-fatal
 
@@ -723,6 +750,7 @@ async def autoCompact(
 
 
 # ── Compact prompt ─────────────────────────────────────────────────────
+
 
 def getCompactPrompt(messages: list[dict]) -> str:
     """Format all but the last 2 turns as a single prompt string for compaction.
@@ -752,6 +780,7 @@ def getCompactPrompt(messages: list[dict]) -> str:
 
 # ── Post-compact message builder ───────────────────────────────────────
 
+
 def buildPostCompactMessages(
     original_messages: list[dict],
     summary: str,
@@ -771,10 +800,12 @@ def buildPostCompactMessages(
             break
 
     # Summary as a user message
-    result.append({
-        "role": "user",
-        "content": f"[Previous conversation summary]\n{summary}",
-    })
+    result.append(
+        {
+            "role": "user",
+            "content": f"[Previous conversation summary]\n{summary}",
+        }
+    )
 
     # Keep last 4 messages (roughly 2 turns) for continuity
     recent = original_messages[-4:] if len(original_messages) > 4 else original_messages
@@ -836,9 +867,7 @@ def _inject_cache_control(msg: dict) -> dict:
         last["cache_control"] = {"type": "ephemeral"}
         msg["content"] = content[:-1] + [last]
     elif isinstance(content, str):
-        msg["content"] = [
-            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
-        ]
+        msg["content"] = [{"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}]
     return msg
 
 
@@ -868,6 +897,7 @@ def _compute_system_tools_tokens(
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
+
 
 def _extract_response_text(response: Any) -> str:
     """Extract text from a model response."""

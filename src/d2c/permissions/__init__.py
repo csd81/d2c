@@ -9,26 +9,29 @@ Core invariant: DENY rules ALWAYS win, even under dontAsk mode.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
-from d2c.tools import PermissionCategory, Tool
-from d2c.tools.pool import Rule as PoolRule, RuleType as PoolRuleType
+from d2c.tools import PermissionCategory
+from d2c.tools.pool import Rule as PoolRule
+from d2c.tools.pool import RuleType as PoolRuleType
 
 if TYPE_CHECKING:
     from d2c.config import Config
+    from d2c.path_rules import PathScopedRules
 
 
 # ── Types ────────────────────────────────────────────────────────────
+
 
 class PermissionMode(Enum):
     PLAN = "plan"
     DEFAULT = "default"
     ACCEPT_EDITS = "acceptEdits"
     DONT_ASK = "dontAsk"
-    AUTO = "auto"              # ML classifier: 2-stage fast-filter + CoT
-    BYPASS = "bypass"          # Trust operator: skip prompts, safety-critical checks remain
+    AUTO = "auto"  # ML classifier: 2-stage fast-filter + CoT
+    BYPASS = "bypass"  # Trust operator: skip prompts, safety-critical checks remain
 
 
 class PermissionDecision(Enum):
@@ -45,6 +48,7 @@ class RuleType(Enum):
 @dataclass
 class PermissionRule:
     """Paper: permission rules match by tool name patterns."""
+
     rule_type: RuleType
     pattern: str
     reason: str = ""
@@ -76,6 +80,7 @@ class PermissionResult:
 
 
 # ── Permission engine ────────────────────────────────────────────────
+
 
 class PermissionEngine:
     """Deny-first rule evaluation (paper Section 5.1).
@@ -122,6 +127,7 @@ class PermissionEngine:
         if not p:
             return None
         from pathlib import Path
+
         fp = Path(str(p))
         try:
             self._path_rules.on_directory_accessed(fp.parent)
@@ -129,13 +135,17 @@ class PermissionEngine:
         except Exception:
             return None
         for rule in dyn_rules:
-            if rule.rule_type == RuleType.DENY and rule.matches(request.tool_name, request.tool_input):
+            if rule.rule_type == RuleType.DENY and rule.matches(
+                request.tool_name, request.tool_input
+            ):
                 return PermissionResult(
                     PermissionDecision.DENY,
                     reason=rule.reason or f"Denied by path rule: {rule.pattern}",
                 )
         for rule in dyn_rules:
-            if rule.rule_type == RuleType.ALLOW and rule.matches(request.tool_name, request.tool_input):
+            if rule.rule_type == RuleType.ALLOW and rule.matches(
+                request.tool_name, request.tool_input
+            ):
                 return PermissionResult(
                     PermissionDecision.ALLOW,
                     reason=rule.reason or f"Allowed by path rule: {rule.pattern}",
@@ -152,7 +162,9 @@ class PermissionEngine:
     def evaluate(self, request: PermissionRequest) -> PermissionResult:
         # Step 1: Deny rules first (ALWAYS)
         for rule in self.rules:
-            if rule.rule_type == RuleType.DENY and rule.matches(request.tool_name, request.tool_input):
+            if rule.rule_type == RuleType.DENY and rule.matches(
+                request.tool_name, request.tool_input
+            ):
                 return PermissionResult(
                     PermissionDecision.DENY,
                     reason=rule.reason or f"Denied by rule: {rule.pattern}",
@@ -160,7 +172,9 @@ class PermissionEngine:
 
         # Step 2: Allow rules
         for rule in self.rules:
-            if rule.rule_type == RuleType.ALLOW and rule.matches(request.tool_name, request.tool_input):
+            if rule.rule_type == RuleType.ALLOW and rule.matches(
+                request.tool_name, request.tool_input
+            ):
                 return PermissionResult(
                     PermissionDecision.ALLOW,
                     reason=rule.reason or f"Allowed by rule: {rule.pattern}",
@@ -178,7 +192,9 @@ class PermissionEngine:
         """Async evaluation with classifier support for AUTO mode."""
         # Step 1: Deny rules first (ALWAYS)
         for rule in self.rules:
-            if rule.rule_type == RuleType.DENY and rule.matches(request.tool_name, request.tool_input):
+            if rule.rule_type == RuleType.DENY and rule.matches(
+                request.tool_name, request.tool_input
+            ):
                 return PermissionResult(
                     PermissionDecision.DENY,
                     reason=rule.reason or f"Denied by rule: {rule.pattern}",
@@ -186,7 +202,9 @@ class PermissionEngine:
 
         # Step 2: Allow rules
         for rule in self.rules:
-            if rule.rule_type == RuleType.ALLOW and rule.matches(request.tool_name, request.tool_input):
+            if rule.rule_type == RuleType.ALLOW and rule.matches(
+                request.tool_name, request.tool_input
+            ):
                 return PermissionResult(
                     PermissionDecision.ALLOW,
                     reason=rule.reason or f"Allowed by rule: {rule.pattern}",
@@ -280,10 +298,16 @@ class PermissionEngine:
             cmd = request.tool_input.get("command", "").strip().lower()
             # Destructive patterns
             destructive = [
-                "rm -rf /", "rm -rf ~", "rm -rf .",
-                "dd if=", "mkfs.", ":(){ :|:& };:",  # fork bomb
-                "chmod 777 /", "chmod -R 777 /",
-                "> /dev/sda", "format c:",
+                "rm -rf /",
+                "rm -rf ~",
+                "rm -rf .",
+                "dd if=",
+                "mkfs.",
+                ":(){ :|:& };:",  # fork bomb
+                "chmod 777 /",
+                "chmod -R 777 /",
+                "> /dev/sda",
+                "format c:",
             ]
             for pattern in destructive:
                 if pattern in cmd:
@@ -314,17 +338,22 @@ class PermissionEngine:
                 rules.append(r)
             elif isinstance(r, PoolRule):
                 rule_type = RuleType.DENY if r.rule_type == PoolRuleType.DENY else RuleType.ALLOW
-                rules.append(PermissionRule(rule_type=rule_type, pattern=r.pattern, reason=r.reason))
+                rules.append(
+                    PermissionRule(rule_type=rule_type, pattern=r.pattern, reason=r.reason)
+                )
             elif isinstance(r, dict):
-                rules.append(PermissionRule(
-                    rule_type=RuleType(r.get("type", r.get("rule_type", "deny"))),
-                    pattern=r.get("pattern", ""),
-                    reason=r.get("reason", ""),
-                ))
+                rules.append(
+                    PermissionRule(
+                        rule_type=RuleType(r.get("type", r.get("rule_type", "deny"))),
+                        pattern=r.get("pattern", ""),
+                        reason=r.get("reason", ""),
+                    )
+                )
         engine = cls(mode=mode, rules=rules)
         # Phase 34: attach path-scoped rules so .d2c/rules/*.md are enforced.
         try:
             from d2c.path_rules import PathScopedRules
+
             engine.set_path_rules(PathScopedRules())
         except Exception:
             pass
@@ -379,6 +408,7 @@ async def resolve_permission_decision(
 
 # ── Authorization pipeline ───────────────────────────────────────────
 
+
 async def authorize(
     request: PermissionRequest,
     engine: PermissionEngine,
@@ -403,9 +433,10 @@ async def authorize(
 
 # ── Interactive permission handler ───────────────────────────────────
 
+
 async def interactivePermissionCallback(request: PermissionRequest) -> PermissionResult:
     """Paper Section 5.2: standard user approval dialog."""
-    print(f"\n  === Permission Required ===")
+    print("\n  === Permission Required ===")
     print(f"  Tool: {request.tool_name}")
     print(f"  Category: {request.tool_category.value}")
     print(f"  Input: {_format_input(request.tool_input)}")

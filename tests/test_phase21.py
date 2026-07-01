@@ -5,19 +5,22 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-import pytest
-
+from d2c.memory import LazyMemoryLoader
 from d2c.path_rules import (
     PathScopedRules,
-    PathRuleResult,
     parse_yaml_frontmatter,
 )
-from d2c.permissions import PermissionRule, RuleType, PermissionEngine, PermissionMode, PermissionRequest
+from d2c.permissions import (
+    PermissionEngine,
+    PermissionMode,
+    PermissionRequest,
+    PermissionRule,
+    RuleType,
+)
 from d2c.tools import PermissionCategory
-from d2c.memory import LazyMemoryLoader
-
 
 # ── YAML frontmatter parser tests ───────────────────────────────────────
+
 
 class TestYamlFrontmatter:
     def test_parses_basic_frontmatter(self):
@@ -49,6 +52,7 @@ class TestYamlFrontmatter:
 
 # ── PathScopedRules tests ───────────────────────────────────────────────
 
+
 class TestPathScopedRules:
     def test_loads_rules_from_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -78,7 +82,9 @@ class TestPathScopedRules:
             root = Path(tmp)
             rules_dir = root / ".d2c" / "rules"
             rules_dir.mkdir(parents=True)
-            (rules_dir / "rules.md").write_text("---\nrules:\n  - type: deny\n    pattern: Write\n---\n")
+            (rules_dir / "rules.md").write_text(
+                "---\nrules:\n  - type: deny\n    pattern: Write\n---\n"
+            )
 
             psr = PathScopedRules()
             results1 = psr.on_directory_accessed(root)
@@ -96,11 +102,15 @@ class TestPathScopedRules:
 
             rules_a = child_a / ".d2c" / "rules"
             rules_a.mkdir(parents=True)
-            (rules_a / "rules.md").write_text("---\nrules:\n  - type: deny\n    pattern: Bash\n---\n")
+            (rules_a / "rules.md").write_text(
+                "---\nrules:\n  - type: deny\n    pattern: Bash\n---\n"
+            )
 
             rules_b = child_b / ".d2c" / "rules"
             rules_b.mkdir(parents=True)
-            (rules_b / "rules.md").write_text("---\nrules:\n  - type: allow\n    pattern: Read\n---\n")
+            (rules_b / "rules.md").write_text(
+                "---\nrules:\n  - type: allow\n    pattern: Read\n---\n"
+            )
 
             psr = PathScopedRules()
             psr.on_directory_accessed(child_a)
@@ -142,7 +152,9 @@ class TestPathScopedRules:
 
             rules_dir = root / ".d2c" / "rules"
             rules_dir.mkdir(parents=True)
-            (rules_dir / "global.md").write_text("---\nrules:\n  - type: deny\n    pattern: Write\n---\n")
+            (rules_dir / "global.md").write_text(
+                "---\nrules:\n  - type: deny\n    pattern: Write\n---\n"
+            )
 
             psr = PathScopedRules()
             psr.on_directory_accessed(child)  # Loads both child (no rules) and root (has rules)
@@ -198,20 +210,26 @@ class TestPathScopedRules:
 
 # ── Permission engine integration tests ────────────────────────────────
 
+
 class TestPermissionEnginePathRules:
     def test_add_rules_dynamically(self):
         engine = PermissionEngine(mode=PermissionMode.DEFAULT)
         assert len(engine.rules) == 0
 
-        engine.add_rules([
-            PermissionRule(rule_type=RuleType.DENY, pattern="Bash", reason="No shell"),
-        ])
+        engine.add_rules(
+            [
+                PermissionRule(rule_type=RuleType.DENY, pattern="Bash", reason="No shell"),
+            ]
+        )
         assert len(engine.rules) == 1
 
-        result = engine.evaluate(PermissionRequest(
-            tool_name="Bash", tool_input={"command": "rm -rf /"},
-            tool_category=PermissionCategory.SHELL,
-        ))
+        result = engine.evaluate(
+            PermissionRequest(
+                tool_name="Bash",
+                tool_input={"command": "rm -rf /"},
+                tool_category=PermissionCategory.SHELL,
+            )
+        )
         assert result.decision.name == "DENY"
 
     def test_dynamic_rules_take_effect_immediately(self):
@@ -219,16 +237,19 @@ class TestPermissionEnginePathRules:
 
         # Before adding rule: Bash is ASK (default mode)
         req = PermissionRequest(
-            tool_name="Bash", tool_input={},
+            tool_name="Bash",
+            tool_input={},
             tool_category=PermissionCategory.SHELL,
         )
         result_before = engine.evaluate(req)
         assert result_before.decision.name == "ASK"
 
         # Add deny rule
-        engine.add_rules([
-            PermissionRule(rule_type=RuleType.DENY, pattern="Bash", reason="Blocked"),
-        ])
+        engine.add_rules(
+            [
+                PermissionRule(rule_type=RuleType.DENY, pattern="Bash", reason="Blocked"),
+            ]
+        )
 
         # After: Bash is DENY
         result_after = engine.evaluate(req)
@@ -245,6 +266,7 @@ class TestPermissionEnginePathRules:
 
 
 # ── LazyMemoryLoader integration tests ─────────────────────────────────
+
 
 class TestLazyMemoryLoaderWithPathRules:
     def test_loads_path_rules_on_file_access(self):

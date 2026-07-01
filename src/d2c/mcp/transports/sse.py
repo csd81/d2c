@@ -11,26 +11,28 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from d2c.mcp.transports import MCPTransport
 from d2c.mcp.transports.stdio import MCPTransportError
 
 if TYPE_CHECKING:
-    import httpx
+    pass
 
 
 def _get_httpx():
     """Lazy import httpx — only fails when SSE transport is actually used."""
     import httpx
+
     return httpx
 
 
 class SSETransport(MCPTransport):
     """MCP transport over Server-Sent Events + HTTP POST."""
 
-    def __init__(self, url: str, headers: dict[str, str] | None = None,
-                 timeout_ms: int = 30_000) -> None:
+    def __init__(
+        self, url: str, headers: dict[str, str] | None = None, timeout_ms: int = 30_000
+    ) -> None:
         self._url = url.rstrip("/")
         self._headers = headers or {}
         self._timeout_ms = timeout_ms
@@ -74,12 +76,9 @@ class SSETransport(MCPTransport):
         try:
             async with self._client.stream("GET", self._url) as response:
                 if response.status_code != 200:
-                    raise MCPTransportError(
-                        f"SSE connection failed: HTTP {response.status_code}"
-                    )
+                    raise MCPTransportError(f"SSE connection failed: HTTP {response.status_code}")
 
                 event_data = ""
-                event_type = ""
                 async for line in response.aiter_lines():
                     if line == "":
                         # Empty line = end of event
@@ -90,11 +89,10 @@ class SSETransport(MCPTransport):
                             except json.JSONDecodeError:
                                 pass  # Non-JSON event, skip
                             event_data = ""
-                            event_type = ""
                         continue
 
                     if line.startswith("event:"):
-                        event_type = line[6:].strip()
+                        pass  # SSE event type is currently unused
                     elif line.startswith("data:"):
                         event_data += line[5:].strip()
                     elif line.startswith(":"):
@@ -121,9 +119,7 @@ class SSETransport(MCPTransport):
             content=payload,
         )
         if resp.status_code >= 400:
-            raise MCPTransportError(
-                f"SSE POST failed: HTTP {resp.status_code}: {resp.text[:500]}"
-            )
+            raise MCPTransportError(f"SSE POST failed: HTTP {resp.status_code}: {resp.text[:500]}")
 
     async def receive(self) -> dict[str, Any]:
         """Wait for the next event from the SSE stream."""
@@ -133,9 +129,7 @@ class SSETransport(MCPTransport):
                 timeout=self._timeout,
             )
         except asyncio.TimeoutError:
-            raise MCPTransportError(
-                f"Timeout waiting for SSE event from {self._url}"
-            )
+            raise MCPTransportError(f"Timeout waiting for SSE event from {self._url}")
 
     async def close(self) -> None:
         """Close the SSE connection."""

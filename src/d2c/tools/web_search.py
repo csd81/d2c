@@ -21,7 +21,6 @@ from typing import Any, ClassVar, Protocol
 
 from d2c.tools import PermissionCategory, Tool, ToolResult
 
-
 TAVILY_URL = "https://api.tavily.com/search"
 DEFAULT_TIMEOUT = 15.0
 UNCONFIGURED_MESSAGE = (
@@ -31,6 +30,7 @@ UNCONFIGURED_MESSAGE = (
 
 
 # ── Errors ────────────────────────────────────────────────────────────
+
 
 class WebSearchError(Exception):
     """A search request failed. Message never contains the API key."""
@@ -50,6 +50,7 @@ class WebSearchTimeoutError(WebSearchError):
 
 # ── Normalized result ─────────────────────────────────────────────────
 
+
 @dataclass
 class SearchResult:
     title: str
@@ -67,11 +68,11 @@ class SearchProvider(Protocol):
         max_results: int,
         recency_days: int | None = None,
         domains: list[str] | None = None,
-    ) -> list[SearchResult]:
-        ...
+    ) -> list[SearchResult]: ...
 
 
 # ── HTTP helper (isolated so tests can mock it without httpx) ─────────
+
 
 async def _http_post_json(url: str, payload: dict, timeout: float) -> tuple[int, dict]:
     """POST JSON and return (status_code, parsed_json). Translates transport
@@ -94,6 +95,7 @@ async def _http_post_json(url: str, payload: dict, timeout: float) -> tuple[int,
 
 
 # ── Tavily provider ───────────────────────────────────────────────────
+
 
 class TavilyProvider:
     name = "tavily"
@@ -132,13 +134,15 @@ class TavilyProvider:
 
         results: list[SearchResult] = []
         for item in (data.get("results") or [])[:max_results]:
-            results.append(SearchResult(
-                title=item.get("title") or "(untitled)",
-                url=item.get("url") or "",
-                snippet=(item.get("content") or "").strip(),
-                source="tavily",
-                published_at=item.get("published_date"),
-            ))
+            results.append(
+                SearchResult(
+                    title=item.get("title") or "(untitled)",
+                    url=item.get("url") or "",
+                    snippet=(item.get("content") or "").strip(),
+                    source="tavily",
+                    published_at=item.get("published_date"),
+                )
+            )
         return results
 
 
@@ -223,7 +227,9 @@ class WebSearchTool(Tool):
             timeout = DEFAULT_TIMEOUT
 
         if not provider_name and not api_key:
-            return ToolResult(output=UNCONFIGURED_MESSAGE, error=True, metadata={"configured": False})
+            return ToolResult(
+                output=UNCONFIGURED_MESSAGE, error=True, metadata={"configured": False}
+            )
         if not provider_name:
             provider_name = "tavily"
 
@@ -231,41 +237,78 @@ class WebSearchTool(Tool):
         if provider is None:
             return ToolResult(
                 output=f"Error: unsupported WebSearch provider '{provider_name}'. "
-                       f"Supported: {', '.join(sorted(_PROVIDERS))}.",
+                f"Supported: {', '.join(sorted(_PROVIDERS))}.",
                 error=True,
                 metadata={"configured": False},
             )
         if not api_key:
-            return ToolResult(output=UNCONFIGURED_MESSAGE, error=True, metadata={"configured": False})
+            return ToolResult(
+                output=UNCONFIGURED_MESSAGE, error=True, metadata={"configured": False}
+            )
 
         from d2c.observability import audit
-        audit("websearch_request", provider=provider_name, max_results=max_results,
-              domain_count=len(domains or []), recency_days=recency_days)
+
+        audit(
+            "websearch_request",
+            provider=provider_name,
+            max_results=max_results,
+            domain_count=len(domains or []),
+            recency_days=recency_days,
+        )
         try:
             results = await provider.search(
-                query, max_results=max_results, recency_days=recency_days, domains=domains,
+                query,
+                max_results=max_results,
+                recency_days=recency_days,
+                domains=domains,
             )
         except WebSearchAuthError:
-            audit("websearch_error", level="ERROR", provider=provider_name, error_class="WebSearchAuthError")
+            audit(
+                "websearch_error",
+                level="ERROR",
+                provider=provider_name,
+                error_class="WebSearchAuthError",
+            )
             return ToolResult(
                 output="WebSearch authentication failed (check D2C_WEBSEARCH_API_KEY).",
-                error=True, metadata={"provider": provider_name},
+                error=True,
+                metadata={"provider": provider_name},
             )
         except WebSearchRateLimitError:
-            audit("websearch_error", level="WARNING", provider=provider_name, error_class="WebSearchRateLimitError")
+            audit(
+                "websearch_error",
+                level="WARNING",
+                provider=provider_name,
+                error_class="WebSearchRateLimitError",
+            )
             return ToolResult(
                 output="WebSearch rate limit exceeded; try again later.",
-                error=True, metadata={"provider": provider_name},
+                error=True,
+                metadata={"provider": provider_name},
             )
         except WebSearchTimeoutError:
-            audit("websearch_error", level="WARNING", provider=provider_name, error_class="WebSearchTimeoutError")
+            audit(
+                "websearch_error",
+                level="WARNING",
+                provider=provider_name,
+                error_class="WebSearchTimeoutError",
+            )
             return ToolResult(
-                output="WebSearch timed out.", error=True, metadata={"provider": provider_name},
+                output="WebSearch timed out.",
+                error=True,
+                metadata={"provider": provider_name},
             )
         except WebSearchError as e:
-            audit("websearch_error", level="ERROR", provider=provider_name, error_class=type(e).__name__)
+            audit(
+                "websearch_error",
+                level="ERROR",
+                provider=provider_name,
+                error_class=type(e).__name__,
+            )
             return ToolResult(
-                output=f"WebSearch failed: {e}", error=True, metadata={"provider": provider_name},
+                output=f"WebSearch failed: {e}",
+                error=True,
+                metadata={"provider": provider_name},
             )
 
         audit("websearch_result", provider=provider_name, result_count=len(results))

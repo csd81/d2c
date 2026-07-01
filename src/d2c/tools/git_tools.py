@@ -20,7 +20,8 @@ async def _run_git(args: list[str], cwd: Path) -> tuple[int, str, str]:
     """Run a git command; return (returncode, stdout, stderr)."""
     try:
         proc = await asyncio.create_subprocess_exec(
-            "git", *args,
+            "git",
+            *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
@@ -126,7 +127,10 @@ class GitDiffTool(Tool):
         self._cwd = cwd or Path.cwd()
 
     async def execute(
-        self, path: str | None = None, staged: bool = False, **kwargs: Any,
+        self,
+        path: str | None = None,
+        staged: bool = False,
+        **kwargs: Any,
     ) -> ToolResult:
         if not await _is_git_repo(self._cwd):
             return ToolResult(output=f"Not a git repository: {self._cwd}", error=True)

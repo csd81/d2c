@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import AsyncGenerator
 
 logger = logging.getLogger(__name__)
@@ -24,9 +24,11 @@ logger = logging.getLogger(__name__)
 
 # ── KAIROS events ─────────────────────────────────────────────────────
 
+
 @dataclass
 class TickEvent:
     """A tick was generated due to user idle timeout."""
+
     count: int
     prompt: str
 
@@ -34,26 +36,31 @@ class TickEvent:
 @dataclass
 class SleepEvent:
     """The model chose to sleep for a duration (seconds)."""
+
     duration: float = 0.0
 
 
 @dataclass
 class ActionEvent:
     """The model chose to perform an autonomous action."""
+
     task: str = ""
 
 
 # ── KAIROS response ───────────────────────────────────────────────────
 
+
 @dataclass
 class KairosResponse:
     """Parsed decision from a tick call. The model returns either 'sleep' or 'act'."""
+
     action: str = "sleep"  # "sleep" | "act"
     sleep_duration: float = 300.0  # default 5 min (cache expiry window)
     task: str = ""
 
 
 # ── KAIROS agent ──────────────────────────────────────────────────────
+
 
 class KairosAgent:
     """Paper Section 11.6: persistent background agent with tick-based heartbeats.
@@ -128,8 +135,7 @@ class KairosAgent:
 
         Override this method for testing.
         """
-        from d2c.loop import LoopConfig, queryLoop
-        from d2c.loop import TextResponse
+        from d2c.loop import LoopConfig, TextResponse, queryLoop
 
         if self._loop_config is None:
             return KairosResponse(action="sleep", sleep_duration=300.0)
@@ -168,6 +174,7 @@ class KairosAgent:
     def _extract_duration(text: str) -> float:
         """Extract sleep duration from text. Defaults to 300s (5 min, cache expiry)."""
         import re
+
         match = re.search(r"(\d+)\s*(s|sec|second|min|minute|h|hour)", text.lower())
         if match:
             value = int(match.group(1))

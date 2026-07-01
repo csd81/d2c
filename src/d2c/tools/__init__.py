@@ -116,8 +116,11 @@ async def fire_active_hook(event_name: str, payload: dict) -> None:
     # Phase 44: mirror file/task lifecycle into the audit log (redacted).
     try:
         from d2c.observability import audit
-        audit(event_name.lower(), **{k: v for k, v in payload.items()
-                                     if k in ("path", "tool", "operation")})
+
+        audit(
+            event_name.lower(),
+            **{k: v for k, v in payload.items() if k in ("path", "tool", "operation")},
+        )
     except Exception:
         pass
     hooks = get_active_hooks()
@@ -125,6 +128,7 @@ async def fire_active_hook(event_name: str, payload: dict) -> None:
         return
     try:
         from d2c.hooks import HookEvent
+
         await hooks.fire(HookEvent[event_name], payload)
     except Exception:
         pass
@@ -144,6 +148,7 @@ def notify_file_access(path: Any, result: "ToolResult") -> "ToolResult":
         return result
     try:
         from pathlib import Path as _Path
+
         extra = loader.on_file_accessed(_Path(str(path)))
     except Exception:
         extra = None

@@ -63,12 +63,13 @@ def parse_yaml_frontmatter(text: str) -> tuple[dict[str, Any], str]:
         return {}, text
 
     frontmatter_text = "\n".join(lines[1:end_idx])
-    body = "\n".join(lines[end_idx + 1:]).strip()
+    body = "\n".join(lines[end_idx + 1 :]).strip()
 
     # Simple YAML parsing — handles basic dict and list structures
     # without requiring PyYAML dependency
     try:
         import yaml
+
         frontmatter = yaml.safe_load(frontmatter_text) or {}
     except ImportError:
         frontmatter = _parse_simple_yaml(frontmatter_text)
@@ -211,11 +212,13 @@ class PathScopedRules:
             except (ValueError, KeyError):
                 rt = RuleType.DENY
 
-            permission_rules.append(PermissionRule(
-                rule_type=rt,
-                pattern=pattern,
-                reason=reason or f"Path rule from {path.name}",
-            ))
+            permission_rules.append(
+                PermissionRule(
+                    rule_type=rt,
+                    pattern=pattern,
+                    reason=reason or f"Path rule from {path.name}",
+                )
+            )
 
         if not permission_rules and not body:
             return None

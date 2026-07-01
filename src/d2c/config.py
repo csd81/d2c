@@ -9,13 +9,10 @@ Phase 10: DeepSeek wiring — .env loading, model name mapping, API key validati
 from __future__ import annotations
 
 import os
-import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from d2c.tools.pool import Rule
-
 
 # ── DeepSeek model name mapping ─────────────────────────────────────────
 
@@ -67,6 +64,7 @@ def get_model_defaults(model: str) -> dict:
 
 
 # ── .env loading ───────────────────────────────────────────────────────
+
 
 def _load_home_dotenv() -> None:
     """Load ~/.d2c/.env only. Always safe — the user controls their home dir."""
@@ -129,8 +127,9 @@ def _parse_env_file(path: Path) -> None:
 
         # Strip surrounding quotes
         if len(value) >= 2:
-            if (value.startswith('"') and value.endswith('"')) or \
-               (value.startswith("'") and value.endswith("'")):
+            if (value.startswith('"') and value.endswith('"')) or (
+                value.startswith("'") and value.endswith("'")
+            ):
                 value = value[1:-1]
 
         # Don't override existing env vars
@@ -139,6 +138,7 @@ def _parse_env_file(path: Path) -> None:
 
 
 # ── Config dataclass ───────────────────────────────────────────────────
+
 
 @dataclass
 class Config:
@@ -178,21 +178,22 @@ class Config:
     sandbox_enabled: bool = False  # gate BashTool execution through SandboxExecutor
 
     # --- WebSearch (Phase 39) ---
-    websearch_provider: str = ""       # e.g. "tavily"; empty = unconfigured
+    websearch_provider: str = ""  # e.g. "tavily"; empty = unconfigured
     websearch_api_key: str | None = None
 
     # --- Observability (Phase 44) ---
     log_level: str = "INFO"
-    audit_log_enabled: bool = False    # opt-in via D2C_AUDIT_LOG=1
-    audit_log_path: str = ""           # default computed in load() if empty
-    log_prompts: bool = False          # log full prompts (privacy: off)
-    log_tool_outputs: bool = False     # log full tool outputs (privacy: off)
+    audit_log_enabled: bool = False  # opt-in via D2C_AUDIT_LOG=1
+    audit_log_path: str = ""  # default computed in load() if empty
+    log_prompts: bool = False  # log full prompts (privacy: off)
+    log_tool_outputs: bool = False  # log full tool outputs (privacy: off)
 
     # --- OS ---
     os: str = field(default="")
 
     def __post_init__(self) -> None:
         import platform
+
         if not self.os:
             self.os = platform.system()
 
@@ -221,6 +222,7 @@ class Config:
 
         # Only load project .env if workspace is trusted
         from d2c.trust import get_trust_gate
+
         if get_trust_gate().is_project_trusted:
             _load_project_dotenv(project_dir)
 

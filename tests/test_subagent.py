@@ -6,29 +6,25 @@ load_subagent_definition, spawn_subagent, AgentTool.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from d2c.subagent import (
-    EXPLORE_AGENT_PROMPT,
-    GENERAL_AGENT_PROMPT,
-    PLAN_AGENT_PROMPT,
     BUILTIN_SUBAGENTS,
     SubagentDefinition,
     SubagentResult,
     SubagentType,
+    _parse_frontmatter,
     build_subagent_tool_pool,
     load_subagent_definition,
     spawn_subagent,
-    _parse_frontmatter,
 )
 from d2c.tools import PermissionCategory
 
-
 # ── Fixtures ───────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def sample_tools():
@@ -53,6 +49,7 @@ def sample_tools():
 
 
 # ── SubagentDefinition tests ──────────────────────────────────────────
+
 
 class TestSubagentDefinition:
     def test_explore_definition(self):
@@ -97,6 +94,7 @@ class TestSubagentDefinition:
 
 # ── SubagentResult tests ──────────────────────────────────────────────
 
+
 class TestSubagentResult:
     def test_success_result(self):
         r = SubagentResult(summary="Task done", tool_calls=3, turns=2)
@@ -118,6 +116,7 @@ class TestSubagentResult:
 
 
 # ── build_subagent_tool_pool tests ────────────────────────────────────
+
 
 class TestBuildSubagentToolPool:
     def test_explore_agent_removes_write_shell(self, sample_tools):
@@ -187,6 +186,7 @@ class TestBuildSubagentToolPool:
 
 # ── _parse_frontmatter tests ──────────────────────────────────────────
 
+
 class TestParseFrontmatter:
     def test_no_frontmatter(self):
         meta, body = _parse_frontmatter("Just body text")
@@ -230,6 +230,7 @@ Body."""
 
 # ── load_subagent_definition tests ────────────────────────────────────
 
+
 class TestLoadSubagentDefinition:
     def test_load_explore(self):
         d = load_subagent_definition("Explore")
@@ -269,6 +270,7 @@ You are a custom agent. Be helpful.""")
 
 
 # ── spawn_subagent tests ──────────────────────────────────────────────
+
 
 class TestSpawnSubagent:
     @pytest.mark.asyncio
@@ -348,6 +350,7 @@ class TestSpawnSubagent:
     async def test_spawn_subagent_with_session_store(self):
         """spawn_subagent creates sidechain when session store is provided."""
         import tempfile
+
         from d2c.config import Config
         from d2c.persistence import SessionStore
 
@@ -390,12 +393,13 @@ class TestSpawnSubagent:
 
 # ── AgentTool tests ───────────────────────────────────────────────────
 
+
 class TestAgentTool:
     @pytest.mark.asyncio
     async def test_agent_tool_basic(self):
         """AgentTool.execute returns structured result."""
-        from d2c.tools.agent_tool import AgentTool
         from d2c.config import Config
+        from d2c.tools.agent_tool import AgentTool
 
         config = Config.load()
         config.deepseek_api_key = "test-key"
@@ -428,8 +432,8 @@ class TestAgentTool:
     @pytest.mark.asyncio
     async def test_agent_tool_unknown_subagent(self):
         """AgentTool returns error for unknown subagent type."""
-        from d2c.tools.agent_tool import AgentTool
         from d2c.config import Config
+        from d2c.tools.agent_tool import AgentTool
 
         config = Config.load()
         tool = AgentTool(config=config)
@@ -446,8 +450,8 @@ class TestAgentTool:
     @pytest.mark.asyncio
     async def test_agent_tool_explore_subagent(self):
         """AgentTool with Explore subagent type."""
-        from d2c.tools.agent_tool import AgentTool
         from d2c.config import Config
+        from d2c.tools.agent_tool import AgentTool
 
         config = Config.load()
         config.deepseek_api_key = "test-key"
@@ -477,8 +481,8 @@ class TestAgentTool:
     @pytest.mark.asyncio
     async def test_agent_tool_permission_mode_override(self):
         """AgentTool passes permission mode override to subagent definition."""
-        from d2c.tools.agent_tool import AgentTool
         from d2c.config import Config
+        from d2c.tools.agent_tool import AgentTool
 
         config = Config.load()
         config.deepseek_api_key = "test-key"

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from datetime import datetime, timezone
 
 import pytest
 
@@ -15,8 +14,8 @@ from d2c.persistence import (
     _utc_now,
 )
 
-
 # ── Fixtures ───────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def tmp_base_dir(tmp_path):
@@ -35,6 +34,7 @@ def manager(tmp_base_dir):
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
+
 def make_entry(role="user", content="hello", **kwargs):
     return SessionEntry(
         role=role,
@@ -46,6 +46,7 @@ def make_entry(role="user", content="hello", **kwargs):
 
 
 # ── SessionEntry tests ─────────────────────────────────────────────────
+
 
 class TestSessionEntry:
     def test_to_jsonl_line(self):
@@ -77,7 +78,10 @@ class TestSessionEntry:
     def test_to_jsonl_line_with_list_content(self):
         entry = SessionEntry(
             role="assistant",
-            content=[{"type": "text", "text": "hello"}, {"type": "tool_use", "id": "t1", "name": "Read", "input": {}}],
+            content=[
+                {"type": "text", "text": "hello"},
+                {"type": "tool_use", "id": "t1", "name": "Read", "input": {}},
+            ],
             timestamp="2026-06-30T12:00:00Z",
         )
         data = json.loads(entry.to_jsonl_line())
@@ -91,6 +95,7 @@ class TestSessionEntry:
 
 
 # ── SessionStore write tests ───────────────────────────────────────────
+
 
 class TestSessionStoreWrite:
     def test_append_creates_file(self, store):
@@ -138,6 +143,7 @@ class TestSessionStoreWrite:
 
 # ── SessionStore read tests ────────────────────────────────────────────
 
+
 class TestSessionStoreRead:
     def test_read_empty_transcript(self, store):
         entries = store.read_transcript()
@@ -166,7 +172,10 @@ class TestSessionStoreRead:
         assert entries[0].metadata["tool_use_id"] == "tu_1"
 
     def test_read_preserves_list_content(self, store):
-        content = [{"type": "text", "text": "hi"}, {"type": "tool_use", "id": "t1", "name": "R", "input": {}}]
+        content = [
+            {"type": "text", "text": "hi"},
+            {"type": "tool_use", "id": "t1", "name": "R", "input": {}},
+        ]
         entry = SessionEntry(role="assistant", content=content, timestamp=_utc_now())
         store.append(entry)
         entries = store.read_transcript()
@@ -198,6 +207,7 @@ class TestSessionStoreRead:
 
 # ── SessionStore reconstruct_messages tests ────────────────────────────
 
+
 class TestReconstructMessages:
     def test_reconstruct_simple(self, store):
         store.append(make_entry("user", "hello"))
@@ -210,11 +220,14 @@ class TestReconstructMessages:
 
     def test_reconstruct_tool_message(self, store):
         store.append(make_entry("user", "read file"))
-        store.append(SessionEntry(
-            role="tool", content="file contents",
-            timestamp=_utc_now(),
-            metadata={"tool_name": "Read", "tool_use_id": "tu_1"},
-        ))
+        store.append(
+            SessionEntry(
+                role="tool",
+                content="file contents",
+                timestamp=_utc_now(),
+                metadata={"tool_name": "Read", "tool_use_id": "tu_1"},
+            )
+        )
 
         messages = store.reconstruct_messages()
         assert len(messages) == 2
@@ -227,11 +240,15 @@ class TestReconstructMessages:
         """compact_boundary resets message array — pre-compact discarded."""
         store.append(make_entry("user", "old conversation"))
         store.append(make_entry("assistant", "old response"))
-        store.append(SessionEntry(
-            role="system", content="",
-            timestamp=_utc_now(), entry_type="compact_boundary",
-            metadata={"preserved_head_uuid": "abc"},
-        ))
+        store.append(
+            SessionEntry(
+                role="system",
+                content="",
+                timestamp=_utc_now(),
+                entry_type="compact_boundary",
+                metadata={"preserved_head_uuid": "abc"},
+            )
+        )
         store.append(make_entry("user", "[Compacted summary]"))
         store.append(make_entry("assistant", "new response"))
 
@@ -246,11 +263,15 @@ class TestReconstructMessages:
 
     def test_reconstruct_skips_non_message_types(self, store):
         store.append(make_entry("user", "hello"))
-        store.append(SessionEntry(
-            role="system", content="",
-            timestamp=_utc_now(), entry_type="subagent_summary",
-            metadata={"agent": "test"},
-        ))
+        store.append(
+            SessionEntry(
+                role="system",
+                content="",
+                timestamp=_utc_now(),
+                entry_type="subagent_summary",
+                metadata={"agent": "test"},
+            )
+        )
         store.append(make_entry("assistant", "reply"))
 
         messages = store.reconstruct_messages()
@@ -260,6 +281,7 @@ class TestReconstructMessages:
 
 
 # ── SessionManager tests ───────────────────────────────────────────────
+
 
 class TestSessionManagerCreate:
     def test_create_session_returns_store(self, manager):
@@ -352,6 +374,7 @@ class TestSessionManagerFork:
 
 # ── SessionStore sidechain tests ───────────────────────────────────────
 
+
 class TestSidechains:
     def test_get_sidechain_path(self, store):
         path = store.get_sidechain_path("agent-abc")
@@ -366,12 +389,13 @@ class TestSidechains:
 
 # ── Edge case tests ────────────────────────────────────────────────────
 
+
 class TestEdgeCases:
     def test_special_characters_in_content(self, store):
-        entry = make_entry("user", 'line1\nline2\t"quoted" \'single\' \\backslash')
+        entry = make_entry("user", "line1\nline2\t\"quoted\" 'single' \\backslash")
         store.append(entry)
         entries = store.read_transcript()
-        assert entries[0].content == 'line1\nline2\t"quoted" \'single\' \\backslash'
+        assert entries[0].content == "line1\nline2\t\"quoted\" 'single' \\backslash"
 
     def test_unicode_content(self, store):
         content = "Hello 世界 🌍"

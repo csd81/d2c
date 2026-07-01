@@ -6,16 +6,17 @@ import asyncio
 
 import pytest
 
+from d2c.tools.pool import Config, assembleToolPool, getAllBaseTools
 from d2c.tools.tool_search import DeferredToolSchema, ToolSearchTool
-from d2c.tools.pool import Config, getAllBaseTools, assembleToolPool
-
 
 # ── DeferredToolSchema tests ────────────────────────────────────────────
+
 
 class TestDeferredToolSchema:
     def test_deferred_shows_only_name(self):
         """Deferred tool shows abbreviated schema, not full one."""
         from d2c.tools.bash_tool import BashTool
+
         tool = BashTool()
         deferred = DeferredToolSchema(tool)
 
@@ -28,6 +29,7 @@ class TestDeferredToolSchema:
     def test_loaded_returns_full_schema(self):
         """After loading, returns full schema from wrapped tool."""
         from d2c.tools.read_tool import FileReadTool
+
         tool = FileReadTool()
         deferred = DeferredToolSchema(tool)
 
@@ -42,6 +44,7 @@ class TestDeferredToolSchema:
 
     def test_is_schema_loaded(self):
         from d2c.tools.glob_tool import GlobTool
+
         deferred = DeferredToolSchema(GlobTool())
         assert not deferred.is_schema_loaded
         deferred.load_full_schema()
@@ -49,6 +52,7 @@ class TestDeferredToolSchema:
 
     def test_double_load_is_idempotent(self):
         from d2c.tools.glob_tool import GlobTool
+
         deferred = DeferredToolSchema(GlobTool())
         deferred.load_full_schema()
         deferred.load_full_schema()  # should not raise
@@ -56,19 +60,21 @@ class TestDeferredToolSchema:
 
     def test_name_property(self):
         from d2c.tools.edit_tool import FileEditTool
+
         deferred = DeferredToolSchema(FileEditTool())
         assert deferred.name == "Edit"
 
 
 # ── ToolSearchTool tests ────────────────────────────────────────────────
 
+
 class TestToolSearchTool:
     def _make_registry(self):
-        from d2c.tools.read_tool import FileReadTool
-        from d2c.tools.write_tool import FileWriteTool
         from d2c.tools.edit_tool import FileEditTool
         from d2c.tools.glob_tool import GlobTool
         from d2c.tools.grep_tool import GrepTool
+        from d2c.tools.read_tool import FileReadTool
+        from d2c.tools.write_tool import FileWriteTool
 
         return [
             FileReadTool(),
@@ -152,6 +158,7 @@ class TestToolSearchTool:
 
 # ── Pool integration tests ─────────────────────────────────────────────
 
+
 class TestDeferredPoolIntegration:
     def test_deferred_disabled_by_default(self):
         """Without deferred_tools, all tools have full schemas."""
@@ -159,10 +166,7 @@ class TestDeferredPoolIntegration:
         tools = getAllBaseTools(config)
         schemas = [t.to_api_format() for t in tools]
         # Some tools have input params
-        has_props = any(
-            len(s.get("input_schema", {}).get("properties", {})) > 0
-            for s in schemas
-        )
+        has_props = any(len(s.get("input_schema", {}).get("properties", {})) > 0 for s in schemas)
         assert has_props
 
     def test_deferred_enabled_wraps_large_schemas(self):
@@ -170,9 +174,7 @@ class TestDeferredPoolIntegration:
         config = Config(deferred_tools=True)
         tools = getAllBaseTools(config)
 
-        deferred_count = sum(
-            1 for t in tools if isinstance(t, DeferredToolSchema)
-        )
+        deferred_count = sum(1 for t in tools if isinstance(t, DeferredToolSchema))
         assert deferred_count > 0  # At least some tools are deferred
 
         # Deferred tools have empty properties

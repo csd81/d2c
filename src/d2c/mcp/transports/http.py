@@ -16,6 +16,7 @@ from d2c.mcp.transports.stdio import MCPTransportError
 def _get_httpx():
     """Lazy import httpx — only fails when HTTP transport is actually used."""
     import httpx
+
     return httpx
 
 
@@ -25,8 +26,9 @@ class HTTPTransport(MCPTransport):
     Each send+receive is a single HTTP POST. No persistent connection.
     """
 
-    def __init__(self, url: str, headers: dict[str, str] | None = None,
-                 timeout_ms: int = 30_000) -> None:
+    def __init__(
+        self, url: str, headers: dict[str, str] | None = None, timeout_ms: int = 30_000
+    ) -> None:
         self._url = url.rstrip("/")
         self._headers = headers or {}
         self._timeout = timeout_ms / 1000.0
@@ -60,9 +62,7 @@ class HTTPTransport(MCPTransport):
         resp = await self._client.post(self._url, content=payload)
 
         if resp.status_code >= 400:
-            raise MCPTransportError(
-                f"HTTP POST failed: {resp.status_code}: {resp.text[:500]}"
-            )
+            raise MCPTransportError(f"HTTP POST failed: {resp.status_code}: {resp.text[:500]}")
 
         try:
             self._pending_response = resp.json()

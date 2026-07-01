@@ -45,6 +45,7 @@ class FileWriteTool(Tool):
 
         # Phase 23: Checkpoint before modification
         from d2c.tools import get_file_history_tracker
+
         tracker = get_file_history_tracker()
         if tracker:
             tracker.before_write(path)
@@ -65,7 +66,7 @@ class FileWriteTool(Tool):
         if not path.parent.exists():
             return ToolResult(
                 output=f"Error: parent directory does not exist: {path.parent}. "
-                       f"Create it first with a shell command.",
+                f"Create it first with a shell command.",
                 error=True,
             )
 
@@ -73,7 +74,7 @@ class FileWriteTool(Tool):
         if path.exists() and str(path) not in _read_files:
             return ToolResult(
                 output=f"Error: must Read the file first before overwriting: {file_path}. "
-                       f"Use the Read tool to read '{file_path}' first.",
+                f"Use the Read tool to read '{file_path}' first.",
                 error=True,
             )
 
@@ -82,12 +83,18 @@ class FileWriteTool(Tool):
             _read_files.add(str(path))  # mark as read for subsequent writes
             result = ToolResult(
                 output=f"Successfully wrote {len(content)} bytes to {file_path}.",
-                metadata={"bytes_written": len(content), "lines": content.count('\n') + 1},
+                metadata={"bytes_written": len(content), "lines": content.count("\n") + 1},
             )
-            from d2c.tools import notify_file_access, fire_active_hook
-            await fire_active_hook("FILE_CHANGED", {
-                "path": str(path), "tool": "Write", "operation": "write",
-            })
+            from d2c.tools import fire_active_hook, notify_file_access
+
+            await fire_active_hook(
+                "FILE_CHANGED",
+                {
+                    "path": str(path),
+                    "tool": "Write",
+                    "operation": "write",
+                },
+            )
             return notify_file_access(path, result)
         except OSError as e:
             return ToolResult(output=f"Error writing file: {e}", error=True)

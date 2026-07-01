@@ -13,7 +13,6 @@ from urllib.parse import urlparse
 
 from d2c.tools import PermissionCategory, Tool, ToolResult
 
-
 WEB_FETCH_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -36,20 +35,20 @@ WEB_FETCH_INPUT_SCHEMA: dict[str, Any] = {
 
 # Simple HTML tag stripping for when no markdown converter is available
 _STRIP_SCRIPT_STYLE = re.compile(
-    r'<(script|style|noscript|iframe|object|embed|form)[^>]*>.*?</\1>',
+    r"<(script|style|noscript|iframe|object|embed|form)[^>]*>.*?</\1>",
     re.DOTALL | re.IGNORECASE,
 )
-_STRIP_TAGS = re.compile(r'<[^>]+>')
-_STRIP_COMMENTS = re.compile(r'<!--.*?-->', re.DOTALL)
-_NORMALIZE_WS = re.compile(r'\s+')
+_STRIP_TAGS = re.compile(r"<[^>]+>")
+_STRIP_COMMENTS = re.compile(r"<!--.*?-->", re.DOTALL)
+_NORMALIZE_WS = re.compile(r"\s+")
 
 
 def _html_to_text(html: str) -> str:
     """Basic HTML-to-text conversion. Strips tags, scripts, styles."""
-    text = _STRIP_COMMENTS.sub('', html)
-    text = _STRIP_SCRIPT_STYLE.sub('', text)
-    text = _STRIP_TAGS.sub(' ', text)
-    text = _NORMALIZE_WS.sub(' ', text)
+    text = _STRIP_COMMENTS.sub("", html)
+    text = _STRIP_SCRIPT_STYLE.sub("", text)
+    text = _STRIP_TAGS.sub(" ", text)
+    text = _NORMALIZE_WS.sub(" ", text)
     return text.strip()
 
 
@@ -142,7 +141,9 @@ class WebFetchTool(Tool):
                 metadata={"status_code": e.response.status_code},
             )
         except httpx.TimeoutException:
-            return ToolResult(output=f"Error: Request to {url} timed out after 30 seconds.", error=True)
+            return ToolResult(
+                output=f"Error: Request to {url} timed out after 30 seconds.", error=True
+            )
         except httpx.RequestError as e:
             return ToolResult(output=f"Error fetching URL: {e}", error=True)
         except Exception as e:

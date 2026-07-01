@@ -22,15 +22,16 @@ from __future__ import annotations
 import asyncio
 import json
 import shlex
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from d2c.config import Config
 
 
 # ── Event types ───────────────────────────────────────────────────────
+
 
 class HookEvent(Enum):
     # Session lifecycle
@@ -84,37 +85,41 @@ class HookEvent(Enum):
 
 
 class HookType(Enum):
-    COMMAND = "command"    # shell command, stdin JSON → stdout JSON
-    PROMPT = "prompt"      # LLM-based hook
+    COMMAND = "command"  # shell command, stdin JSON → stdout JSON
+    PROMPT = "prompt"  # LLM-based hook
     CALLBACK = "callback"  # SDK/internal only (not persistable)
 
 
 # ── Hook definition & result ──────────────────────────────────────────
 
+
 @dataclass
 class HookDefinition:
     """A configured hook from settings or plugins."""
+
     event: HookEvent
     hook_type: HookType
-    command: str | None = None         # for COMMAND type
-    prompt: str | None = None          # for PROMPT type
-    callback: Callable | None = None   # for CALLBACK type
-    source: str = "settings"           # "settings" | "plugin" | "managed" | "skill"
+    command: str | None = None  # for COMMAND type
+    prompt: str | None = None  # for PROMPT type
+    callback: Callable | None = None  # for CALLBACK type
+    source: str = "settings"  # "settings" | "plugin" | "managed" | "skill"
     timeout_ms: int = 30_000
 
 
 @dataclass
 class HookResult:
     """Merged result from firing all hooks for an event."""
-    decision: str | None = None          # "allow" | "deny" | "ask"
-    updated_input: dict | None = None    # PreToolUse: modified tool input
-    updated_output: str | None = None    # PostToolUse: modified tool output
+
+    decision: str | None = None  # "allow" | "deny" | "ask"
+    updated_input: dict | None = None  # PreToolUse: modified tool input
+    updated_output: str | None = None  # PostToolUse: modified tool output
     additional_context: str | None = None  # injected into conversation
-    veto: bool = False                   # Stop/SubagentStop: prevent stopping
+    veto: bool = False  # Stop/SubagentStop: prevent stopping
     error: str | None = None
 
 
 # ── Hook registry ─────────────────────────────────────────────────────
+
 
 class HookRegistry:
     """Paper Section 6.1: hooks from settings.json, plugins, and managed policy.
@@ -124,9 +129,7 @@ class HookRegistry:
     """
 
     def __init__(self):
-        self._hooks: dict[HookEvent, list[HookDefinition]] = {
-            event: [] for event in HookEvent
-        }
+        self._hooks: dict[HookEvent, list[HookDefinition]] = {event: [] for event in HookEvent}
 
     def register(self, definition: HookDefinition) -> None:
         """Register a hook for an event."""
@@ -141,7 +144,7 @@ class HookRegistry:
     def from_config(cls, config: "Config") -> "HookRegistry":
         """Load hooks from configuration."""
         registry = cls()
-        for hook_cfg in getattr(config, 'hooks', []):
+        for hook_cfg in getattr(config, "hooks", []):
             if isinstance(hook_cfg, dict):
                 definition = HookDefinition(
                     event=HookEvent(hook_cfg["event"]),
@@ -172,12 +175,20 @@ class HookRegistry:
                 # Hook errors are non-fatal (paper: hooks fail gracefully)
                 merged.error = str(e)
                 from d2c.observability import audit
-                audit("hook_failed", level="WARNING", hook_event=event.value,
-                      hook_type=getattr(hook.hook_type, "value", None), error_class=type(e).__name__)
+
+                audit(
+                    "hook_failed",
+                    level="WARNING",
+                    hook_event=event.value,
+                    hook_type=getattr(hook.hook_type, "value", None),
+                    error_class=type(e).__name__,
+                )
         return merged
 
     async def _execute_hook(
-        self, hook: HookDefinition, context: dict,
+        self,
+        hook: HookDefinition,
+        context: dict,
     ) -> HookResult:
         if hook.hook_type == HookType.COMMAND and hook.command:
             return await self._execute_command_hook(hook, context)
@@ -188,7 +199,9 @@ class HookRegistry:
         return HookResult()
 
     async def _execute_command_hook(
-        self, hook: HookDefinition, context: dict,
+        self,
+        hook: HookDefinition,
+        context: dict,
     ) -> HookResult:
         """Paper: shell command hooks receive JSON on stdin, return JSON on stdout."""
         try:
@@ -211,8 +224,9 @@ class HookRegistry:
 
             try:
                 data = json.loads(stdout)
-                return HookResult(**{k: v for k, v in data.items()
-                    if k in HookResult.__dataclass_fields__})
+                return HookResult(
+                    **{k: v for k, v in data.items() if k in HookResult.__dataclass_fields__}
+                )
             except json.JSONDecodeError:
                 return HookResult(additional_context=stdout.decode())
 
@@ -222,7 +236,9 @@ class HookRegistry:
             return HookResult(error=f"Hook command not found: {hook.command}")
 
     async def _execute_prompt_hook(
-        self, hook: HookDefinition, context: dict,
+        self,
+        hook: HookDefinition,
+        context: dict,
     ) -> HookResult:
         """Paper: LLM prompt hooks evaluate context and return structured result."""
         # Prompt hooks are called via the model; here we pass through
@@ -250,6 +266,7 @@ class HookRegistry:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
+
 
 def _concat(a: str | None, b: str | None) -> str | None:
     if a and b:

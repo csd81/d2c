@@ -12,37 +12,46 @@ from pathlib import Path
 
 import pytest
 
+from d2c.subagent import SubagentDefinition, SubagentType, spawn_subagent
 from d2c.worktree import (
-    WorktreeManager, WorktreeContext,
-    NotAGitRepoError, WorktreeCreationError,
+    NotAGitRepoError,
+    WorktreeContext,
+    WorktreeManager,
 )
-from d2c.subagent import SubagentDefinition, SubagentType, SubagentResult
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+
 
 def _init_git_repo(path: Path) -> None:
     """Initialize a git repo with at least one commit (required for worktree)."""
     import subprocess
+
     subprocess.run(["git", "init"], cwd=str(path), check=True, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
-        cwd=str(path), check=True, capture_output=True,
+        cwd=str(path),
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test"],
-        cwd=str(path), check=True, capture_output=True,
+        cwd=str(path),
+        check=True,
+        capture_output=True,
     )
     # Create initial commit (required for worktree)
     (path / "README.md").write_text("# test repo")
     subprocess.run(["git", "add", "README.md"], cwd=str(path), check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "initial"],
-        cwd=str(path), check=True, capture_output=True,
+        cwd=str(path),
+        check=True,
+        capture_output=True,
     )
 
 
 # ── WorktreeManager tests ────────────────────────────────────────────────
+
 
 class TestWorktreeManager:
     """Core worktree operations."""
@@ -109,16 +118,21 @@ class TestWorktreeManager:
     def test_create_worktree_no_commits(self):
         """Worktree creation fails in repo with no commits."""
         import subprocess
+
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             subprocess.run(["git", "init"], cwd=str(repo), check=True, capture_output=True)
             subprocess.run(
                 ["git", "config", "user.email", "test@test.com"],
-                cwd=str(repo), check=True, capture_output=True,
+                cwd=str(repo),
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 ["git", "config", "user.name", "Test"],
-                cwd=str(repo), check=True, capture_output=True,
+                cwd=str(repo),
+                check=True,
+                capture_output=True,
             )
             # No commit — worktree creation should fail
             manager = WorktreeManager(worktrees_base=Path(tmp) / "worktrees")
@@ -154,9 +168,12 @@ class TestWorktreeManager:
             # Make a change in the worktree
             (ctx.worktree_path / "new_file.txt").write_text("hello worktree")
             import subprocess
+
             subprocess.run(
                 ["git", "add", "new_file.txt"],
-                cwd=str(ctx.worktree_path), check=True, capture_output=True,
+                cwd=str(ctx.worktree_path),
+                check=True,
+                capture_output=True,
             )
 
             diff = manager.get_changes(ctx)
@@ -188,9 +205,12 @@ class TestWorktreeManager:
 
             (ctx.worktree_path / "new_file.txt").write_text("hello")
             import subprocess
+
             subprocess.run(
                 ["git", "add", "new_file.txt"],
-                cwd=str(ctx.worktree_path), check=True, capture_output=True,
+                cwd=str(ctx.worktree_path),
+                check=True,
+                capture_output=True,
             )
 
             files = manager.get_changed_files(ctx)
@@ -214,9 +234,12 @@ class TestWorktreeManager:
 
             # Branch should also be deleted
             import subprocess
+
             result = subprocess.run(
                 ["git", "branch", "--list", ctx.branch_name],
-                cwd=str(repo), capture_output=True, text=True,
+                cwd=str(repo),
+                capture_output=True,
+                text=True,
             )
             assert result.stdout.strip() == ""
 
@@ -237,14 +260,17 @@ class TestWorktreeManager:
 
 # ── Worktree isolation in subagents ──────────────────────────────────────
 
+
 class TestSubagentWorktreeIntegration:
     """Subagent spawn with worktree isolation mode."""
 
     def test_not_a_git_repo_returns_error(self):
         """Worktree isolation on non-git repo returns error result."""
         from d2c.subagent import spawn_subagent
+
         with tempfile.TemporaryDirectory() as tmp:
             from d2c.config import Config
+
             config = Config(cwd=Path(tmp))
 
             definition = SubagentDefinition(
@@ -281,6 +307,7 @@ class TestSubagentWorktreeIntegration:
             repo = Path(tmp)
             _init_git_repo(repo)
             from d2c.config import Config
+
             config = Config(cwd=repo)
 
             definition = SubagentDefinition(
@@ -321,9 +348,12 @@ class TestSubagentWorktreeIntegration:
             # Modify in worktree
             (ctx.worktree_path / "new_file.txt").write_text("worktree content")
             import subprocess
+
             subprocess.run(
                 ["git", "add", "new_file.txt"],
-                cwd=str(ctx.worktree_path), check=True, capture_output=True,
+                cwd=str(ctx.worktree_path),
+                check=True,
+                capture_output=True,
             )
 
             # Diff is captured
@@ -355,10 +385,12 @@ class TestSubagentWorktreeIntegration:
     def test_diff_captured_on_error(self):
         """Diff is captured even when subagent returns error."""
         from d2c.subagent import spawn_subagent
+
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             _init_git_repo(repo)
             from d2c.config import Config
+
             config = Config(cwd=repo)
 
             definition = SubagentDefinition(
@@ -383,12 +415,13 @@ class TestSubagentWorktreeIntegration:
             result = asyncio.run(run())
             # Worktree isolation succeeded (created + cleaned up), but loop may fail
             # without API key. The diff field should exist on result.
-            assert hasattr(result, 'diff')
+            assert hasattr(result, "diff")
             # Result should have the diff field (empty if no changes or error)
             assert isinstance(result.diff, str)
 
 
 # ── Edge Cases ────────────────────────────────────────────────────────────
+
 
 class TestWorktreeEdgeCases:
     def test_custom_worktrees_base(self):

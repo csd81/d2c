@@ -17,8 +17,9 @@ from pathlib import Path
 from typing import Any
 
 from d2c.config import Config
-from d2c.tools import Tool, ToolResult
-from d2c.tools.pool import assembleToolPool, Config as PoolConfig
+from d2c.tools import Tool
+from d2c.tools.pool import Config as PoolConfig
+from d2c.tools.pool import assembleToolPool
 
 MCP_PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "d2c"
@@ -102,11 +103,15 @@ class MCPServer:
                 return  # No response for notifications
             else:
                 response = self._error_response(
-                    msg_id, -32601, f"Method not found: {method}",
+                    msg_id,
+                    -32601,
+                    f"Method not found: {method}",
                 )
         except Exception as exc:
             response = self._error_response(
-                msg_id, -32603, f"Internal error: {exc}",
+                msg_id,
+                -32603,
+                f"Internal error: {exc}",
             )
 
         if response is not None:
@@ -115,7 +120,9 @@ class MCPServer:
     # ── Handlers ────────────────────────────────────────────────────
 
     def _handle_initialize(
-        self, msg_id: Any, params: dict[str, Any],
+        self,
+        msg_id: Any,
+        params: dict[str, Any],
     ) -> dict[str, Any]:
         """Handle the initialize handshake."""
         self._initialized = True
@@ -124,7 +131,8 @@ class MCPServer:
             "id": msg_id,
             "result": {
                 "protocolVersion": params.get(
-                    "protocolVersion", MCP_PROTOCOL_VERSION,
+                    "protocolVersion",
+                    MCP_PROTOCOL_VERSION,
                 ),
                 "capabilities": {
                     "tools": {},
@@ -141,11 +149,13 @@ class MCPServer:
         mcp_tools = []
         for tool in self._tools:
             api_format = tool.to_api_format()
-            mcp_tools.append({
-                "name": api_format["name"],
-                "description": api_format.get("description", ""),
-                "inputSchema": api_format.get("input_schema", {}),
-            })
+            mcp_tools.append(
+                {
+                    "name": api_format["name"],
+                    "description": api_format.get("description", ""),
+                    "inputSchema": api_format.get("input_schema", {}),
+                }
+            )
         return {
             "jsonrpc": "2.0",
             "id": msg_id,
@@ -153,7 +163,9 @@ class MCPServer:
         }
 
     async def _handle_call_tool(
-        self, msg_id: Any, params: dict[str, Any],
+        self,
+        msg_id: Any,
+        params: dict[str, Any],
     ) -> dict[str, Any]:
         """Execute a tool by name and return the result as MCP content."""
         tool_name = params.get("name", "")
@@ -162,11 +174,14 @@ class MCPServer:
         tool = self._tools_map.get(tool_name)
         if tool is None:
             return self._error_response(
-                msg_id, -32602, f"Unknown tool: {tool_name}",
+                msg_id,
+                -32602,
+                f"Unknown tool: {tool_name}",
             )
 
         # Guard: enforce safety in untrusted workspaces (Phase 32)
         from d2c.trust import get_trust_gate
+
         try:
             trusted = get_trust_gate().is_project_trusted
         except RuntimeError:
@@ -174,9 +189,9 @@ class MCPServer:
 
         # For untrusted workspaces, deny shell/write tools
         if not trusted:
-            import d2c.tools as tools_mod
             from d2c.tools import PermissionCategory
-            category = getattr(tool, 'category', None)
+
+            category = getattr(tool, "category", None)
             if category in (PermissionCategory.SHELL, PermissionCategory.WRITE):
                 return {
                     "jsonrpc": "2.0",
@@ -199,10 +214,15 @@ class MCPServer:
         # no interactive approval channel) — never execute automatically.
         if self._permission_engine is not None:
             from d2c.permissions import (
-                PermissionRequest, PermissionDecision, resolve_permission_decision,
+                PermissionDecision,
+                PermissionRequest,
+                resolve_permission_decision,
             )
+
             perm_request = PermissionRequest(
-                tool_name=tool_name, tool_input=arguments, tool_category=tool.category,
+                tool_name=tool_name,
+                tool_input=arguments,
+                tool_category=tool.category,
             )
             try:
                 perm_result = await self._permission_engine.evaluate_async(perm_request)
@@ -212,18 +232,28 @@ class MCPServer:
             else:
                 decision_err = None
             resolved = await resolve_permission_decision(perm_request, perm_result, None)
-            if decision_err is not None or (resolved is not None and resolved.decision != PermissionDecision.ALLOW):
-                reason = decision_err and f"permission check failed ({decision_err})" or resolved.reason
+            if decision_err is not None or (
+                resolved is not None and resolved.decision != PermissionDecision.ALLOW
+            ):
+                reason = (
+                    decision_err and f"permission check failed ({decision_err})" or resolved.reason
+                )
                 return {
-                    "jsonrpc": "2.0", "id": msg_id,
+                    "jsonrpc": "2.0",
+                    "id": msg_id,
                     "result": {
-                        "content": [{"type": "text", "text": f"Permission required for '{tool_name}': {reason}"}],
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Permission required for '{tool_name}': {reason}",
+                            }
+                        ],
                         "isError": True,
                     },
                 }
 
         # Serialize writes to avoid concurrent modifications
-        if not getattr(tool, 'is_concurrent_safe', False):
+        if not getattr(tool, "is_concurrent_safe", False):
             async with self._write_lock:
                 result = await tool.execute(**arguments)
         else:
@@ -258,7 +288,10 @@ class MCPServer:
         sys.stdout.flush()
 
     def _error_response(
-        self, msg_id: Any, code: int, message: str,
+        self,
+        msg_id: Any,
+        code: int,
+        message: str,
     ) -> dict[str, Any]:
         """Build a JSON-RPC error response."""
         return {
@@ -273,16 +306,18 @@ class MCPServer:
 
 async def run_mcp_server(args: Any) -> None:
     """Entry point for MCP server mode (python -m d2c mcp)."""
-    config = Config.load(args.cwd if hasattr(args, 'cwd') else Path.cwd())
+    config = Config.load(args.cwd if hasattr(args, "cwd") else Path.cwd())
 
     # Apply trust resolution (Phase 32 integration)
     from d2c.trust import get_trust_gate
+
     try:
         get_trust_gate().is_project_trusted
     except RuntimeError:
         # Trust gate not initialized — set up minimal gate
         from d2c.trust import TrustStore, WorkSpaceTrustGate, set_trust_gate
-        cwd = (args.cwd if hasattr(args, 'cwd') else Path.cwd()).resolve()
+
+        cwd = (args.cwd if hasattr(args, "cwd") else Path.cwd()).resolve()
         store = TrustStore()
         trusted = store.is_trusted(cwd)
         gate = WorkSpaceTrustGate(cwd, store)

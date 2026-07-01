@@ -12,21 +12,21 @@ import pytest
 
 import d2c.main as main
 from d2c.config import Config
-from d2c.main import ReplState, SlashCommand, handle_slash_command, _pool_config_from
+from d2c.main import ReplState, SlashCommand, _pool_config_from, handle_slash_command
+from d2c.path_rules import PathScopedRules
 from d2c.permissions import (
+    PermissionDecision,
     PermissionEngine,
     PermissionMode,
     PermissionRequest,
-    PermissionDecision,
 )
-from d2c.path_rules import PathScopedRules
 from d2c.persistence import SessionManager
 from d2c.tools import (
     PermissionCategory,
     get_file_history_tracker,
     set_file_history_tracker,
 )
-from d2c.tools.pool import Config as PoolConfig, assembleToolPool
+from d2c.tools.pool import assembleToolPool
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +36,7 @@ def _reset_tracker():
 
 
 # ── 3. Read/Edit/Write safety audit ───────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_edit_requires_prior_read(tmp_dir, trusted_gate):
@@ -51,8 +52,8 @@ async def test_edit_requires_prior_read(tmp_dir, trusted_gate):
 
 @pytest.mark.asyncio
 async def test_read_then_edit_succeeds(tmp_dir, trusted_gate):
-    from d2c.tools.read_tool import FileReadTool
     from d2c.tools.edit_tool import FileEditTool
+    from d2c.tools.read_tool import FileReadTool
 
     f = tmp_dir / "code.py"
     f.write_text("x = 1\n")
@@ -63,6 +64,7 @@ async def test_read_then_edit_succeeds(tmp_dir, trusted_gate):
 
 
 # ── 5. Sandbox wiring audit ────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_pool_config_sandbox_off_by_default(tmp_dir, trusted_gate):
@@ -81,6 +83,7 @@ async def test_pool_config_wires_sandbox_when_enabled(tmp_dir, trusted_gate):
 
 
 # ── 7. Path-rule enforcement without accumulation ──────────────────────
+
 
 def _read_req(path) -> PermissionRequest:
     return PermissionRequest(
@@ -118,6 +121,7 @@ def test_path_rules_absent_falls_through_to_mode(tmp_dir, trusted_gate):
 
 
 # ── 4. File-history tracker re-points on session switch ────────────────
+
 
 @pytest.mark.asyncio
 async def test_clear_repoints_file_history_tracker(tmp_dir, monkeypatch):

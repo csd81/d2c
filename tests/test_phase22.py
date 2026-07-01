@@ -8,8 +8,8 @@ from pathlib import Path
 
 from d2c.history import PromptHistory
 
-
 # ── PromptHistory tests ─────────────────────────────────────────────────
+
 
 class TestPromptHistory:
     def test_append_and_count(self):
@@ -112,7 +112,8 @@ class TestPromptHistory:
             hist_path.write_text(
                 json.dumps({"prompt": "good", "timestamp": 1, "cwd": "/", "metadata": {}}) + "\n"
                 "this is not valid json\n"
-                + json.dumps({"prompt": "also good", "timestamp": 2, "cwd": "/", "metadata": {}}) + "\n"
+                + json.dumps({"prompt": "also good", "timestamp": 2, "cwd": "/", "metadata": {}})
+                + "\n"
             )
 
             h = PromptHistory(base)

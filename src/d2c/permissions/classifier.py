@@ -18,22 +18,22 @@ chaining bypasses, and applies deep inspection rules per-command.
 from __future__ import annotations
 
 import logging
-import os
 import re
 import shlex
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from d2c.tools import PermissionCategory
 
 if TYPE_CHECKING:
-    from d2c.permissions import PermissionRequest, PermissionResult
+    pass
 
 logger = logging.getLogger(__name__)
 
 # Fast-filter: known-safe tool + input patterns
-SAFE_READ_TOOLS = frozenset({"Read", "Glob", "Grep", "FileRead", "WebFetch", "WebSearch", "TaskList"})
+SAFE_READ_TOOLS = frozenset(
+    {"Read", "Glob", "Grep", "FileRead", "WebFetch", "WebSearch", "TaskList"}
+)
 SAFE_EDIT_TOOLS = frozenset({"Edit", "FileEdit", "Write", "FileWrite"})
 
 # Destructive shell command patterns (always deny, even in auto mode)
@@ -55,22 +55,64 @@ DESTRUCTIVE_PATTERNS = [
 ]
 
 # Known-safe shell commands (read-only or non-destructive)
-SAFE_SHELL_COMMANDS = frozenset({
-    "ls", "dir", "cat", "type", "echo", "pwd", "cd",
-    "head", "tail", "wc", "sort", "uniq", "find", "grep",
-    "git", "python", "node", "npm", "npx", "cargo", "go",
-    "which", "where", "whoami", "hostname", "date", "time",
-    "mkdir", "touch", "cp", "mv",
-})
+SAFE_SHELL_COMMANDS = frozenset(
+    {
+        "ls",
+        "dir",
+        "cat",
+        "type",
+        "echo",
+        "pwd",
+        "cd",
+        "head",
+        "tail",
+        "wc",
+        "sort",
+        "uniq",
+        "find",
+        "grep",
+        "git",
+        "python",
+        "node",
+        "npm",
+        "npx",
+        "cargo",
+        "go",
+        "which",
+        "where",
+        "whoami",
+        "hostname",
+        "date",
+        "time",
+        "mkdir",
+        "touch",
+        "cp",
+        "mv",
+    }
+)
 
 # Phase 27: Wrapper commands that modify execution context but are not the
 # actual payload. Stripped recursively to reveal the underlying command.
 _WRAPPER_COMMANDS = frozenset({"env", "sudo", "nohup", "time", "exec", "eval"})
 
 # Phase 27: Shell interpreters — piping into these is always dangerous.
-_SHELL_INTERPRETERS = frozenset({"bash", "sh", "zsh", "dash", "fish",
-                                  "python", "python3", "perl", "ruby",
-                                  "node", "powershell", "pwsh", "cmd"})
+_SHELL_INTERPRETERS = frozenset(
+    {
+        "bash",
+        "sh",
+        "zsh",
+        "dash",
+        "fish",
+        "python",
+        "python3",
+        "perl",
+        "ruby",
+        "node",
+        "powershell",
+        "pwsh",
+        "cmd",
+    }
+)
 
 # Phase 27: Destructive file operation commands.
 _DESTRUCTIVE_FILE_CMDS = frozenset({"rm", "trash", "del", "rmdir", "rd"})
@@ -82,8 +124,7 @@ _PERMISSION_CMDS = frozenset({"chmod", "chown", "chgrp", "icacls", "cacls"})
 _NETWORK_CMDS = frozenset({"curl", "wget", "fetch", "Invoke-WebRequest"})
 
 # Phase 27: Recursive flags that make file operations dangerous at scale.
-_RECURSIVE_FLAGS = frozenset({"-r", "-R", "-rf", "-rF", "-fr", "-fR",
-                               "/s", "/S", "-Recurse"})
+_RECURSIVE_FLAGS = frozenset({"-r", "-R", "-rf", "-rF", "-fr", "-fR", "/s", "/S", "-Recurse"})
 
 # Phase 27: SSRF / local-network targets.
 _SSRF_PATTERNS = re.compile(
@@ -94,17 +135,19 @@ _SSRF_PATTERNS = re.compile(
 )
 
 # Phase 27: Statement delimiters used by split_logical_statements.
-_STATEMENT_DELIMITERS = re.compile(r'(;|&&|\|\||\|&|&\||\n)')
+_STATEMENT_DELIMITERS = re.compile(r"(;|&&|\|\||\|&|&\||\n)")
 
 # Phase 27: Variable reference pattern for detecting unresolvable targets.
-_VARIABLE_PATTERN = re.compile(r'\$\{?[A-Za-z_][A-Za-z0-9_]*\}?')
+_VARIABLE_PATTERN = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
 
 
 # ── Phase 27: Shell Command Parser ──────────────────────────────────────
 
+
 @dataclass
 class ParsedStatement:
     """A single parsed shell statement with resolved command and context."""
+
     command: str
     args: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
@@ -201,8 +244,8 @@ def parse_shell_command(cmd_str: str) -> list[ParsedStatement]:
                 eq_pos = p.index("=")
                 k = p[:eq_pos]
                 # Variable names: start with letter/underscore, contain alphanumeric/underscore
-                if re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', k):
-                    env[k] = p[eq_pos + 1:]
+                if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", k):
+                    env[k] = p[eq_pos + 1 :]
                     continue
             if p.startswith(">") or p.startswith("<"):
                 redirects.append(p)
@@ -221,20 +264,22 @@ def parse_shell_command(cmd_str: str) -> list[ParsedStatement]:
                     if "=" in p and not p.startswith("-"):
                         eq_pos = p.index("=")
                         k = p[:eq_pos]
-                        if re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', k):
-                            env[k] = p[eq_pos + 1:]
+                        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", k):
+                            env[k] = p[eq_pos + 1 :]
                             continue
                     clean_parts.append(p)
             else:
                 break
 
         if clean_parts:
-            parsed.append(ParsedStatement(
-                command=clean_parts[0],
-                args=clean_parts[1:],
-                env=env,
-                redirects=redirects,
-            ))
+            parsed.append(
+                ParsedStatement(
+                    command=clean_parts[0],
+                    args=clean_parts[1:],
+                    env=env,
+                    redirects=redirects,
+                )
+            )
 
     return parsed
 
@@ -265,11 +310,19 @@ def _is_system_path_static(path: str) -> bool:
     if not path:
         return False
     system_prefixes = [
-        "/etc", "/sys", "/proc", "/dev",
-        "/boot", "/root", "/var/log",
-        "C:\\Windows", "C:\\Program Files",
-        "~/.ssh", "~/.gnupg",
-        ".git/config", ".env",
+        "/etc",
+        "/sys",
+        "/proc",
+        "/dev",
+        "/boot",
+        "/root",
+        "/var/log",
+        "C:\\Windows",
+        "C:\\Program Files",
+        "~/.ssh",
+        "~/.gnupg",
+        ".git/config",
+        ".env",
     ]
     normalized = path.replace("\\", "/").lower()
     for prefix in system_prefixes:
@@ -388,6 +441,7 @@ def _analyze_shell_command(cmd_str: str) -> Any | None:
                     inner_result = _analyze_shell_command(arg)
                     if inner_result is not None:
                         from d2c.permissions import PermissionDecision
+
                         if inner_result.decision == PermissionDecision.DENY:
                             return PermissionResult(
                                 PermissionDecision.DENY,
@@ -417,6 +471,7 @@ def _analyze_shell_command(cmd_str: str) -> Any | None:
 
     # All statements passed safety checks
     from d2c.permissions import PermissionDecision, PermissionResult
+
     return PermissionResult(
         PermissionDecision.ALLOW,
         reason="auto (deep): all statements pass safety analysis",
@@ -432,33 +487,129 @@ def _analyze_shell_command(cmd_str: str) -> Any | None:
 # arbitrary code is denied; everything else asks. First-word matching is never
 # used to allow.
 
-_AE_READONLY = frozenset({
-    "ls", "dir", "cat", "type", "echo", "pwd", "cd", "head", "tail", "wc",
-    "sort", "uniq", "which", "where", "whoami", "hostname", "date", "printf",
-    "true", "diff", "tree", "stat", "file", "du", "df", "basename", "dirname",
-    "grep", "rg", "mkdir", "touch",
-})
-_AE_DEV = frozenset({
-    "pytest", "ruff", "mypy", "black", "isort", "flake8", "pylint",
-    "prettier", "eslint", "tsc",
-})
-_AE_GIT_READONLY_SUB = frozenset({
-    "status", "diff", "log", "show", "branch", "remote", "fetch", "ls-files",
-    "rev-parse", "describe", "blame", "tag", "config",
-})
-_AE_DESTRUCTIVE = frozenset({
-    "rm", "rmdir", "trash", "del", "rd", "shred", "unlink",
-    "mv", "move", "dd", "mkfs", "chmod", "chown", "chgrp", "icacls", "cacls",
-    "sudo", "su", "kill", "pkill", "reboot", "shutdown", "systemctl", "service",
-})
-_AE_INTERPRETERS = frozenset({
-    "bash", "sh", "zsh", "dash", "fish", "python", "python3",
-    "perl", "ruby", "node", "powershell", "pwsh", "cmd",
-})
+_AE_READONLY = frozenset(
+    {
+        "ls",
+        "dir",
+        "cat",
+        "type",
+        "echo",
+        "pwd",
+        "cd",
+        "head",
+        "tail",
+        "wc",
+        "sort",
+        "uniq",
+        "which",
+        "where",
+        "whoami",
+        "hostname",
+        "date",
+        "printf",
+        "true",
+        "diff",
+        "tree",
+        "stat",
+        "file",
+        "du",
+        "df",
+        "basename",
+        "dirname",
+        "grep",
+        "rg",
+        "mkdir",
+        "touch",
+    }
+)
+_AE_DEV = frozenset(
+    {
+        "pytest",
+        "ruff",
+        "mypy",
+        "black",
+        "isort",
+        "flake8",
+        "pylint",
+        "prettier",
+        "eslint",
+        "tsc",
+    }
+)
+_AE_GIT_READONLY_SUB = frozenset(
+    {
+        "status",
+        "diff",
+        "log",
+        "show",
+        "branch",
+        "remote",
+        "fetch",
+        "ls-files",
+        "rev-parse",
+        "describe",
+        "blame",
+        "tag",
+        "config",
+    }
+)
+_AE_DESTRUCTIVE = frozenset(
+    {
+        "rm",
+        "rmdir",
+        "trash",
+        "del",
+        "rd",
+        "shred",
+        "unlink",
+        "mv",
+        "move",
+        "dd",
+        "mkfs",
+        "chmod",
+        "chown",
+        "chgrp",
+        "icacls",
+        "cacls",
+        "sudo",
+        "su",
+        "kill",
+        "pkill",
+        "reboot",
+        "shutdown",
+        "systemctl",
+        "service",
+    }
+)
+_AE_INTERPRETERS = frozenset(
+    {
+        "bash",
+        "sh",
+        "zsh",
+        "dash",
+        "fish",
+        "python",
+        "python3",
+        "perl",
+        "ruby",
+        "node",
+        "powershell",
+        "pwsh",
+        "cmd",
+    }
+)
 _AE_CODE_FLAGS = frozenset({"-c", "-e", "--command", "-Command", "/C", "/c"})
-_AE_FIND_DESTRUCTIVE = frozenset({
-    "-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprintf",
-})
+_AE_FIND_DESTRUCTIVE = frozenset(
+    {
+        "-delete",
+        "-exec",
+        "-execdir",
+        "-ok",
+        "-okdir",
+        "-fprint",
+        "-fprintf",
+    }
+)
 
 
 def _classify_ae_statement(stmt: "ParsedStatement") -> str:
@@ -610,7 +761,7 @@ class AutoClassifier:
                 if pattern in cmd_lower:
                     return PermissionResult(
                         PermissionDecision.DENY,
-                        reason=f"auto (fast-filter): destructive command blocked",
+                        reason="auto (fast-filter): destructive command blocked",
                     )
 
             # Phase 27: Deep AST-style safety analysis
@@ -640,7 +791,6 @@ class AutoClassifier:
         asking it to classify safety.
         """
         import asyncio
-        import json
 
         from d2c.permissions import PermissionDecision, PermissionResult
 
@@ -653,6 +803,7 @@ class AutoClassifier:
         prompt = _build_cot_prompt(request)
         try:
             import anthropic
+
             client = anthropic.AsyncAnthropic(
                 api_key=self._api_key,
                 base_url=self._base_url,
@@ -674,7 +825,7 @@ class AutoClassifier:
                 PermissionDecision.ASK,
                 reason="auto classifier: timed out",
             )
-        except Exception as e:
+        except Exception:
             raise  # Let caller handle fallback
 
     def _is_system_path(self, path: str) -> bool:
@@ -682,11 +833,19 @@ class AutoClassifier:
         if not path:
             return False
         system_prefixes = [
-            "/etc", "/sys", "/proc", "/dev",
-            "/boot", "/root", "/var/log",
-            "C:\\Windows", "C:\\Program Files",
-            "~/.ssh", "~/.gnupg",
-            ".git/config", ".env",
+            "/etc",
+            "/sys",
+            "/proc",
+            "/dev",
+            "/boot",
+            "/root",
+            "/var/log",
+            "C:\\Windows",
+            "C:\\Program Files",
+            "~/.ssh",
+            "~/.gnupg",
+            ".git/config",
+            ".env",
         ]
         normalized = path.replace("\\", "/").lower()
         for prefix in system_prefixes:
@@ -716,6 +875,7 @@ def _build_cot_prompt(request: Any) -> str:
 def _summarize_input(tool_input: dict) -> str:
     """Create a safe summary of tool input, truncating long values."""
     import json
+
     parts = []
     for k, v in tool_input.items():
         s = json.dumps(v) if not isinstance(v, str) else v
@@ -728,6 +888,7 @@ def _summarize_input(tool_input: dict) -> str:
 def _parse_cot_response(response: Any) -> Any:
     """Parse the CoT model response into a PermissionResult."""
     import json
+
     from d2c.permissions import PermissionDecision, PermissionResult
 
     # Extract text from response
@@ -751,7 +912,7 @@ def _parse_cot_response(response: Any) -> Any:
         start = text.find("{")
         end = text.rfind("}")
         if start >= 0 and end > start:
-            json_str = text[start:end + 1]
+            json_str = text[start : end + 1]
             data = json.loads(json_str)
             decision = data.get("decision", "review").lower()
             reason = data.get("reason", "model classification")

@@ -6,16 +6,13 @@ error handling, and trust gate integration.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from d2c.config import Config
-from d2c.mcp.server import MCPServer, MCP_PROTOCOL_VERSION, SERVER_NAME
-from d2c.tools import Tool, ToolResult, PermissionCategory
-
+from d2c.mcp.server import MCP_PROTOCOL_VERSION, SERVER_NAME, MCPServer
+from d2c.tools import PermissionCategory, Tool, ToolResult
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -28,6 +25,7 @@ def config(tmp_path):
 @pytest.fixture
 def mock_tools():
     """Minimal tool set for testing."""
+
     class MockReadTool(Tool):
         name = "Read"
         description = "Read a file"
@@ -90,9 +88,12 @@ class TestMCPHandshake:
     def test_initialize_returns_capabilities(self, config):
         """Client can connect and negotiate protocol features."""
         srv = MCPServer(config)
-        response = srv._handle_initialize(1, {
-            "protocolVersion": MCP_PROTOCOL_VERSION,
-        })
+        response = srv._handle_initialize(
+            1,
+            {
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+            },
+        )
         assert response["jsonrpc"] == "2.0"
         assert response["id"] == 1
         result = response["result"]
@@ -140,9 +141,7 @@ class TestMCPListTools:
     def test_list_tools_mcp_naming(self, server):
         """Tool entries use camelCase MCP naming (inputSchema, not input_schema)."""
         response = server._handle_list_tools(1)
-        read_tool = [
-            t for t in response["result"]["tools"] if t["name"] == "Read"
-        ][0]
+        read_tool = [t for t in response["result"]["tools"] if t["name"] == "Read"][0]
         assert "inputSchema" in read_tool
         assert "file_path" in str(read_tool["inputSchema"])
 
@@ -154,10 +153,13 @@ class TestMCPCallTool:
     @pytest.mark.asyncio
     async def test_call_read_tool(self, server):
         """Calling Read returns file contents in MCP text block."""
-        response = await server._handle_call_tool(1, {
-            "name": "Read",
-            "arguments": {"file_path": "/test.txt"},
-        })
+        response = await server._handle_call_tool(
+            1,
+            {
+                "name": "Read",
+                "arguments": {"file_path": "/test.txt"},
+            },
+        )
         assert response["jsonrpc"] == "2.0"
         assert response["id"] == 1
         content = response["result"]["content"]
@@ -169,10 +171,13 @@ class TestMCPCallTool:
     @pytest.mark.asyncio
     async def test_call_bash_tool(self, server):
         """Calling Bash returns command output in MCP content."""
-        response = await server._handle_call_tool(1, {
-            "name": "Bash",
-            "arguments": {"command": "echo hello"},
-        })
+        response = await server._handle_call_tool(
+            1,
+            {
+                "name": "Bash",
+                "arguments": {"command": "echo hello"},
+            },
+        )
         assert response["jsonrpc"] == "2.0"
         content = response["result"]["content"]
         assert "Ran: echo hello" in content[0]["text"]
@@ -180,10 +185,13 @@ class TestMCPCallTool:
     @pytest.mark.asyncio
     async def test_call_unknown_tool(self, server):
         """Calling an unknown tool returns JSON-RPC error."""
-        response = await server._handle_call_tool(1, {
-            "name": "NonExistent",
-            "arguments": {},
-        })
+        response = await server._handle_call_tool(
+            1,
+            {
+                "name": "NonExistent",
+                "arguments": {},
+            },
+        )
         assert "error" in response
         assert response["error"]["code"] == -32602
         assert "Unknown tool" in response["error"]["message"]
@@ -191,6 +199,7 @@ class TestMCPCallTool:
     @pytest.mark.asyncio
     async def test_call_tool_returns_error_flag(self, server, mock_tools):
         """When a tool returns error=True, isError is propagated."""
+
         # Replace Read with an error-returning version
         class ErrorTool(Tool):
             name = "Read"
@@ -203,10 +212,13 @@ class TestMCPCallTool:
                 return ToolResult(output="File not found", error=True)
 
         server._tools_map["Read"] = ErrorTool()
-        response = await server._handle_call_tool(1, {
-            "name": "Read",
-            "arguments": {},
-        })
+        response = await server._handle_call_tool(
+            1,
+            {
+                "name": "Read",
+                "arguments": {},
+            },
+        )
         assert response["result"]["isError"] is True
         assert "File not found" in response["result"]["content"][0]["text"]
 
@@ -225,7 +237,9 @@ class TestMCPErrorHandling:
         # Test through _handle_message by calling a non-existent method
         response = None
         srv._write_response = lambda r: setattr(
-            TestMCPErrorHandling, '_captured', r,
+            TestMCPErrorHandling,
+            "_captured",
+            r,
         )
 
     def test_error_response_format(self, config):
@@ -246,7 +260,7 @@ class TestMCPTrustIntegration:
     @pytest.mark.asyncio
     async def test_untrusted_blocks_shell_tool(self, server):
         """In untrusted workspace, shell tools return an error."""
-        from d2c.trust import WorkSpaceTrustGate, TrustStore, set_trust_gate, reset_trust_gate
+        from d2c.trust import TrustStore, WorkSpaceTrustGate, reset_trust_gate, set_trust_gate
 
         reset_trust_gate()
         try:
@@ -257,10 +271,13 @@ class TestMCPTrustIntegration:
             gate.decide(False)
             set_trust_gate(gate)
 
-            response = await server._handle_call_tool(1, {
-                "name": "Bash",
-                "arguments": {"command": "echo test"},
-            })
+            response = await server._handle_call_tool(
+                1,
+                {
+                    "name": "Bash",
+                    "arguments": {"command": "echo test"},
+                },
+            )
             assert response["result"]["isError"] is True
             assert "untrusted" in response["result"]["content"][0]["text"].lower()
         finally:
@@ -269,7 +286,7 @@ class TestMCPTrustIntegration:
     @pytest.mark.asyncio
     async def test_trusted_allows_shell_tool(self, server):
         """In trusted workspace, shell tools execute normally."""
-        from d2c.trust import WorkSpaceTrustGate, TrustStore, set_trust_gate, reset_trust_gate
+        from d2c.trust import TrustStore, WorkSpaceTrustGate, reset_trust_gate, set_trust_gate
 
         reset_trust_gate()
         try:
@@ -279,10 +296,13 @@ class TestMCPTrustIntegration:
             gate.decide(True)
             set_trust_gate(gate)
 
-            response = await server._handle_call_tool(1, {
-                "name": "Bash",
-                "arguments": {"command": "echo test"},
-            })
+            response = await server._handle_call_tool(
+                1,
+                {
+                    "name": "Bash",
+                    "arguments": {"command": "echo test"},
+                },
+            )
             assert "error" not in response
             assert "Ran: echo test" in response["result"]["content"][0]["text"]
         finally:
@@ -291,7 +311,7 @@ class TestMCPTrustIntegration:
     @pytest.mark.asyncio
     async def test_read_tools_allowed_when_untrusted(self, server):
         """Read tools are allowed even in untrusted workspaces."""
-        from d2c.trust import WorkSpaceTrustGate, TrustStore, set_trust_gate, reset_trust_gate
+        from d2c.trust import TrustStore, WorkSpaceTrustGate, reset_trust_gate, set_trust_gate
 
         reset_trust_gate()
         try:
@@ -301,10 +321,13 @@ class TestMCPTrustIntegration:
             gate.decide(False)
             set_trust_gate(gate)
 
-            response = await server._handle_call_tool(1, {
-                "name": "Read",
-                "arguments": {"file_path": "/test.txt"},
-            })
+            response = await server._handle_call_tool(
+                1,
+                {
+                    "name": "Read",
+                    "arguments": {"file_path": "/test.txt"},
+                },
+            )
             assert "error" not in response
             assert "Contents of /test.txt" in response["result"]["content"][0]["text"]
         finally:
@@ -322,10 +345,13 @@ class TestMCPConcurrency:
         assert not server._write_lock.locked()
 
         # Call a write tool — the lock should be acquired and released
-        response = await server._handle_call_tool(1, {
-            "name": "Write",
-            "arguments": {"file_path": "/test.txt", "content": "data"},
-        })
+        response = await server._handle_call_tool(
+            1,
+            {
+                "name": "Write",
+                "arguments": {"file_path": "/test.txt", "content": "data"},
+            },
+        )
         assert "error" not in response
         assert not server._write_lock.locked()  # Released after
 
@@ -334,15 +360,22 @@ class TestMCPConcurrency:
         """Read tools do NOT acquire the write lock (parallel execution)."""
         # Run two read calls concurrently
         import asyncio
+
         results = await asyncio.gather(
-            server._handle_call_tool(1, {
-                "name": "Read",
-                "arguments": {"file_path": "/a.txt"},
-            }),
-            server._handle_call_tool(2, {
-                "name": "Read",
-                "arguments": {"file_path": "/b.txt"},
-            }),
+            server._handle_call_tool(
+                1,
+                {
+                    "name": "Read",
+                    "arguments": {"file_path": "/a.txt"},
+                },
+            ),
+            server._handle_call_tool(
+                2,
+                {
+                    "name": "Read",
+                    "arguments": {"file_path": "/b.txt"},
+                },
+            ),
         )
         assert len(results) == 2
         assert "Contents of /a.txt" in results[0]["result"]["content"][0]["text"]
@@ -366,12 +399,14 @@ class TestMCPMessageDispatch:
 
         srv._write_response = _capture
 
-        await srv._handle_message({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {"protocolVersion": MCP_PROTOCOL_VERSION},
-        })
+        await srv._handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": MCP_PROTOCOL_VERSION},
+            }
+        )
         assert len(captured) == 1
         assert captured[0]["result"]["serverInfo"]["name"] == SERVER_NAME
 
@@ -385,11 +420,13 @@ class TestMCPMessageDispatch:
 
         server._write_response = _capture
 
-        await server._handle_message({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/list",
-        })
+        await server._handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/list",
+            }
+        )
         assert len(captured) == 1
         assert len(captured[0]["result"]["tools"]) == 3
 
@@ -403,12 +440,14 @@ class TestMCPMessageDispatch:
 
         server._write_response = _capture
 
-        await server._handle_message({
-            "jsonrpc": "2.0",
-            "id": 42,
-            "method": "tools/call",
-            "params": {"name": "Read", "arguments": {"file_path": "/x.txt"}},
-        })
+        await server._handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 42,
+                "method": "tools/call",
+                "params": {"name": "Read", "arguments": {"file_path": "/x.txt"}},
+            }
+        )
         assert len(captured) == 1
         assert captured[0]["id"] == 42
         assert "Contents of /x.txt" in captured[0]["result"]["content"][0]["text"]

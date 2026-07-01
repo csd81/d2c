@@ -21,13 +21,38 @@ from typing import ClassVar
 logger = logging.getLogger(__name__)
 
 # Commands considered inherently safe — no sandbox needed
-SAFE_READONLY_COMMANDS: frozenset[str] = frozenset({
-    "ls", "dir", "cat", "type", "echo", "pwd", "cd",
-    "head", "tail", "wc", "sort", "uniq",
-    "which", "where", "whoami", "hostname", "date", "time",
-    "find", "grep", "git", "python", "node", "npm", "npx",
-    "cargo", "go", "cargo",
-})
+SAFE_READONLY_COMMANDS: frozenset[str] = frozenset(
+    {
+        "ls",
+        "dir",
+        "cat",
+        "type",
+        "echo",
+        "pwd",
+        "cd",
+        "head",
+        "tail",
+        "wc",
+        "sort",
+        "uniq",
+        "which",
+        "where",
+        "whoami",
+        "hostname",
+        "date",
+        "time",
+        "find",
+        "grep",
+        "git",
+        "python",
+        "node",
+        "npm",
+        "npx",
+        "cargo",
+        "go",
+        "cargo",
+    }
+)
 
 
 @dataclass
@@ -43,6 +68,7 @@ class SandboxConfig:
         max_memory_mb: Maximum memory for the sandboxed process.
         timeout_ms: Default timeout for sandboxed commands.
     """
+
     enabled: bool = False
     backend: str = "process"
     allowed_dirs: list[Path] = field(default_factory=list)
@@ -79,9 +105,16 @@ class SandboxExecutor:
     """
 
     # Commands that always require permission even in sandbox
-    DANGEROUS_COMMANDS: ClassVar[frozenset[str]] = frozenset({
-        "sudo", "su", "passwd", "chown", "mount", "umount",
-    })
+    DANGEROUS_COMMANDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "sudo",
+            "su",
+            "passwd",
+            "chown",
+            "mount",
+            "umount",
+        }
+    )
 
     def should_use_sandbox(self, command: str, config: SandboxConfig) -> bool:
         """Determine if a command should run in the sandbox.
@@ -171,15 +204,30 @@ class SandboxExecutor:
         # Build restricted environment
         restricted_env: dict[str, str] = {}
         # Keep essential variables
-        for key in ("PATH", "SYSTEMROOT", "TEMP", "TMP", "HOME", "USER",
-                     "LANG", "LC_ALL", "PYTHONUNBUFFERED"):
+        for key in (
+            "PATH",
+            "SYSTEMROOT",
+            "TEMP",
+            "TMP",
+            "HOME",
+            "USER",
+            "LANG",
+            "LC_ALL",
+            "PYTHONUNBUFFERED",
+        ):
             if key in os.environ:
                 restricted_env[key] = os.environ[key]
 
         # Platform-specific
         if platform.system() == "Windows":
-            for key in ("COMSPEC", "PATHEXT", "WINDIR", "ProgramFiles",
-                         "ProgramFiles(x86)", "CommonProgramFiles"):
+            for key in (
+                "COMSPEC",
+                "PATHEXT",
+                "WINDIR",
+                "ProgramFiles",
+                "ProgramFiles(x86)",
+                "CommonProgramFiles",
+            ):
                 if key in os.environ:
                     restricted_env[key] = os.environ[key]
 
@@ -189,7 +237,10 @@ class SandboxExecutor:
             if platform.system() == "Windows":
                 proc = await asyncio.create_subprocess_exec(
                     "powershell.exe",
-                    "-NoProfile", "-NonInteractive", "-Command", command,
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    command,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=work_dir,
@@ -212,7 +263,8 @@ class SandboxExecutor:
 
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout_sec,
+                    proc.communicate(),
+                    timeout=timeout_sec,
                 )
             except asyncio.TimeoutError:
                 proc.kill()
@@ -263,21 +315,31 @@ class SandboxExecutor:
         work_dir = str(cwd or Path.cwd())
 
         docker_args = [
-            "docker", "run", "--rm",
-            "--memory", f"{config.max_memory_mb}m",
-            "--memory-swap", f"{config.max_memory_mb}m",
+            "docker",
+            "run",
+            "--rm",
+            "--memory",
+            f"{config.max_memory_mb}m",
+            "--memory-swap",
+            f"{config.max_memory_mb}m",
         ]
 
         if not config.network_enabled:
             docker_args.append("--network=none")
 
-        docker_args.extend([
-            "--read-only",
-            "-v", f"{work_dir}:{work_dir}:rw",
-            "-w", work_dir,
-            "alpine:latest",
-            "sh", "-c", command,
-        ])
+        docker_args.extend(
+            [
+                "--read-only",
+                "-v",
+                f"{work_dir}:{work_dir}:rw",
+                "-w",
+                work_dir,
+                "alpine:latest",
+                "sh",
+                "-c",
+                command,
+            ]
+        )
 
         try:
             timeout_sec = min(timeout_ms, 600_000) / 1000.0
@@ -290,7 +352,8 @@ class SandboxExecutor:
 
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout_sec,
+                    proc.communicate(),
+                    timeout=timeout_sec,
                 )
             except asyncio.TimeoutError:
                 proc.kill()
@@ -337,8 +400,7 @@ class SandboxExecutor:
         Falls back to process sandbox if not available.
         """
         logger.warning(
-            "Windows Sandbox backend not fully implemented; "
-            "falling back to process sandbox"
+            "Windows Sandbox backend not fully implemented; falling back to process sandbox"
         )
         return await self._process_sandbox(command, config, cwd, timeout_ms)
 
@@ -346,6 +408,7 @@ class SandboxExecutor:
 @dataclass
 class SandboxResult:
     """Result of a sandboxed command execution."""
+
     output: str
     exit_code: int
     error: bool = False

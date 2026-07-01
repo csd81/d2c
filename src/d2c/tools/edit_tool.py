@@ -59,6 +59,7 @@ class FileEditTool(Tool):
 
         # Phase 23: Checkpoint before modification
         from d2c.tools import get_file_history_tracker
+
         tracker = get_file_history_tracker()
         if tracker:
             tracker.before_write(path)
@@ -84,7 +85,7 @@ class FileEditTool(Tool):
         if str(path) not in _read_files:
             return ToolResult(
                 output=f"Error: must Read the file first before editing: {file_path}. "
-                       f"Use the Read tool to read '{file_path}' first.",
+                f"Use the Read tool to read '{file_path}' first.",
                 error=True,
             )
 
@@ -102,7 +103,7 @@ class FileEditTool(Tool):
         if old_string not in content:
             return ToolResult(
                 output="Error: old_string was not found in the file. "
-                       "It may have been modified or the string may not match exactly.",
+                "It may have been modified or the string may not match exactly.",
                 error=True,
             )
 
@@ -121,13 +122,17 @@ class FileEditTool(Tool):
 
             return ToolResult(
                 output=f"Error: old_string is not unique in the file. "
-                       f"Found {occurrences} occurrences. "
-                       f"Provide more surrounding context to make the match unique, or use replace_all=True.\n"
-                       f"Occurrences at approximately lines: {positions[:10]}",
+                f"Found {occurrences} occurrences. "
+                f"Provide more surrounding context to make the match unique, or use replace_all=True.\n"
+                f"Occurrences at approximately lines: {positions[:10]}",
                 error=True,
             )
 
-        new_content = content.replace(old_string, new_string) if replace_all else content.replace(old_string, new_string, 1)
+        new_content = (
+            content.replace(old_string, new_string)
+            if replace_all
+            else content.replace(old_string, new_string, 1)
+        )
 
         try:
             path.write_text(new_content, encoding="utf-8")
@@ -144,8 +149,14 @@ class FileEditTool(Tool):
                 "bytes_after": len(new_content),
             },
         )
-        from d2c.tools import notify_file_access, fire_active_hook
-        await fire_active_hook("FILE_CHANGED", {
-            "path": str(path), "tool": "Edit", "operation": "edit",
-        })
+        from d2c.tools import fire_active_hook, notify_file_access
+
+        await fire_active_hook(
+            "FILE_CHANGED",
+            {
+                "path": str(path),
+                "tool": "Edit",
+                "operation": "edit",
+            },
+        )
         return notify_file_access(path, result)

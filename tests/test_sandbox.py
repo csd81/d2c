@@ -7,18 +7,18 @@ process sandbox execution, BashTool integration, edge cases.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
+import platform
 
 import pytest
 
 from d2c.sandbox import (
-    SandboxConfig, SandboxExecutor, SandboxResult,
     SAFE_READONLY_COMMANDS,
+    SandboxConfig,
+    SandboxExecutor,
+    SandboxResult,
 )
-from d2c.tools.bash_tool import BashTool
 from d2c.tools import ToolResult
-
-import platform
+from d2c.tools.bash_tool import BashTool
 
 _IS_WINDOWS = platform.system() == "Windows"
 
@@ -43,6 +43,7 @@ def _failing_cmd() -> str:
 
 # ── SandboxConfig tests ──────────────────────────────────────────────────
 
+
 class TestSandboxConfig:
     def test_default_config_disabled(self):
         config = SandboxConfig()
@@ -53,15 +54,17 @@ class TestSandboxConfig:
         assert config.timeout_ms == 120_000
 
     def test_from_dict_enabled(self):
-        config = SandboxConfig.from_dict({
-            "enabled": True,
-            "backend": "process",
-            "allowed_dirs": ["/tmp", "/home"],
-            "allowed_commands": ["git", "npm"],
-            "network_enabled": True,
-            "max_memory_mb": 256,
-            "timeout_ms": 60_000,
-        })
+        config = SandboxConfig.from_dict(
+            {
+                "enabled": True,
+                "backend": "process",
+                "allowed_dirs": ["/tmp", "/home"],
+                "allowed_commands": ["git", "npm"],
+                "network_enabled": True,
+                "max_memory_mb": 256,
+                "timeout_ms": 60_000,
+            }
+        )
         assert config.enabled is True
         assert config.backend == "process"
         assert len(config.allowed_dirs) == 2
@@ -81,6 +84,7 @@ class TestSandboxConfig:
 
 # ── SandboxExecutor.should_use_sandbox tests ─────────────────────────────
 
+
 class TestShouldUseSandbox:
     """Paper: shouldUseSandbox.ts logic."""
 
@@ -99,28 +103,49 @@ class TestShouldUseSandbox:
     def test_safe_readonly_commands_skip_sandbox(self):
         executor = SandboxExecutor()
         config = SandboxConfig(enabled=True)
-        for cmd in ("ls -la", "cat file.txt", "echo hello", "pwd",
-                     "head -n 10 file", "tail file", "wc -l file",
-                     "sort file", "uniq file", "which python",
-                     "whoami", "hostname", "date", "grep pattern file"):
-            assert executor.should_use_sandbox(cmd, config) is False, \
+        for cmd in (
+            "ls -la",
+            "cat file.txt",
+            "echo hello",
+            "pwd",
+            "head -n 10 file",
+            "tail file",
+            "wc -l file",
+            "sort file",
+            "uniq file",
+            "which python",
+            "whoami",
+            "hostname",
+            "date",
+            "grep pattern file",
+        ):
+            assert executor.should_use_sandbox(cmd, config) is False, (
                 f"'{cmd}' should skip sandbox (safe read-only)"
+            )
 
     def test_arbitrary_commands_use_sandbox(self):
         executor = SandboxExecutor()
         config = SandboxConfig(enabled=True)
-        for cmd in ("rm -rf /tmp/foo", "curl https://example.com",
-                     "pip install requests", "kubectl delete pod",
-                     "docker rm -f container", "chmod 644 file.txt"):
-            assert executor.should_use_sandbox(cmd, config) is True, \
-                f"'{cmd}' should use sandbox"
+        for cmd in (
+            "rm -rf /tmp/foo",
+            "curl https://example.com",
+            "pip install requests",
+            "kubectl delete pod",
+            "docker rm -f container",
+            "chmod 644 file.txt",
+        ):
+            assert executor.should_use_sandbox(cmd, config) is True, f"'{cmd}' should use sandbox"
 
     def test_dangerously_disable_sandbox_flag(self):
         executor = SandboxExecutor()
         config = SandboxConfig(enabled=True)
-        assert executor.should_use_sandbox(
-            "rm -rf /tmp/foo --dangerously-disable-sandbox", config,
-        ) is False
+        assert (
+            executor.should_use_sandbox(
+                "rm -rf /tmp/foo --dangerously-disable-sandbox",
+                config,
+            )
+            is False
+        )
 
     def test_git_commands_skip_sandbox(self):
         """Git is in the safe list for developer workflows."""
@@ -140,13 +165,19 @@ class TestShouldUseSandbox:
 
 # ── SandboxExecutor.is_dangerous tests ───────────────────────────────────
 
+
 class TestIsDangerous:
     def test_dangerous_commands(self):
         executor = SandboxExecutor()
-        for cmd in ("sudo rm -rf /", "su -", "passwd", "chown root:root file",
-                     "mount /dev/sda1 /mnt", "umount /mnt"):
-            assert executor.is_dangerous(cmd) is True, \
-                f"'{cmd}' should be dangerous"
+        for cmd in (
+            "sudo rm -rf /",
+            "su -",
+            "passwd",
+            "chown root:root file",
+            "mount /dev/sda1 /mnt",
+            "umount /mnt",
+        ):
+            assert executor.is_dangerous(cmd) is True, f"'{cmd}' should be dangerous"
 
     def test_safe_commands_not_dangerous(self):
         executor = SandboxExecutor()
@@ -156,6 +187,7 @@ class TestIsDangerous:
 
 # ── Process sandbox execution tests ──────────────────────────────────────
 
+
 class TestProcessSandbox:
     def test_sandboxed_echo(self):
         executor = SandboxExecutor()
@@ -163,7 +195,8 @@ class TestProcessSandbox:
 
         async def run():
             result = await executor.execute_sandboxed(
-                "echo hello-world-123", config,
+                "echo hello-world-123",
+                config,
             )
             return result
 
@@ -179,7 +212,8 @@ class TestProcessSandbox:
 
         async def run():
             result = await executor.execute_sandboxed(
-                _failing_cmd(), config,
+                _failing_cmd(),
+                config,
             )
             return result
 
@@ -211,7 +245,8 @@ class TestProcessSandbox:
 
         async def run():
             result = await executor.execute_sandboxed(
-                _print_cmd("success"), config,
+                _print_cmd("success"),
+                config,
             )
             return result
 
@@ -232,6 +267,7 @@ class TestProcessSandbox:
 
 
 # ── BashTool sandbox integration tests ───────────────────────────────────
+
 
 class TestBashToolSandbox:
     def test_bash_tool_without_sandbox(self):
@@ -305,6 +341,7 @@ class TestBashToolSandbox:
 
 # ── Edge cases ────────────────────────────────────────────────────────────
 
+
 class TestSandboxEdgeCases:
     def test_command_with_path_still_checks_basename(self):
         """'/usr/bin/ls' should be recognized as safe (basename 'ls')."""
@@ -325,7 +362,9 @@ class TestSandboxEdgeCases:
 
         async def run():
             result = await executor.execute_sandboxed(
-                "echo test", config, timeout_ms=5000,
+                "echo test",
+                config,
+                timeout_ms=5000,
             )
             return result
 
@@ -340,7 +379,8 @@ class TestSandboxEdgeCases:
 
         async def run():
             result = await executor.execute_sandboxed(
-                "echo fallback-test", config,
+                "echo fallback-test",
+                config,
             )
             return result
 
@@ -350,10 +390,22 @@ class TestSandboxEdgeCases:
 
     def test_safe_readonly_commands_set_contains_expected(self):
         """Verify known-safe commands are in the set."""
-        for cmd in ("ls", "cat", "echo", "pwd", "head", "tail", "wc",
-                     "grep", "find", "git", "npm", "cargo", "go"):
-            assert cmd in SAFE_READONLY_COMMANDS, \
-                f"'{cmd}' should be in SAFE_READONLY_COMMANDS"
+        for cmd in (
+            "ls",
+            "cat",
+            "echo",
+            "pwd",
+            "head",
+            "tail",
+            "wc",
+            "grep",
+            "find",
+            "git",
+            "npm",
+            "cargo",
+            "go",
+        ):
+            assert cmd in SAFE_READONLY_COMMANDS, f"'{cmd}' should be in SAFE_READONLY_COMMANDS"
 
     def test_dangerous_commands_set_contains_expected(self):
         """Verify dangerous commands are in the set."""

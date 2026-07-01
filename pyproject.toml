@@ -21,6 +21,11 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "bandit>=1.7",
+    "pip-audit>=2.7",
+    "build>=1.2",
 ]
 
 [tool.setuptools.packages.find]
@@ -29,3 +34,47 @@ where = ["src"]
 [tool.setuptools.package-data]
 # Bundled skill markdown must ship in the wheel (loaded via glob at runtime).
 "d2c.skills" = ["*.md"]
+
+# ── Quality gates (Phase 45) ──────────────────────────────────────────
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Practical starter set; expand strictness in later phases.
+select = ["E", "F", "I", "W"]
+# E501 (line length) is handled by the formatter; a few long string/test lines
+# are intentional. B008-style checks are deferred.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use fixtures freely and often bind results they don't assert on.
+"tests/*" = ["F811", "E402", "F841"]
+
+[tool.mypy]
+# Staged typing: lenient baseline over a growing set of clean modules.
+# Expand `files` module-by-module in later phases toward all of src/d2c.
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = false
+warn_return_any = false
+disable_error_code = ["annotation-unchecked"]
+files = [
+    "src/d2c/observability.py",
+    "src/d2c/config.py",
+    "src/d2c/history.py",
+    "src/d2c/path_rules.py",
+    "src/d2c/sandbox.py",
+    "src/d2c/permissions",
+]
+
+[tool.bandit]
+# Justified skips for this project's intentional shell/subprocess design and
+# best-effort observability/hook error handling (see nosec comments in source):
+#   B404 import subprocess       — needed by Bash/git/worktree tools
+#   B603/B607 subprocess call    — args are lists (no shell) or trusted git args
+#   B602 subprocess w/ shell     — BashTool intentionally runs approved commands
+#   B110/B112 try/except/pass    — observability/hooks fail open by design
+skips = ["B404", "B603", "B607", "B602", "B110", "B112"]

@@ -115,8 +115,21 @@ pytest tests/test_loop.py::test_name    # a single test
 
 Tests are async and use explicit `@pytest.mark.asyncio` markers — mark new async tests accordingly.
 
-The suite runs on a fresh `python -m venv` install (`pip install -e ".[dev]"`) and in CI
-(`.github/workflows/tests.yml`, Python 3.11 & 3.13). A wheel built with `python -m build` includes
-the bundled skill data (`d2c/skills/*.md`) needed at runtime.
+### Quality gates
+
+CI (`.github/workflows/ci.yml`, Python 3.11 & 3.13) runs the same checks you can run locally:
+
+```bash
+ruff check .            # lint
+ruff format --check .   # formatting
+mypy                    # types (staged clean modules; see [tool.mypy] files)
+bandit -c pyproject.toml -r src/d2c   # security lint (justified skips in pyproject)
+pip-audit               # dependency vulnerability scan (advisory)
+pytest                  # tests
+python -m build         # wheel/sdist build (includes bundled d2c/skills/*.md)
+```
+
+`ruff format .` and `ruff check --fix .` apply fixes. Typing is adopted in stages — `[tool.mypy].files`
+lists the modules currently gated; expand it as modules are annotated. See `CONTRIBUTING.md`.
 
 See [`CLAUDE.md`](./CLAUDE.md) for architecture details and conventions.

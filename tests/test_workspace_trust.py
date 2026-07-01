@@ -7,14 +7,16 @@ forced restricted permission mode when untrusted, and plugin loading gating.
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from d2c.trust import TrustStore, WorkSpaceTrustGate, get_trust_gate, set_trust_gate, reset_trust_gate
-
+from d2c.trust import (
+    TrustStore,
+    WorkSpaceTrustGate,
+    reset_trust_gate,
+    set_trust_gate,
+)
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -31,7 +33,7 @@ def reset_trust():
 def untrusted_gate(tmp_path, monkeypatch):
     """A WorkSpaceTrustGate in the denied state."""
     trust_file = tmp_path / "trusted.json"
-    monkeypatch.setattr(TrustStore, 'PATH', trust_file)
+    monkeypatch.setattr(TrustStore, "PATH", trust_file)
     store = TrustStore()
     gate = WorkSpaceTrustGate(tmp_path, store)
     gate.decide(False)
@@ -43,7 +45,7 @@ def untrusted_gate(tmp_path, monkeypatch):
 def trusted_gate(tmp_path, monkeypatch):
     """A WorkSpaceTrustGate in the trusted state."""
     trust_file = tmp_path / "trusted.json"
-    monkeypatch.setattr(TrustStore, 'PATH', trust_file)
+    monkeypatch.setattr(TrustStore, "PATH", trust_file)
     store = TrustStore()
     gate = WorkSpaceTrustGate(tmp_path, store)
     gate.decide(True)
@@ -68,23 +70,27 @@ class TestHasLocalExtensions:
     def test_detects_plugins_dir(self, mock_extensions_dir):
         """_has_local_extensions returns True when .d2c/plugins exists."""
         from d2c.main import _has_local_extensions
+
         assert _has_local_extensions(mock_extensions_dir) is True
 
     def test_detects_agents_dir(self, tmp_path):
         """_has_local_extensions returns True when .d2c/agents exists."""
         from d2c.main import _has_local_extensions
+
         (tmp_path / ".d2c" / "agents").mkdir(parents=True)
         assert _has_local_extensions(tmp_path) is True
 
     def test_detects_skills_dir(self, tmp_path):
         """_has_local_extensions returns True when .d2c/skills exists."""
         from d2c.main import _has_local_extensions
+
         (tmp_path / ".d2c" / "skills").mkdir(parents=True)
         assert _has_local_extensions(tmp_path) is True
 
     def test_detects_config_yaml(self, tmp_path):
         """_has_local_extensions returns True when .d2c/config.yaml exists."""
         from d2c.main import _has_local_extensions
+
         (tmp_path / ".d2c").mkdir()
         (tmp_path / ".d2c" / "config.yaml").write_text("")
         assert _has_local_extensions(tmp_path) is True
@@ -92,6 +98,7 @@ class TestHasLocalExtensions:
     def test_detects_mcp_json(self, tmp_path):
         """_has_local_extensions returns True when .d2c/mcp.json exists."""
         from d2c.main import _has_local_extensions
+
         (tmp_path / ".d2c").mkdir()
         (tmp_path / ".d2c" / "mcp.json").write_text("{}")
         assert _has_local_extensions(tmp_path) is True
@@ -99,11 +106,13 @@ class TestHasLocalExtensions:
     def test_returns_false_for_empty_workspace(self, tmp_path):
         """_has_local_extensions returns False when no .d2c directory exists."""
         from d2c.main import _has_local_extensions
+
         assert _has_local_extensions(tmp_path) is False
 
     def test_returns_false_for_empty_d2c_dir(self, tmp_path):
         """_has_local_extensions returns False when .d2c is empty."""
         from d2c.main import _has_local_extensions
+
         (tmp_path / ".d2c").mkdir()
         assert _has_local_extensions(tmp_path) is False
 
@@ -117,8 +126,10 @@ class TestHeadlessAbortUntrusted:
         from d2c.main import _resolve_trust
 
         args = argparse.Namespace(
-            trust=False, no_trust=False,
-            prompt="fix bug", cwd=mock_extensions_dir,
+            trust=False,
+            no_trust=False,
+            prompt="fix bug",
+            cwd=mock_extensions_dir,
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -131,8 +142,10 @@ class TestHeadlessAbortUntrusted:
         from d2c.main import _resolve_trust
 
         args = argparse.Namespace(
-            trust=False, no_trust=False,
-            prompt="fix bug", cwd=tmp_path,
+            trust=False,
+            no_trust=False,
+            prompt="fix bug",
+            cwd=tmp_path,
         )
 
         gate = _resolve_trust(args)
@@ -143,8 +156,10 @@ class TestHeadlessAbortUntrusted:
         from d2c.main import _resolve_trust
 
         args = argparse.Namespace(
-            trust=True, no_trust=False,
-            prompt="fix bug", cwd=mock_extensions_dir,
+            trust=True,
+            no_trust=False,
+            prompt="fix bug",
+            cwd=mock_extensions_dir,
         )
 
         gate = _resolve_trust(args)
@@ -155,8 +170,10 @@ class TestHeadlessAbortUntrusted:
         from d2c.main import _resolve_trust
 
         args = argparse.Namespace(
-            trust=False, no_trust=True,
-            prompt="fix bug", cwd=mock_extensions_dir,
+            trust=False,
+            no_trust=True,
+            prompt="fix bug",
+            cwd=mock_extensions_dir,
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -173,8 +190,10 @@ class TestHeadlessAbortUntrusted:
         store.trust(mock_extensions_dir)
 
         args = argparse.Namespace(
-            trust=False, no_trust=False,
-            prompt="fix bug", cwd=mock_extensions_dir,
+            trust=False,
+            no_trust=False,
+            prompt="fix bug",
+            cwd=mock_extensions_dir,
         )
 
         gate = _resolve_trust(args)
@@ -189,14 +208,19 @@ class TestForcedRestrictedPermissionMode:
         """Untrusted workspace forces permission_mode to 'default'."""
         from d2c.config import Config
 
-        with patch.object(Config, 'load', return_value=Config(
-            cwd=tmp_path,
-            permission_mode="dontAsk",
-        )):
+        with patch.object(
+            Config,
+            "load",
+            return_value=Config(
+                cwd=tmp_path,
+                permission_mode="dontAsk",
+            ),
+        ):
             config = Config.load(tmp_path)
 
             # Simulate the trust check logic from run_headless/run_interactive
             from d2c.trust import get_trust_gate
+
             if not get_trust_gate().is_project_trusted:
                 if config.permission_mode not in ("default", "plan"):
                     config.permission_mode = "default"
@@ -210,6 +234,7 @@ class TestForcedRestrictedPermissionMode:
         config = Config(cwd=tmp_path, permission_mode="dontAsk")
 
         from d2c.trust import get_trust_gate
+
         if not get_trust_gate().is_project_trusted:
             if config.permission_mode not in ("default", "plan"):
                 config.permission_mode = "default"
@@ -223,6 +248,7 @@ class TestForcedRestrictedPermissionMode:
         config = Config(cwd=tmp_path, permission_mode="plan")
 
         from d2c.trust import get_trust_gate
+
         if not get_trust_gate().is_project_trusted:
             if config.permission_mode not in ("default", "plan"):
                 config.permission_mode = "default"
@@ -236,6 +262,7 @@ class TestForcedRestrictedPermissionMode:
         config = Config(cwd=tmp_path, permission_mode="default")
 
         from d2c.trust import get_trust_gate
+
         if not get_trust_gate().is_project_trusted:
             if config.permission_mode not in ("default", "plan"):
                 config.permission_mode = "default"
@@ -249,6 +276,7 @@ class TestForcedRestrictedPermissionMode:
         config = Config(cwd=tmp_path, permission_mode="acceptEdits")
 
         from d2c.trust import get_trust_gate
+
         if not get_trust_gate().is_project_trusted:
             if config.permission_mode not in ("default", "plan"):
                 config.permission_mode = "default"
@@ -263,17 +291,19 @@ class TestTrustGateIntegration:
     def test_trusted_workspace_allows_plugins(self, trusted_gate, tmp_path):
         """When trusted, get_trust_gate().is_project_trusted is True."""
         from d2c.trust import get_trust_gate
+
         assert get_trust_gate().is_project_trusted is True
 
     def test_untrusted_workspace_prevents_plugins(self, untrusted_gate, tmp_path):
         """When untrusted, get_trust_gate().is_project_trusted is False."""
         from d2c.trust import get_trust_gate
+
         assert get_trust_gate().is_project_trusted is False
 
     def test_trusted_store_persists_across_calls(self, tmp_path, monkeypatch):
         """Trusting a path persists in the TrustStore."""
         trust_file = tmp_path / "trusted.json"
-        monkeypatch.setattr(TrustStore, 'PATH', trust_file)
+        monkeypatch.setattr(TrustStore, "PATH", trust_file)
         store = TrustStore()
         store.trust(tmp_path)
 

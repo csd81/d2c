@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 # ── System prompt ────────────────────────────────────────────────────
 
+
 def getSystemPrompt() -> str:
     """Base system prompt. Paper: assembly via asSystemPrompt()."""
     return (
@@ -44,6 +45,7 @@ def getSystemPrompt() -> str:
 
 
 # ── System context ───────────────────────────────────────────────────
+
 
 @dataclass
 class SystemContext:
@@ -103,6 +105,7 @@ def _get_git_status(cwd: Path) -> str | None:
 
 # ── User context ─────────────────────────────────────────────────────
 
+
 def getUserContext(config: "Config") -> str:
     """Load CLAUDE.md hierarchy + current date.
 
@@ -112,7 +115,7 @@ def getUserContext(config: "Config") -> str:
     from d2c.memory import loadClaudeMdHierarchy
 
     parts = [f"Today's date: {datetime.now().strftime('%Y-%m-%d')}"]
-    cwd = getattr(config, 'cwd', Path.cwd())
+    cwd = getattr(config, "cwd", Path.cwd())
     memory = loadClaudeMdHierarchy(cwd)
     if memory:
         parts.append(memory)
@@ -120,6 +123,7 @@ def getUserContext(config: "Config") -> str:
     # Phase 34: recall saved auto-memories by injecting the MEMORY.md index.
     try:
         from d2c.memory import AutoMemoryStore
+
         index_file = AutoMemoryStore.INDEX_FILE
         if index_file.exists():
             index = index_file.read_text(encoding="utf-8").strip()
@@ -132,6 +136,7 @@ def getUserContext(config: "Config") -> str:
 
 
 # ── Message assembly ─────────────────────────────────────────────────
+
 
 def assembleMessages(
     system_prompt: str,
@@ -151,10 +156,13 @@ def assembleMessages(
 
 def appendSystemContext(prompt: str, ctx: SystemContext) -> str:
     """Append system context to the base prompt."""
-    return prompt.format(
-        cwd=ctx.cwd,
-        platform=ctx.platform,
-    ) + f"\n\n{ctx.format()}"
+    return (
+        prompt.format(
+            cwd=ctx.cwd,
+            platform=ctx.platform,
+        )
+        + f"\n\n{ctx.format()}"
+    )
 
 
 def prependUserContext(messages: list[dict], user_context: str) -> list[dict]:
@@ -178,6 +186,7 @@ def _get_bpe_encoding():
         raise _bpe_init_error
     try:
         import tiktoken
+
         _bpe_encoding = tiktoken.get_encoding("cl100k_base")
         return _bpe_encoding
     except Exception as e:
@@ -221,13 +230,10 @@ def estimate_tokens(messages: list[dict], chars_per_token: float = 3.5) -> int:
                     elif block_type == "tool_use":
                         num_tokens += len(enc.encode(block.get("name", "")))
                         import json as _json
-                        num_tokens += len(enc.encode(
-                            _json.dumps(block.get("input", {}))
-                        ))
+
+                        num_tokens += len(enc.encode(_json.dumps(block.get("input", {}))))
                     elif block_type == "tool_result":
-                        num_tokens += len(enc.encode(
-                            block.get("tool_use_id", "")
-                        ))
+                        num_tokens += len(enc.encode(block.get("tool_use_id", "")))
                         result_content = block.get("content", "")
                         if isinstance(result_content, str):
                             num_tokens += len(enc.encode(result_content))
@@ -235,6 +241,7 @@ def estimate_tokens(messages: list[dict], chars_per_token: float = 3.5) -> int:
                             num_tokens += len(enc.encode(str(result_content)))
                     else:
                         import json as _json
+
                         num_tokens += len(enc.encode(_json.dumps(block)))
                 else:
                     num_tokens += len(enc.encode(str(block)))
@@ -247,10 +254,12 @@ def estimate_tokens(messages: list[dict], chars_per_token: float = 3.5) -> int:
 
 
 def _fallback_estimate_tokens(
-    messages: list[dict], chars_per_token: float = 3.5,
+    messages: list[dict],
+    chars_per_token: float = 3.5,
 ) -> int:
     """Character-based fallback when tiktoken is unavailable."""
     import json as _json
+
     total = 0
     for m in messages:
         content = m.get("content", "")

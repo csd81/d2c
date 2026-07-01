@@ -9,23 +9,19 @@ import pytest
 
 from d2c.compact import (
     CompactConfig,
-    applyBudgetReduction,
-    applySnip,
-    applyMicrocompact,
-    applyContextCollapse,
-    applyContextShapers,
-    applyFullContextShapers,
-    checkPressure,
-    estimate_tokens,
-    _has_tool_use,
-    _get_tool_names,
     _content_str,
+    _get_tool_names,
+    _has_tool_use,
     _segment_messages,
     _summarize_segment,
+    applyContextCollapse,
+    applyContextShapers,
+    applyMicrocompact,
+    applySnip,
 )
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def config():
@@ -44,6 +40,7 @@ def config():
 def loop_config(config):
     """Phase 29: Mock loop_config for LLM-based shapers."""
     from unittest.mock import MagicMock
+
     lc = MagicMock()
     lc.compact_config = config
     lc.deepseek_api_key = "test-key"
@@ -60,24 +57,34 @@ def sample_messages():
         {"role": "user", "content": "Please help me write a function."},
         {"role": "assistant", "content": "Sure, let me create that."},
         {"role": "user", "content": "Add error handling too."},
-        {"role": "assistant", "content": [
-            {"type": "tool_use", "id": "t1", "name": "write", "input": {"path": "foo.py"}},
-        ]},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "t1", "name": "write", "input": {"path": "foo.py"}},
+            ],
+        },
         {"role": "tool", "content": "Wrote file foo.py successfully."},
         {"role": "user", "content": "Now add tests."},
-        {"role": "assistant", "content": [
-            {"type": "tool_use", "id": "t2", "name": "write", "input": {"path": "test_foo.py"}},
-        ]},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "t2", "name": "write", "input": {"path": "test_foo.py"}},
+            ],
+        },
         {"role": "tool", "content": "Wrote file test_foo.py successfully."},
         {"role": "user", "content": "Great, now add type hints."},
-        {"role": "assistant", "content": [
-            {"type": "tool_use", "id": "t3", "name": "edit", "input": {"path": "foo.py"}},
-        ]},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "t3", "name": "edit", "input": {"path": "foo.py"}},
+            ],
+        },
         {"role": "tool", "content": "Updated foo.py with type hints."},
     ]
 
 
 # ── Shaper 2: Snip ────────────────────────────────────────────────────────
+
 
 class TestSnip:
     def test_trims_oldest_non_system_messages(self, config, sample_messages):
@@ -139,6 +146,7 @@ class TestSnip:
 
 # ── Shaper 3: Microcompact ────────────────────────────────────────────────
 
+
 class TestMicrocompact:
     @pytest.mark.asyncio
     async def test_summarizes_tool_result_pairs(self, loop_config, sample_messages):
@@ -173,9 +181,12 @@ class TestMicrocompact:
             {"role": "user", "content": "Plain message, no tools."},
             {"role": "assistant", "content": "Plain response."},
             {"role": "user", "content": "Now use a tool."},
-            {"role": "assistant", "content": [
-                {"type": "tool_use", "id": "t1", "name": "bash", "input": {}},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "t1", "name": "bash", "input": {}},
+                ],
+            },
             {"role": "tool", "content": "Command output"},
         ]
         result = await applyMicrocompact(msgs, loop_config)
@@ -188,19 +199,28 @@ class TestMicrocompact:
         """Microcompact handles consecutive tool-use pairs."""
         msgs = [
             {"role": "user", "content": "Task 1"},
-            {"role": "assistant", "content": [
-                {"type": "tool_use", "id": "t1", "name": "tool_a", "input": {}},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "t1", "name": "tool_a", "input": {}},
+                ],
+            },
             {"role": "tool", "content": "Result A"},
             {"role": "user", "content": "Task 2"},
-            {"role": "assistant", "content": [
-                {"type": "tool_use", "id": "t2", "name": "tool_b", "input": {}},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "t2", "name": "tool_b", "input": {}},
+                ],
+            },
             {"role": "tool", "content": "Result B"},
             {"role": "user", "content": "Task 3"},
-            {"role": "assistant", "content": [
-                {"type": "tool_use", "id": "t3", "name": "tool_c", "input": {}},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "t3", "name": "tool_c", "input": {}},
+                ],
+            },
             {"role": "tool", "content": "Result C"},
         ]
         result = await applyMicrocompact(msgs, loop_config)
@@ -210,6 +230,7 @@ class TestMicrocompact:
 
 
 # ── Shaper 4: Context Collapse ─────────────────────────────────────────────
+
 
 class TestContextCollapse:
     @pytest.mark.asyncio
@@ -293,6 +314,7 @@ class TestContextCollapse:
 
 # ── Full Pipeline ──────────────────────────────────────────────────────────
 
+
 class TestPipeline:
     def test_apply_context_shapers_budget_reduction(self, config):
         """applyContextShapers always applies budget reduction."""
@@ -318,11 +340,15 @@ class TestPipeline:
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
+
 class TestHelpers:
     def test_has_tool_use_with_list_content(self):
-        msg = {"role": "assistant", "content": [
-            {"type": "tool_use", "id": "t1", "name": "bash", "input": {}},
-        ]}
+        msg = {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "t1", "name": "bash", "input": {}},
+            ],
+        }
         assert _has_tool_use(msg) is True
 
     def test_has_tool_use_with_string_content(self):
@@ -330,16 +356,21 @@ class TestHelpers:
         assert _has_tool_use(msg) is False
 
     def test_has_tool_use_without_tool_blocks(self):
-        msg = {"role": "assistant", "content": [
-            {"type": "text", "text": "Just text."},
-        ]}
+        msg = {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "Just text."},
+            ],
+        }
         assert _has_tool_use(msg) is False
 
     def test_get_tool_names(self):
-        msg = {"content": [
-            {"type": "tool_use", "id": "t1", "name": "write"},
-            {"type": "tool_use", "id": "t2", "name": "bash"},
-        ]}
+        msg = {
+            "content": [
+                {"type": "tool_use", "id": "t1", "name": "write"},
+                {"type": "tool_use", "id": "t2", "name": "bash"},
+            ]
+        }
         names = _get_tool_names(msg)
         assert names == ["write", "bash"]
 
@@ -351,10 +382,12 @@ class TestHelpers:
         assert _content_str({"content": "hello"}) == "hello"
 
     def test_content_str_list(self):
-        msg = {"content": [
-            {"type": "text", "text": "Hello"},
-            {"type": "tool_use", "id": "t1", "name": "bash"},
-        ]}
+        msg = {
+            "content": [
+                {"type": "text", "text": "Hello"},
+                {"type": "tool_use", "id": "t1", "name": "bash"},
+            ]
+        }
         result = _content_str(msg)
         assert "Hello" in result
         assert "tool_use" in result
@@ -372,9 +405,12 @@ class TestHelpers:
     def test_summarize_segment(self):
         segment = [
             {"role": "user", "content": "Do something"},
-            {"role": "assistant", "content": [
-                {"type": "tool_use", "id": "t1", "name": "bash"},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "t1", "name": "bash"},
+                ],
+            },
         ]
         summary = _summarize_segment(segment, 0)
         assert "Context segment 1" in summary
@@ -383,6 +419,7 @@ class TestHelpers:
 
 
 # ── Edge Cases ─────────────────────────────────────────────────────────────
+
 
 class TestEdgeCases:
     def test_snip_empty_messages(self, config):

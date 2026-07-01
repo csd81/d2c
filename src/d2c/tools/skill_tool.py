@@ -11,7 +11,6 @@ from typing import Any, ClassVar
 
 from d2c.tools import PermissionCategory, Tool, ToolResult
 
-
 SKILL_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -56,6 +55,7 @@ class SkillTool(Tool):
             skills: List of SkillDefinition objects. If None, loaded lazily.
         """
         from d2c.skills.loader import SkillDefinition
+
         self._skills: dict[str, SkillDefinition] = {}
         if skills:
             for s in skills:
@@ -65,6 +65,7 @@ class SkillTool(Tool):
         """Lazy-load skills if not provided at construction time."""
         if not self._skills:
             from d2c.skills.loader import load_all_skills
+
             for s in load_all_skills():
                 self._skills[s.name] = s
 

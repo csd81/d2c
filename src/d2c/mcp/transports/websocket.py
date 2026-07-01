@@ -20,6 +20,7 @@ def _get_websockets():
     """Lazy import websockets — only fails when WebSocket transport is actually used."""
     import websockets
     import websockets.exceptions
+
     return websockets
 
 
@@ -29,8 +30,9 @@ class WebSocketTransport(MCPTransport):
     Each message is a JSON text frame. Bidirectional, persistent.
     """
 
-    def __init__(self, url: str, headers: dict[str, str] | None = None,
-                 timeout_ms: int = 30_000) -> None:
+    def __init__(
+        self, url: str, headers: dict[str, str] | None = None, timeout_ms: int = 30_000
+    ) -> None:
         self._url = url
         self._headers = headers or {}
         self._timeout = timeout_ms / 1000.0

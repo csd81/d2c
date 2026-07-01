@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 
 @dataclass
 class SkillDefinition:
     """A loaded skill with name, description, and full prompt."""
+
     name: str
     description: str
-    prompt: str              # full instruction injected when skill is invoked
+    prompt: str  # full instruction injected when skill is invoked
     args_schema: dict | None = None  # optional parameter schema
     source: str = "bundled"  # "bundled" | "user"
 
@@ -50,13 +51,15 @@ def load_bundled_skills() -> list[SkillDefinition]:
 
     for skill_file in sorted(skills_dir.glob("*.md")):
         frontmatter, body = parse_frontmatter(skill_file.read_text(encoding="utf-8"))
-        skills.append(SkillDefinition(
-            name=skill_file.stem,
-            description=frontmatter.get("description", ""),
-            prompt=body,
-            args_schema=frontmatter.get("args"),
-            source="bundled",
-        ))
+        skills.append(
+            SkillDefinition(
+                name=skill_file.stem,
+                description=frontmatter.get("description", ""),
+                prompt=body,
+                args_schema=frontmatter.get("args"),
+                source="bundled",
+            )
+        )
 
     return skills
 
@@ -70,13 +73,15 @@ def load_user_skills(cwd: Path) -> list[SkillDefinition]:
     skills: list[SkillDefinition] = []
     for skill_file in sorted(skills_dir.glob("*.md")):
         frontmatter, body = parse_frontmatter(skill_file.read_text(encoding="utf-8"))
-        skills.append(SkillDefinition(
-            name=skill_file.stem,
-            description=frontmatter.get("description", ""),
-            prompt=body,
-            args_schema=frontmatter.get("args"),
-            source="user",
-        ))
+        skills.append(
+            SkillDefinition(
+                name=skill_file.stem,
+                description=frontmatter.get("description", ""),
+                prompt=body,
+                args_schema=frontmatter.get("args"),
+                source="user",
+            )
+        )
 
     return skills
 
@@ -87,6 +92,7 @@ def load_all_skills(cwd: Path | None = None) -> list[SkillDefinition]:
 
     cwd_resolved = cwd or Path.cwd()
     from d2c.trust import get_trust_gate
+
     user = load_user_skills(cwd_resolved) if get_trust_gate().is_project_trusted else []
 
     seen: dict[str, SkillDefinition] = {}

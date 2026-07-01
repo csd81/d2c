@@ -8,9 +8,9 @@ returns to the parent — full history never enters parent context.
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from d2c.tools import PermissionCategory, Tool, ToolResult, ToolUse
+from d2c.tools import PermissionCategory, Tool, ToolResult
 
 if TYPE_CHECKING:
     from d2c.config import Config
@@ -86,10 +86,10 @@ class AgentTool(Tool):
         The parent gets back a subagent_id and can query status/results later.
         """
         from d2c.subagent import (
-            load_subagent_definition,
-            spawn_subagent,
             SubagentResult,
             get_background_manager,
+            load_subagent_definition,
+            spawn_subagent,
         )
 
         # Resolve definition
@@ -110,6 +110,7 @@ class AgentTool(Tool):
 
         # Get parent config/session from the tool's execution context
         from d2c.config import Config
+
         parent_config = self._config or Config.load()
 
         # ── Background execution ──────────────────────────────────────

@@ -10,15 +10,13 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
-from d2c.plugins import LoadedPlugin, PluginManifest
-from d2c.plugins.manifest import parse_manifest
-from d2c.plugins.loader import PluginLoader
 from d2c.hooks import HookDefinition, HookEvent, HookRegistry, HookType
-
+from d2c.plugins import LoadedPlugin, PluginManifest
+from d2c.plugins.loader import PluginLoader
+from d2c.plugins.manifest import parse_manifest
 
 # ── Manifest Parsing ──────────────────────────────────────────────────────
+
 
 class TestManifestParsing:
     def test_valid_manifest(self):
@@ -86,10 +84,14 @@ class TestManifestParsing:
         """Minimal manifest with just name and version."""
         with tempfile.TemporaryDirectory() as tmp:
             plugin_dir = Path(tmp)
-            (plugin_dir / "manifest.json").write_text(json.dumps({
-                "name": "minimal",
-                "version": "0.1.0",
-            }))
+            (plugin_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "name": "minimal",
+                        "version": "0.1.0",
+                    }
+                )
+            )
 
             manifest = parse_manifest(plugin_dir)
             assert manifest is not None
@@ -102,15 +104,19 @@ class TestManifestParsing:
         """Hook entries without 'event' field are skipped."""
         with tempfile.TemporaryDirectory() as tmp:
             plugin_dir = Path(tmp)
-            (plugin_dir / "manifest.json").write_text(json.dumps({
-                "name": "bad-hooks",
-                "version": "1.0",
-                "hooks": [
-                    {"event": "PostToolUse", "type": "command", "command": "ok"},
-                    {"type": "command", "command": "missing-event"},  # no event
-                    {"event": "PreToolUse", "type": "prompt", "prompt": "ok"},
-                ],
-            }))
+            (plugin_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "name": "bad-hooks",
+                        "version": "1.0",
+                        "hooks": [
+                            {"event": "PostToolUse", "type": "command", "command": "ok"},
+                            {"type": "command", "command": "missing-event"},  # no event
+                            {"event": "PreToolUse", "type": "prompt", "prompt": "ok"},
+                        ],
+                    }
+                )
+            )
 
             manifest = parse_manifest(plugin_dir)
             assert manifest is not None
@@ -119,6 +125,7 @@ class TestManifestParsing:
 
 
 # ── Plugin Discovery ──────────────────────────────────────────────────────
+
 
 class TestPluginDiscovery:
     def test_discover_from_bundled_dir(self):
@@ -129,11 +136,15 @@ class TestPluginDiscovery:
         bundled_dir.mkdir(parents=True, exist_ok=True)
         plugin_dir = bundled_dir / "test-bundled"
         plugin_dir.mkdir(exist_ok=True)
-        (plugin_dir / "manifest.json").write_text(json.dumps({
-            "name": "test-bundled",
-            "version": "1.0.0",
-            "description": "A bundled plugin",
-        }))
+        (plugin_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "name": "test-bundled",
+                    "version": "1.0.0",
+                    "description": "A bundled plugin",
+                }
+            )
+        )
 
         try:
             manifests = loader._discover_from_dir(bundled_dir, "bundled")
@@ -143,6 +154,7 @@ class TestPluginDiscovery:
         finally:
             # Cleanup
             import shutil
+
             shutil.rmtree(plugin_dir, ignore_errors=True)
 
     def test_discover_from_user_dir(self):
@@ -153,10 +165,14 @@ class TestPluginDiscovery:
             loader._user_dir = user_dir
             plugin_dir = user_dir / "test-user"
             plugin_dir.mkdir()
-            (plugin_dir / "manifest.json").write_text(json.dumps({
-                "name": "test-user",
-                "version": "2.0.0",
-            }))
+            (plugin_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "name": "test-user",
+                        "version": "2.0.0",
+                    }
+                )
+            )
 
             manifests = loader._discover_from_dir(user_dir, "user")
             assert len(manifests) == 1
@@ -171,20 +187,28 @@ class TestPluginDiscovery:
             # Create project plugin
             project_dir = cwd / ".d2c" / "plugins" / "same-name"
             project_dir.mkdir(parents=True)
-            (project_dir / "manifest.json").write_text(json.dumps({
-                "name": "same-name",
-                "version": "project-version",
-            }))
+            (project_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "name": "same-name",
+                        "version": "project-version",
+                    }
+                )
+            )
 
             # Create user plugin with same name
             user_dir = Path(tmp) / "user-plugins"
             user_dir.mkdir(parents=True)
             user_plugin_dir = user_dir / "same-name"
             user_plugin_dir.mkdir()
-            (user_plugin_dir / "manifest.json").write_text(json.dumps({
-                "name": "same-name",
-                "version": "user-version",
-            }))
+            (user_plugin_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "name": "same-name",
+                        "version": "user-version",
+                    }
+                )
+            )
 
             loader._user_dir = user_dir
             manifests = loader.discover_all(cwd)
@@ -222,14 +246,18 @@ class TestPluginDiscovery:
             cwd = Path(tmp)
             project_plugins = cwd / ".d2c" / "plugins" / "load-test"
             project_plugins.mkdir(parents=True)
-            (project_plugins / "manifest.json").write_text(json.dumps({
-                "name": "load-test",
-                "version": "1.0.0",
-                "hooks": [
-                    {"event": "SessionStart", "type": "command", "command": "echo start"},
-                ],
-                "skills": ["lint.md"],
-            }))
+            (project_plugins / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "name": "load-test",
+                        "version": "1.0.0",
+                        "hooks": [
+                            {"event": "SessionStart", "type": "command", "command": "echo start"},
+                        ],
+                        "skills": ["lint.md"],
+                    }
+                )
+            )
 
             # Create the skill file
             (project_plugins / "lint.md").write_text(
@@ -246,6 +274,7 @@ class TestPluginDiscovery:
 
 # ── Hook Registration ─────────────────────────────────────────────────────
 
+
 class TestPluginHookRegistration:
     def test_plugin_hooks_registered(self):
         """Plugin hooks are registered into HookRegistry."""
@@ -254,14 +283,22 @@ class TestPluginHookRegistration:
             cwd = Path(tmp)
             project_plugins = cwd / ".d2c" / "plugins" / "hook-test"
             project_plugins.mkdir(parents=True)
-            (project_plugins / "manifest.json").write_text(json.dumps({
-                "name": "hook-test",
-                "version": "1.0.0",
-                "hooks": [
-                    {"event": "PostToolUse", "type": "command", "command": "python hook.py"},
-                    {"event": "PreToolUse", "type": "prompt", "prompt": "Check safety"},
-                ],
-            }))
+            (project_plugins / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "name": "hook-test",
+                        "version": "1.0.0",
+                        "hooks": [
+                            {
+                                "event": "PostToolUse",
+                                "type": "command",
+                                "command": "python hook.py",
+                            },
+                            {"event": "PreToolUse", "type": "prompt", "prompt": "Check safety"},
+                        ],
+                    }
+                )
+            )
 
             loaded = loader.discover_and_load(cwd)
             assert len(loaded) == 1
@@ -290,6 +327,7 @@ class TestPluginHookRegistration:
 
 # ── LoadedPlugin ──────────────────────────────────────────────────────────
 
+
 class TestLoadedPlugin:
     def test_valid_plugin(self):
         manifest = PluginManifest(name="valid", version="1.0")
@@ -309,6 +347,7 @@ class TestLoadedPlugin:
 
 # ── Dependency Checking ───────────────────────────────────────────────────
 
+
 class TestDependencies:
     def test_missing_dependency(self):
         """Plugin with missing dependency gets error."""
@@ -317,11 +356,15 @@ class TestDependencies:
             cwd = Path(tmp)
             project_plugins = cwd / ".d2c" / "plugins" / "needs-dep"
             project_plugins.mkdir(parents=True)
-            (project_plugins / "manifest.json").write_text(json.dumps({
-                "name": "needs-dep",
-                "version": "1.0.0",
-                "dependencies": ["nonexistent-plugin"],
-            }))
+            (project_plugins / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "name": "needs-dep",
+                        "version": "1.0.0",
+                        "dependencies": ["nonexistent-plugin"],
+                    }
+                )
+            )
 
             loaded = loader.discover_and_load(cwd)
             assert len(loaded) == 1
@@ -338,19 +381,27 @@ class TestDependencies:
             # Base plugin
             base_dir = plugins_dir / "base-plugin"
             base_dir.mkdir(parents=True)
-            (base_dir / "manifest.json").write_text(json.dumps({
-                "name": "base-plugin",
-                "version": "1.0.0",
-            }))
+            (base_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "name": "base-plugin",
+                        "version": "1.0.0",
+                    }
+                )
+            )
 
             # Plugin depending on base
             dep_dir = plugins_dir / "dependent-plugin"
             dep_dir.mkdir()
-            (dep_dir / "manifest.json").write_text(json.dumps({
-                "name": "dependent-plugin",
-                "version": "1.0.0",
-                "dependencies": ["base-plugin"],
-            }))
+            (dep_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "name": "dependent-plugin",
+                        "version": "1.0.0",
+                        "dependencies": ["base-plugin"],
+                    }
+                )
+            )
 
             loaded = loader.discover_and_load(cwd)
             valid = [p for p in loaded if p.is_valid]
@@ -359,12 +410,14 @@ class TestDependencies:
 
 # ── Edge Cases ────────────────────────────────────────────────────────────
 
+
 class TestEdgeCases:
     def test_plugin_directory_not_readable(self):
         """Non-existent base directory returns empty list."""
         loader = PluginLoader()
         manifests = loader._discover_from_dir(
-            Path("/nonexistent/path/plugins"), "bundled",
+            Path("/nonexistent/path/plugins"),
+            "bundled",
         )
         assert manifests == []
 
@@ -372,12 +425,16 @@ class TestEdgeCases:
         """Unknown fields are tolerated (logged but not rejected)."""
         with tempfile.TemporaryDirectory() as tmp:
             plugin_dir = Path(tmp)
-            (plugin_dir / "manifest.json").write_text(json.dumps({
-                "name": "future-plugin",
-                "version": "1.0",
-                "unknown_field": "should be fine",
-                "another_unknown": 42,
-            }))
+            (plugin_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "name": "future-plugin",
+                        "version": "1.0",
+                        "unknown_field": "should be fine",
+                        "another_unknown": 42,
+                    }
+                )
+            )
 
             manifest = parse_manifest(plugin_dir)
             assert manifest is not None
@@ -387,11 +444,15 @@ class TestEdgeCases:
         """Non-string skill entries are skipped."""
         with tempfile.TemporaryDirectory() as tmp:
             plugin_dir = Path(tmp)
-            (plugin_dir / "manifest.json").write_text(json.dumps({
-                "name": "mixed-skills",
-                "version": "1.0",
-                "skills": ["valid.md", 123, "also-valid.md"],
-            }))
+            (plugin_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "name": "mixed-skills",
+                        "version": "1.0",
+                        "skills": ["valid.md", 123, "also-valid.md"],
+                    }
+                )
+            )
 
             manifest = parse_manifest(plugin_dir)
             assert manifest is not None

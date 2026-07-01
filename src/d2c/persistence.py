@@ -22,26 +22,31 @@ SESSION_DIR_NAME = "sessions"
 
 # ── Session entry ─────────────────────────────────────────────────────
 
+
 @dataclass
 class SessionEntry:
     """One line in the JSONL transcript."""
-    role: str                         # "user" | "assistant" | "tool" | "system"
-    content: str | list[dict]          # text or content blocks
-    timestamp: str                     # ISO 8601 UTC
-    entry_type: str = "message"        # "message" | "compact_boundary" | "subagent_summary"
+
+    role: str  # "user" | "assistant" | "tool" | "system"
+    content: str | list[dict]  # text or content blocks
+    timestamp: str  # ISO 8601 UTC
+    entry_type: str = "message"  # "message" | "compact_boundary" | "subagent_summary"
     metadata: dict = field(default_factory=dict)
 
     def to_jsonl_line(self) -> str:
-        return json.dumps({
-            "role": self.role,
-            "content": self.content,
-            "timestamp": self.timestamp,
-            "entry_type": self.entry_type,
-            "metadata": self.metadata,
-        })
+        return json.dumps(
+            {
+                "role": self.role,
+                "content": self.content,
+                "timestamp": self.timestamp,
+                "entry_type": self.entry_type,
+                "metadata": self.metadata,
+            }
+        )
 
 
 # ── Session store ─────────────────────────────────────────────────────
+
 
 class SessionStore:
     """Append-only JSONL session transcript (paper Section 9)."""
@@ -88,13 +93,15 @@ class SessionStore:
                     continue
                 try:
                     data = json.loads(line)
-                    entries.append(SessionEntry(
-                        role=data.get("role", "unknown"),
-                        content=data.get("content", ""),
-                        timestamp=data.get("timestamp", ""),
-                        entry_type=data.get("entry_type", "message"),
-                        metadata=data.get("metadata", {}),
-                    ))
+                    entries.append(
+                        SessionEntry(
+                            role=data.get("role", "unknown"),
+                            content=data.get("content", ""),
+                            timestamp=data.get("timestamp", ""),
+                            entry_type=data.get("entry_type", "message"),
+                            metadata=data.get("metadata", {}),
+                        )
+                    )
                 except json.JSONDecodeError:
                     logger.warning("Skipping malformed JSONL line in %s", self.transcript_path)
         return entries
@@ -120,17 +127,21 @@ class SessionStore:
                 if entry.role == "system":
                     continue
                 if entry.role == "tool":
-                    messages.append({
-                        "role": "tool",
-                        "content": entry.content,
-                        "tool_use_id": entry.metadata.get("tool_use_id", ""),
-                        "tool_name": entry.metadata.get("tool_name", ""),
-                    })
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "content": entry.content,
+                            "tool_use_id": entry.metadata.get("tool_use_id", ""),
+                            "tool_name": entry.metadata.get("tool_name", ""),
+                        }
+                    )
                 else:
-                    messages.append({
-                        "role": entry.role,
-                        "content": entry.content,
-                    })
+                    messages.append(
+                        {
+                            "role": entry.role,
+                            "content": entry.content,
+                        }
+                    )
         return messages
 
     # --- Sidechains (Phase 8) ---
@@ -143,6 +154,7 @@ class SessionStore:
 
 # ── Session manager ───────────────────────────────────────────────────
 
+
 class SessionManager:
     """Session lifecyle: create, resume, fork (paper Section 9.1-9.2)."""
 
@@ -153,13 +165,15 @@ class SessionManager:
         """Create a new session with a unique ID."""
         session_id = str(uuid.uuid4())[:8]
         store = SessionStore(self.base_dir, session_id, cwd)
-        store.append(SessionEntry(
-            role="system",
-            content="",
-            timestamp=_utc_now(),
-            entry_type="message",
-            metadata={"event": "session_start", "cwd": str(cwd)},
-        ))
+        store.append(
+            SessionEntry(
+                role="system",
+                content="",
+                timestamp=_utc_now(),
+                entry_type="message",
+                metadata={"event": "session_start", "cwd": str(cwd)},
+            )
+        )
         return store
 
     def resume_session(self, session_id: str, cwd: Path) -> tuple[SessionStore, list[dict]]:
@@ -189,17 +203,20 @@ class SessionManager:
                 continue
             new_store.append(entry)
 
-        new_store.append(SessionEntry(
-            role="system",
-            content="",
-            timestamp=_utc_now(),
-            entry_type="message",
-            metadata={"event": "forked_from", "source_session": source_id},
-        ))
+        new_store.append(
+            SessionEntry(
+                role="system",
+                content="",
+                timestamp=_utc_now(),
+                entry_type="message",
+                metadata={"event": "forked_from", "source_session": source_id},
+            )
+        )
         return new_store
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()

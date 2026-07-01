@@ -52,7 +52,7 @@ class DeferredToolSchema:
             "name": self._tool.name,
             "description": (
                 f"{self._tool.description} "
-                f"[Schema deferred. Use ToolSearch with query=\"{self._tool.name}\" "
+                f'[Schema deferred. Use ToolSearch with query="{self._tool.name}" '
                 f"to load full schema.]"
             ),
             "input_schema": {
@@ -119,7 +119,7 @@ class ToolSearchTool(Tool):
         """
         # Direct selection mode
         if query.startswith("select:"):
-            selector = query[len("select:"):]
+            selector = query[len("select:") :]
             names = [n.strip() for n in selector.split(",") if n.strip()]
             matched: list[Tool] = []
             schemas_loaded = 0
@@ -137,7 +137,8 @@ class ToolSearchTool(Tool):
                 return ToolResult(
                     output=output,
                     metadata={
-                        "count": len(matched), "query": query,
+                        "count": len(matched),
+                        "query": query,
                         "matched": [t.name for t in matched],
                         "schemas_loaded": schemas_loaded,
                     },

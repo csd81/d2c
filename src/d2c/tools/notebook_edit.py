@@ -103,15 +103,23 @@ class NotebookEditTool(Tool):
 
         # Write back
         try:
-            nb_path.write_text(json.dumps(nb_data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+            nb_path.write_text(
+                json.dumps(nb_data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
         except OSError as e:
             return ToolResult(output=f"Error writing notebook: {e}", error=True)
 
         # Phase 40: FILE_CHANGED fires once per successful notebook mutation.
         from d2c.tools import fire_active_hook
-        await fire_active_hook("FILE_CHANGED", {
-            "path": str(nb_path), "tool": "NotebookEdit", "operation": "notebook_edit",
-        })
+
+        await fire_active_hook(
+            "FILE_CHANGED",
+            {
+                "path": str(nb_path),
+                "tool": "NotebookEdit",
+                "operation": "notebook_edit",
+            },
+        )
         return result
 
     def _read_cells(self, cells: list[dict]) -> ToolResult:
@@ -129,7 +137,10 @@ class NotebookEditTool(Tool):
         )
 
     def _edit_cell(
-        self, cells: list[dict], cell_id: int | None, new_source: str | None,
+        self,
+        cells: list[dict],
+        cell_id: int | None,
+        new_source: str | None,
     ) -> ToolResult:
         if cell_id is None:
             return ToolResult(output="cell_id is required for edit action.", error=True)
@@ -149,7 +160,10 @@ class NotebookEditTool(Tool):
         )
 
     def _add_cell(
-        self, cells: list[dict], new_source: str | None, cell_type: str,
+        self,
+        cells: list[dict],
+        new_source: str | None,
+        cell_type: str,
     ) -> ToolResult:
         if new_source is None:
             return ToolResult(output="new_source is required for add action.", error=True)

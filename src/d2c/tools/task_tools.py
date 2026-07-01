@@ -8,9 +8,7 @@ Task state machine: pending → in_progress → completed | deleted
 
 from __future__ import annotations
 
-import json
 import time
-from pathlib import Path
 from typing import Any, ClassVar
 
 from d2c.tools import PermissionCategory, Tool, ToolResult
@@ -19,10 +17,12 @@ from d2c.tools import PermissionCategory, Tool, ToolResult
 async def _fire_task_hook(event_name: str, payload: dict) -> None:
     """Phase 34: fire a task lifecycle hook via the active HookRegistry."""
     from d2c.tools import fire_active_hook
+
     await fire_active_hook(event_name, payload)
 
 
 # ── In-memory task store (per-session) ───────────────────────────────────
+
 
 class TaskStore:
     """In-memory task registry. Tasks are ephemeral per session."""
@@ -70,6 +70,7 @@ class TaskStore:
 
 # ── TaskCreate tool ──────────────────────────────────────────────────────
 
+
 class TaskCreateTool(Tool):
     name: ClassVar[str] = "TaskCreate"
     description: ClassVar[str] = (
@@ -104,6 +105,7 @@ class TaskCreateTool(Tool):
 
 
 # ── TaskUpdate tool ──────────────────────────────────────────────────────
+
 
 class TaskUpdateTool(Tool):
     name: ClassVar[str] = "TaskUpdate"
@@ -167,7 +169,7 @@ class TaskUpdateTool(Tool):
             if status not in valid_next:
                 return ToolResult(
                     output=f"Invalid status transition: {current} → {status}. "
-                           f"Allowed: {', '.join(sorted(valid_next)) or 'none'}",
+                    f"Allowed: {', '.join(sorted(valid_next)) or 'none'}",
                     error=True,
                 )
 
@@ -200,6 +202,7 @@ class TaskUpdateTool(Tool):
 
 # ── TaskList tool ────────────────────────────────────────────────────────
 
+
 class TaskListTool(Tool):
     name: ClassVar[str] = "TaskList"
     description: ClassVar[str] = (
@@ -229,7 +232,9 @@ class TaskListTool(Tool):
 
         lines: list[str] = []
         for t in tasks:
-            icon = {"pending": "[ ]", "in_progress": "[>]", "completed": "[x]"}.get(t["status"], "[?]")
+            icon = {"pending": "[ ]", "in_progress": "[>]", "completed": "[x]"}.get(
+                t["status"], "[?]"
+            )
             lines.append(f"#{t['id']} {icon} {t['subject']} ({t['status']})")
 
         return ToolResult(

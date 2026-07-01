@@ -23,11 +23,23 @@ REDACTED = "[REDACTED]"
 _MAX_STR = 500
 
 # Field names whose values are always redacted.
-_SECRET_KEY_NAMES = frozenset({
-    "deepseek_api_key", "d2c_websearch_api_key", "anthropic_api_key",
-    "api_key", "apikey", "authorization", "x-api-key", "x-subscription-token",
-    "token", "password", "secret", "cookie", "set-cookie",
-})
+_SECRET_KEY_NAMES = frozenset(
+    {
+        "deepseek_api_key",
+        "d2c_websearch_api_key",
+        "anthropic_api_key",
+        "api_key",
+        "apikey",
+        "authorization",
+        "x-api-key",
+        "x-subscription-token",
+        "token",
+        "password",
+        "secret",
+        "cookie",
+        "set-cookie",
+    }
+)
 
 # Value shapes that look like secrets regardless of field name.
 _SECRET_VALUE_RE = re.compile(r"(sk-[A-Za-z0-9_\-]{6,}|tvly-[A-Za-z0-9_\-]{6,})")
@@ -88,7 +100,7 @@ class AuditLogger:
         self.log_tool_outputs = log_tool_outputs
         self._context: dict[str, Any] = {}
         self._lock = threading.Lock()
-        if self.enabled:
+        if self.enabled and self.path is not None:
             try:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
             except OSError:
@@ -105,7 +117,7 @@ class AuditLogger:
         return _LEVELS.get(level.upper(), 20) >= _LEVELS.get(self.level, 20)
 
     def emit(self, event: str, level: str = "INFO", **fields: Any) -> None:
-        if not self.enabled or not self._level_ok(level):
+        if not self.enabled or self.path is None or not self._level_ok(level):
             return
         record: dict[str, Any] = {"ts": _now_iso(), "level": level.upper(), "event": event}
         record.update(self._context)
@@ -115,8 +127,14 @@ class AuditLogger:
         try:
             line = json.dumps(record, default=str)
         except (TypeError, ValueError):
-            line = json.dumps({"ts": _now_iso(), "level": "ERROR", "event": "log_serialize_error",
-                               "orig_event": event})
+            line = json.dumps(
+                {
+                    "ts": _now_iso(),
+                    "level": "ERROR",
+                    "event": "log_serialize_error",
+                    "orig_event": event,
+                }
+            )
         try:
             with self._lock:
                 with open(self.path, "a", encoding="utf-8") as f:

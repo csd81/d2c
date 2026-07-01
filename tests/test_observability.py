@@ -5,7 +5,7 @@ import json
 import pytest
 
 import d2c.observability as obs
-from d2c.observability import AuditLogger, redact, REDACTED, set_audit_logger, audit
+from d2c.observability import REDACTED, AuditLogger, audit, redact, set_audit_logger
 
 
 @pytest.fixture(autouse=True)
@@ -26,6 +26,7 @@ def _read(path):
 
 
 # ── Redaction ─────────────────────────────────────────────────────────
+
 
 def test_redacts_deepseek_style_key():
     assert redact("token is sk-abcdef123456 ok") == "token is [REDACTED] ok"
@@ -61,6 +62,7 @@ def test_truncates_long_strings():
 
 # ── Event emission + shape ────────────────────────────────────────────
 
+
 def test_emits_jsonl_with_required_fields(tmp_dir):
     lg, path = _logger(tmp_dir)
     lg.set_context(session_id="s1", model="deepseek-v4-pro")
@@ -84,7 +86,9 @@ def test_correlation_shares_tool_call_id(tmp_dir):
 def test_permission_event_has_decision_and_no_secret(tmp_dir, monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-supersecretkey123")
     lg, path = _logger(tmp_dir)
-    audit("permission_denied", tool_name="Bash", reason="acceptEdits denied; key sk-supersecretkey123")
+    audit(
+        "permission_denied", tool_name="Bash", reason="acceptEdits denied; key sk-supersecretkey123"
+    )
     (rec,) = _read(path)
     assert rec["event"] == "permission_denied"
     assert "sk-supersecretkey123" not in json.dumps(rec)
@@ -100,6 +104,7 @@ def test_websearch_event_omits_api_key(tmp_dir):
 
 
 # ── Privacy defaults + disabled behavior ──────────────────────────────
+
 
 def test_disabled_logger_writes_nothing(tmp_dir):
     path = tmp_dir / "audit.jsonl"
@@ -124,7 +129,7 @@ def test_level_filtering(tmp_dir):
     path = tmp_dir / "audit.jsonl"
     lg = AuditLogger(path=path, enabled=True, level="WARNING")
     set_audit_logger(lg)
-    audit("debug_event", level="INFO")     # below threshold → dropped
-    audit("warn_event", level="WARNING")   # kept
+    audit("debug_event", level="INFO")  # below threshold → dropped
+    audit("warn_event", level="WARNING")  # kept
     recs = _read(path)
     assert [r["event"] for r in recs] == ["warn_event"]

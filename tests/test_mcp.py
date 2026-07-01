@@ -11,18 +11,18 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
 
 import pytest
 
 from d2c.mcp import MCPServerConfig, MCPTool
+from d2c.mcp.client import MCPClient, _clients, get_client
+from d2c.mcp.discovery import _expand_env_vars, _parse_single_server, discover_servers
 from d2c.mcp.transports.stdio import MCPTransportError, StdioTransport
-from d2c.mcp.client import MCPClient, get_client, _clients
-from d2c.mcp.discovery import discover_servers, _parse_single_server, _expand_env_vars
-from d2c.tools import PermissionCategory, ToolResult
-
+from d2c.tools import PermissionCategory
 
 # ── MCPServerConfig ──────────────────────────────────────────────────────
+
 
 class TestMCPServerConfig:
     def test_defaults(self):
@@ -59,6 +59,7 @@ class TestMCPServerConfig:
 
 
 # ── MCPTool wrapper ──────────────────────────────────────────────────────
+
 
 class TestMCPTool:
     def test_tool_attributes(self):
@@ -104,13 +105,17 @@ class TestMCPTool:
 
 # ── Transport: StdioTransport ────────────────────────────────────────────
 
+
 class TestStdioTransport:
     @pytest.mark.asyncio
     async def test_connect_spawns_process(self):
         """stdio transport connects to a subprocess."""
         transport = StdioTransport(
             command=sys_executable(),
-            args=["-c", "import sys, json; sys.stdout.write(json.dumps({'jsonrpc':'2.0','id':1,'result':{}})+'\\n')"],
+            args=[
+                "-c",
+                "import sys, json; sys.stdout.write(json.dumps({'jsonrpc':'2.0','id':1,'result':{}})+'\\n')",
+            ],
         )
         try:
             await transport.connect()
@@ -134,12 +139,14 @@ class TestStdioTransport:
         )
         try:
             await transport.connect()
-            await transport.send({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "echo",
-                "params": {"msg": "hello"},
-            })
+            await transport.send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "echo",
+                    "params": {"msg": "hello"},
+                }
+            )
             response = await transport.receive()
             assert response["result"]["echo"] == "hello"
         finally:
@@ -162,6 +169,7 @@ class TestStdioTransport:
 
 # ── Environment variable expansion ───────────────────────────────────────
 
+
 class TestEnvVarExpansion:
     def test_basic_expansion(self):
         os.environ["TEST_MCP_VAR"] = "expanded_value"
@@ -180,14 +188,18 @@ class TestEnvVarExpansion:
 
 # ── Server config parsing ────────────────────────────────────────────────
 
+
 class TestParseServerConfig:
     def test_stdio_server(self):
-        cfg = _parse_single_server("test", {
-            "command": "node",
-            "args": ["server.js"],
-            "transport": "stdio",
-            "env": {"NODE_ENV": "production"},
-        })
+        cfg = _parse_single_server(
+            "test",
+            {
+                "command": "node",
+                "args": ["server.js"],
+                "transport": "stdio",
+                "env": {"NODE_ENV": "production"},
+            },
+        )
         assert cfg.name == "test"
         assert cfg.command == "node"
         assert cfg.args == ["server.js"]
@@ -195,11 +207,14 @@ class TestParseServerConfig:
         assert cfg.env == {"NODE_ENV": "production"}
 
     def test_http_server(self):
-        cfg = _parse_single_server("api", {
-            "url": "https://mcp.example.com/api",
-            "transport": "http",
-            "headers": {"X-API-Key": "secret"},
-        })
+        cfg = _parse_single_server(
+            "api",
+            {
+                "url": "https://mcp.example.com/api",
+                "transport": "http",
+                "headers": {"X-API-Key": "secret"},
+            },
+        )
         assert cfg.name == "api"
         assert cfg.url == "https://mcp.example.com/api"
         assert cfg.transport == "http"
@@ -213,6 +228,7 @@ class TestParseServerConfig:
 
 
 # ── Discovery ────────────────────────────────────────────────────────────
+
 
 class TestDiscovery:
     def test_empty_when_no_config(self, monkeypatch):
@@ -231,14 +247,18 @@ class TestDiscovery:
             d2c_dir = cwd / ".d2c"
             d2c_dir.mkdir(exist_ok=True)
             mcp_json = d2c_dir / "mcp.json"
-            mcp_json.write_text(json.dumps({
-                "mcpServers": {
-                    "test-server": {
-                        "command": "echo",
-                        "args": ["hello"],
+            mcp_json.write_text(
+                json.dumps(
+                    {
+                        "mcpServers": {
+                            "test-server": {
+                                "command": "echo",
+                                "args": ["hello"],
+                            }
+                        }
                     }
-                }
-            }))
+                )
+            )
 
             servers = discover_servers(cwd)
             assert len(servers) == 1
@@ -267,19 +287,25 @@ class TestDiscovery:
 
     def test_env_var_servers(self, monkeypatch):
         """D2C_MCP_SERVERS env var as JSON object."""
-        monkeypatch.setenv("D2C_MCP_SERVERS", json.dumps({
-            "mcpServers": {
-                "env-server": {
-                    "command": "python",
-                    "args": ["-m", "mcp_server"],
+        monkeypatch.setenv(
+            "D2C_MCP_SERVERS",
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "env-server": {
+                            "command": "python",
+                            "args": ["-m", "mcp_server"],
+                        }
+                    }
                 }
-            }
-        }))
+            ),
+        )
         servers = discover_servers()
         assert any(s.name == "env-server" for s in servers)
 
 
 # ── MCPClient lifecycle ──────────────────────────────────────────────────
+
 
 class MockTransport:
     """Mock MCP transport for testing MCPClient without real subprocesses."""
@@ -317,15 +343,19 @@ class TestMCPClientLifecycle:
     @pytest.mark.asyncio
     async def test_connect_handshake(self):
         """Client performs initialize → initialized handshake."""
-        transport = MockTransport(responses=[{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": "test-server", "version": "1.0"},
-            },
-        }])
+        transport = MockTransport(
+            responses=[
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {"tools": {}},
+                        "serverInfo": {"name": "test-server", "version": "1.0"},
+                    },
+                }
+            ]
+        )
         config = MCPServerConfig(name="test", command="mock", transport="stdio")
         client = MCPClient(config)
         client._create_transport = lambda: transport  # inject mock
@@ -339,15 +369,19 @@ class TestMCPClientLifecycle:
     @pytest.mark.asyncio
     async def test_close_cleans_up(self):
         """Close disconnects and unregisters."""
-        transport = MockTransport(responses=[{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "serverInfo": {},
-            },
-        }])
+        transport = MockTransport(
+            responses=[
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "serverInfo": {},
+                    },
+                }
+            ]
+        )
         config = MCPServerConfig(name="cleanup-test", command="mock")
         client = MCPClient(config)
         client._create_transport = lambda: transport
@@ -360,27 +394,37 @@ class TestMCPClientLifecycle:
     @pytest.mark.asyncio
     async def test_list_tools(self):
         """Client can list tools from a server."""
-        transport = MockTransport(responses=[
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {},
+        transport = MockTransport(
+            responses=[
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {"tools": {}},
+                        "serverInfo": {},
+                    },
                 },
-            },
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "result": {
-                    "tools": [
-                        {"name": "tool_a", "description": "First tool", "inputSchema": {"type": "object", "properties": {}}},
-                        {"name": "tool_b", "description": "Second tool", "inputSchema": {"type": "object", "properties": {}}},
-                    ]
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "result": {
+                        "tools": [
+                            {
+                                "name": "tool_a",
+                                "description": "First tool",
+                                "inputSchema": {"type": "object", "properties": {}},
+                            },
+                            {
+                                "name": "tool_b",
+                                "description": "Second tool",
+                                "inputSchema": {"type": "object", "properties": {}},
+                            },
+                        ]
+                    },
                 },
-            },
-        ])
+            ]
+        )
         config = MCPServerConfig(name="tools-test", command="mock")
         client = MCPClient(config)
         client._create_transport = lambda: transport
@@ -396,24 +440,28 @@ class TestMCPClientLifecycle:
     @pytest.mark.asyncio
     async def test_call_tool(self):
         """Client can execute a tool and get results."""
-        transport = MockTransport(responses=[
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {},
+        transport = MockTransport(
+            responses=[
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {"tools": {}},
+                        "serverInfo": {},
+                    },
                 },
-            },
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "result": {
-                    "content": [{"type": "text", "text": "Called my_tool with {'key': 'value'}"}],
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "result": {
+                        "content": [
+                            {"type": "text", "text": "Called my_tool with {'key': 'value'}"}
+                        ],
+                    },
                 },
-            },
-        ])
+            ]
+        )
         config = MCPServerConfig(name="call-test", command="mock")
         client = MCPClient(config)
         client._create_transport = lambda: transport
@@ -429,44 +477,68 @@ class TestMCPClientLifecycle:
 
 # ── Tool pool integration ────────────────────────────────────────────────
 
+
 class TestPoolIntegration:
     @pytest.mark.asyncio
     async def test_mcp_tools_in_pool(self, monkeypatch):
         """assembleMCPTools returns MCPTool instances."""
         # Mock discover_servers to return a known config
         from d2c.mcp import discovery
+
         monkeypatch.setattr(
-            discovery, "discover_servers",
-            lambda cwd=None: [MCPServerConfig(
-                name="pool-test",
-                command="mock",
-                transport="stdio",
-            )]
+            discovery,
+            "discover_servers",
+            lambda cwd=None: [
+                MCPServerConfig(
+                    name="pool-test",
+                    command="mock",
+                    transport="stdio",
+                )
+            ],
         )
 
         # Mock MCPClient to use mock transport
-        transport = MockTransport(responses=[
-            {"jsonrpc": "2.0", "id": 1, "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "serverInfo": {},
-            }},
-            {"jsonrpc": "2.0", "id": 2, "result": {
-                "tools": [{
-                    "name": "mcp_search",
-                    "description": "Search via MCP",
-                    "inputSchema": {"type": "object", "properties": {"q": {"type": "string"}}},
-                }]
-            }},
-        ])
+        transport = MockTransport(
+            responses=[
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {"tools": {}},
+                        "serverInfo": {},
+                    },
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "result": {
+                        "tools": [
+                            {
+                                "name": "mcp_search",
+                                "description": "Search via MCP",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {"q": {"type": "string"}},
+                                },
+                            }
+                        ]
+                    },
+                },
+            ]
+        )
 
         from d2c.mcp.client import MCPClient as RealMCPClient
+
         original_create = RealMCPClient._create_transport
+
         def mock_create(self):
             return transport
+
         monkeypatch.setattr(RealMCPClient, "_create_transport", mock_create)
 
         from d2c.tools.pool import assembleMCPTools
+
         tools = await assembleMCPTools()
         assert len(tools) == 1
         assert tools[0].name == "mcp_search"
@@ -474,6 +546,7 @@ class TestPoolIntegration:
 
         # Cleanup
         from d2c.mcp.client import _clients
+
         for name in list(_clients.keys()):
             await _clients[name].close()
 
@@ -481,37 +554,56 @@ class TestPoolIntegration:
     async def test_assemble_tool_pool_includes_mcp(self, monkeypatch):
         """assembleToolPool integrates MCP tools alongside built-ins."""
         from d2c.mcp import discovery
+
         monkeypatch.setattr(
-            discovery, "discover_servers",
-            lambda cwd=None: [MCPServerConfig(
-                name="override-test",
-                command="mock",
-                transport="stdio",
-            )]
+            discovery,
+            "discover_servers",
+            lambda cwd=None: [
+                MCPServerConfig(
+                    name="override-test",
+                    command="mock",
+                    transport="stdio",
+                )
+            ],
         )
 
         # MCP tool named "bash" should override built-in bash tool
-        transport = MockTransport(responses=[
-            {"jsonrpc": "2.0", "id": 1, "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "serverInfo": {},
-            }},
-            {"jsonrpc": "2.0", "id": 2, "result": {
-                "tools": [{
-                    "name": "bash",
-                    "description": "MCP bash override",
-                    "inputSchema": {"type": "object", "properties": {}},
-                }]
-            }},
-        ])
+        transport = MockTransport(
+            responses=[
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {"tools": {}},
+                        "serverInfo": {},
+                    },
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "result": {
+                        "tools": [
+                            {
+                                "name": "bash",
+                                "description": "MCP bash override",
+                                "inputSchema": {"type": "object", "properties": {}},
+                            }
+                        ]
+                    },
+                },
+            ]
+        )
 
         from d2c.mcp.client import MCPClient as RealMCPClient
+
         def mock_create(self):
             return transport
+
         monkeypatch.setattr(RealMCPClient, "_create_transport", mock_create)
 
-        from d2c.tools.pool import assembleToolPool, Config
+        from d2c.tools.pool import Config, assembleToolPool
+
         config = Config(cwd=Path.cwd())
         tools = await assembleToolPool(config)
 
@@ -522,11 +614,13 @@ class TestPoolIntegration:
 
         # Cleanup
         from d2c.mcp.client import _clients
+
         for name in list(_clients.keys()):
             await _clients[name].close()
 
 
 # ── Edge cases ───────────────────────────────────────────────────────────
+
 
 class TestEdgeCases:
     @pytest.mark.asyncio
@@ -559,14 +653,24 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_jsonrpc_error_response(self):
         """Server returns a JSON-RPC error → MCPTransportError."""
-        transport = MockTransport(responses=[
-            {"jsonrpc": "2.0", "id": 1, "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "serverInfo": {},
-            }},
-            {"jsonrpc": "2.0", "id": 2, "error": {"code": -32600, "message": "Invalid Request"}},
-        ])
+        transport = MockTransport(
+            responses=[
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "serverInfo": {},
+                    },
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "error": {"code": -32600, "message": "Invalid Request"},
+                },
+            ]
+        )
         config = MCPServerConfig(name="error-test", command="mock")
         client = MCPClient(config)
         client._create_transport = lambda: transport
@@ -604,8 +708,10 @@ class TestEdgeCases:
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
+
 def sys_executable() -> str:
     import sys
+
     return sys.executable
 
 

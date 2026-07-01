@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from d2c.tools import PermissionCategory
 
-
 # ── Skills Loader tests ────────────────────────────────────────────────
+
 
 class TestSkillDefinition:
     def test_skill_definition_fields(self):
         from d2c.skills.loader import SkillDefinition
+
         sd = SkillDefinition(
             name="my-skill",
             description="Does something",
@@ -28,6 +28,7 @@ class TestSkillDefinition:
 
     def test_skill_definition_user_source(self):
         from d2c.skills.loader import SkillDefinition
+
         sd = SkillDefinition(name="test", description="d", prompt="p", source="user")
         assert sd.source == "user"
 
@@ -35,12 +36,14 @@ class TestSkillDefinition:
 class TestParseFrontmatter:
     def test_no_frontmatter(self):
         from d2c.skills.loader import parse_frontmatter
+
         meta, body = parse_frontmatter("Just body text")
         assert meta == {}
         assert body == "Just body text"
 
     def test_valid_frontmatter(self):
         from d2c.skills.loader import parse_frontmatter
+
         text = """---
 description: "A test skill"
 args: "-m message"
@@ -54,6 +57,7 @@ You are a test skill."""
 
     def test_missing_closing_delimiter(self):
         from d2c.skills.loader import parse_frontmatter
+
         text = """---
 name: Incomplete
 Body."""
@@ -64,12 +68,14 @@ Body."""
 class TestLoadBundledSkills:
     def test_loads_commit_skill(self):
         from d2c.skills.loader import load_bundled_skills
+
         skills = load_bundled_skills()
         names = {s.name for s in skills}
         assert "commit" in names
 
     def test_commit_skill_has_prompt(self):
         from d2c.skills.loader import load_bundled_skills
+
         skills = load_bundled_skills()
         commit = next(s for s in skills if s.name == "commit")
         assert len(commit.prompt) > 50
@@ -77,6 +83,7 @@ class TestLoadBundledSkills:
 
     def test_bundled_skills_have_bundled_source(self):
         from d2c.skills.loader import load_bundled_skills
+
         skills = load_bundled_skills()
         for s in skills:
             assert s.source == "bundled"
@@ -85,11 +92,13 @@ class TestLoadBundledSkills:
 class TestLoadUserSkills:
     def test_empty_when_no_dir(self, tmp_path):
         from d2c.skills.loader import load_user_skills
+
         skills = load_user_skills(tmp_path)
         assert skills == []
 
     def test_loads_user_skills_from_dir(self, tmp_path):
         from d2c.skills.loader import load_user_skills
+
         skills_dir = tmp_path / ".d2c" / "skills"
         skills_dir.mkdir(parents=True)
         (skills_dir / "my-skill.md").write_text("""---
@@ -105,6 +114,7 @@ Custom skill prompt body.""")
 
     def test_loads_multiple_user_skills(self, tmp_path):
         from d2c.skills.loader import load_user_skills
+
         skills_dir = tmp_path / ".d2c" / "skills"
         skills_dir.mkdir(parents=True)
         (skills_dir / "a.md").write_text("# Skill A")
@@ -117,6 +127,7 @@ Custom skill prompt body.""")
 class TestLoadAllSkills:
     def test_includes_bundled_and_user(self, tmp_path):
         from d2c.skills.loader import load_all_skills
+
         skills_dir = tmp_path / ".d2c" / "skills"
         skills_dir.mkdir(parents=True)
         (skills_dir / "my-skill.md").write_text("""---
@@ -131,6 +142,7 @@ User content.""")
 
     def test_user_overrides_bundled(self, tmp_path):
         from d2c.skills.loader import load_all_skills
+
         skills_dir = tmp_path / ".d2c" / "skills"
         skills_dir.mkdir(parents=True)
         (skills_dir / "commit.md").write_text("""---
@@ -146,6 +158,7 @@ Custom commit prompt.""")
 
 
 # ── SkillTool tests ────────────────────────────────────────────────────
+
 
 class TestSkillTool:
     @pytest.mark.asyncio
@@ -168,6 +181,7 @@ class TestSkillTool:
     @pytest.mark.asyncio
     async def test_skill_tool_unknown_skill(self):
         from d2c.tools.skill_tool import SkillTool
+
         tool = SkillTool(skills=[])
         result = await tool.execute(skill="nonexistent")
         assert result.error is True
@@ -189,6 +203,7 @@ class TestSkillTool:
     async def test_skill_tool_lazy_loads(self):
         """SkillTool loads skills lazily if none provided at construction."""
         from d2c.tools.skill_tool import SkillTool
+
         tool = SkillTool()  # no skills, will lazy load
 
         # Should find bundled commit skill
@@ -208,6 +223,7 @@ class TestSkillTool:
 
     def test_skill_tool_attributes(self):
         from d2c.tools.skill_tool import SkillTool
+
         tool = SkillTool()
         assert tool.name == "Skill"
         assert tool.category == PermissionCategory.META
@@ -215,6 +231,7 @@ class TestSkillTool:
 
     def test_skill_tool_api_format(self):
         from d2c.tools.skill_tool import SkillTool
+
         tool = SkillTool()
         fmt = tool.to_api_format()
         assert fmt["name"] == "Skill"
@@ -224,10 +241,12 @@ class TestSkillTool:
 
 # ── WebFetchTool tests ─────────────────────────────────────────────────
 
+
 class TestWebFetchTool:
     @pytest.mark.asyncio
     async def test_missing_url(self):
         from d2c.tools.web_fetch import WebFetchTool
+
         tool = WebFetchTool()
         result = await tool.execute()
         assert result.error is True
@@ -236,6 +255,7 @@ class TestWebFetchTool:
     @pytest.mark.asyncio
     async def test_invalid_url_no_scheme(self):
         from d2c.tools.web_fetch import WebFetchTool
+
         tool = WebFetchTool()
         result = await tool.execute(url="example.com")
         assert result.error is True
@@ -244,6 +264,7 @@ class TestWebFetchTool:
     @pytest.mark.asyncio
     async def test_unsupported_scheme(self):
         from d2c.tools.web_fetch import WebFetchTool
+
         tool = WebFetchTool()
         result = await tool.execute(url="ftp://files.example.com/data")
         assert result.error is True
@@ -307,13 +328,16 @@ class TestWebFetchTool:
         tool = WebFetchTool()
 
         import httpx
+
         mock_response = MagicMock()
         mock_response.status_code = 404
 
         mock_client = MagicMock()
-        mock_client.get = AsyncMock(side_effect=httpx.HTTPStatusError(
-            "Not Found", request=MagicMock(), response=mock_response
-        ))
+        mock_client.get = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "Not Found", request=MagicMock(), response=mock_response
+            )
+        )
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -330,6 +354,7 @@ class TestWebFetchTool:
         tool = WebFetchTool()
 
         import httpx
+
         mock_client = MagicMock()
         mock_client.get = AsyncMock(side_effect=httpx.TimeoutException("timed out"))
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -344,6 +369,7 @@ class TestWebFetchTool:
     @pytest.mark.asyncio
     async def test_html_to_text_strips_tags(self):
         from d2c.tools.web_fetch import _html_to_text
+
         text = _html_to_text(
             "<html><head><script>alert('xss')</script></head>"
             "<body><h1>Title</h1><p>Content</p></body></html>"
@@ -356,12 +382,14 @@ class TestWebFetchTool:
     @pytest.mark.asyncio
     async def test_html_to_text_strips_comments(self):
         from d2c.tools.web_fetch import _html_to_text
+
         text = _html_to_text("<!-- secret --><p>visible</p>")
         assert "visible" in text
         assert "secret" not in text
 
     def test_webfetch_tool_attributes(self):
         from d2c.tools.web_fetch import WebFetchTool
+
         tool = WebFetchTool()
         assert tool.name == "WebFetch"
         assert tool.category == PermissionCategory.READ
@@ -370,10 +398,12 @@ class TestWebFetchTool:
 
 # ── WebSearchTool tests ────────────────────────────────────────────────
 
+
 class TestWebSearchTool:
     @pytest.mark.asyncio
     async def test_missing_query(self):
         from d2c.tools.web_search import WebSearchTool
+
         tool = WebSearchTool()
         result = await tool.execute()
         assert result.error is True
@@ -385,6 +415,7 @@ class TestWebSearchTool:
         monkeypatch.delenv("D2C_WEBSEARCH_PROVIDER", raising=False)
         monkeypatch.delenv("D2C_WEBSEARCH_API_KEY", raising=False)
         from d2c.tools.web_search import WebSearchTool
+
         tool = WebSearchTool()
         result = await tool.execute(query="test query")
         assert result.error is True
@@ -398,6 +429,7 @@ class TestWebSearchTool:
         monkeypatch.delenv("D2C_WEBSEARCH_PROVIDER", raising=False)
         monkeypatch.delenv("D2C_WEBSEARCH_API_KEY", raising=False)
         from d2c.tools.web_search import WebSearchTool
+
         tool = WebSearchTool()
         result = await tool.execute(query="test", max_results=50)
         assert result.error is True
@@ -405,6 +437,7 @@ class TestWebSearchTool:
 
     def test_websearch_tool_attributes(self):
         from d2c.tools.web_search import WebSearchTool
+
         tool = WebSearchTool()
         assert tool.name == "WebSearch"
         assert tool.category == PermissionCategory.READ

@@ -18,6 +18,7 @@ class PluginManifest:
 
     Each plugin is a directory containing a manifest.json file.
     """
+
     name: str
     version: str
     description: str = ""
@@ -34,6 +35,7 @@ class PluginManifest:
 @dataclass
 class LoadedPlugin:
     """A plugin that has been loaded and validated."""
+
     manifest: PluginManifest
     hooks_registered: int = 0
     skills_loaded: int = 0

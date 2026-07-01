@@ -11,69 +11,87 @@ import asyncio
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 # Phase 31: Rich TUI / REPL Console
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.history import FileHistory
 
+from d2c.compact import CompactConfig
 from d2c.config import Config
 from d2c.context import (
-    SystemContext,
     assembleMessages,
     getSystemContext,
     getSystemPrompt,
     getUserContext,
 )
-from d2c.loop import LoopConfig, queryLoop
-from d2c.loop import TextDelta, TextResponse as LoopTextResponse
-from d2c.loop import ToolExecutionEvent, StopEvent
-from d2c.compact import CompactConfig
-from d2c.hooks import HookRegistry
+from d2c.file_history import FileHistory as SessionFileHistory
+from d2c.file_history import FileHistoryTracker
+from d2c.history import PromptHistory
+from d2c.hooks import HookDefinition, HookEvent, HookRegistry, HookType
+from d2c.loop import LoopConfig, StopEvent, TextDelta, ToolExecutionEvent, queryLoop
+from d2c.loop import TextResponse as LoopTextResponse
+from d2c.memory import LazyMemoryLoader
+from d2c.observability import AuditLogger, audit, set_audit_logger
 from d2c.permissions import PermissionEngine
 from d2c.persistence import SessionEntry, SessionManager, SessionStore, _utc_now
+from d2c.plugins.loader import PluginLoader
+from d2c.sandbox import SandboxConfig
+from d2c.tools import set_active_hooks, set_active_memory_loader, set_file_history_tracker
 from d2c.tools.pool import Config as PoolConfig
 from d2c.tools.pool import assembleToolPool
-from d2c.plugins.loader import PluginLoader
-from d2c.hooks import HookDefinition, HookEvent, HookType
-from d2c.file_history import FileHistory as SessionFileHistory, FileHistoryTracker
-from d2c.history import PromptHistory
-from d2c.tools import set_file_history_tracker, set_active_hooks, set_active_memory_loader
-from d2c.sandbox import SandboxConfig
-from d2c.memory import LazyMemoryLoader
-from d2c.observability import AuditLogger, set_audit_logger, audit
+
+if TYPE_CHECKING:
+    from d2c.trust import WorkSpaceTrustGate
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="d2c — an interactive CLI coding agent")
     parser.add_argument("prompt", nargs="?", help="Single-shot prompt (omit for interactive REPL)")
-    parser.add_argument("--model", default=None, help="DeepSeek model to use (v4-pro, chat/v3, reasoner/r1)")
+    parser.add_argument(
+        "--model", default=None, help="DeepSeek model to use (v4-pro, chat/v3, reasoner/r1)"
+    )
     parser.add_argument("--max-turns", type=int, default=25, help="Maximum agent turns")
     parser.add_argument("--cwd", type=Path, default=None, help="Working directory")
     parser.add_argument("--session", default=None, help="Session ID to use")
     parser.add_argument("--resume", default=None, help="Session ID to resume")
     parser.add_argument("--fork", default=None, help="Session ID to fork from")
-    parser.add_argument("--mcp", action="store_true", help="Start as an MCP server (stdio JSON-RPC) for IDE integration")
-    parser.add_argument("--list-models", action="store_true", help="List available DeepSeek models and exit")
-    parser.add_argument("--rewind-files", default=None, metavar="SESSION_ID",
-                        help="Revert all filesystem changes from the given session")
+    parser.add_argument(
+        "--mcp",
+        action="store_true",
+        help="Start as an MCP server (stdio JSON-RPC) for IDE integration",
+    )
+    parser.add_argument(
+        "--list-models", action="store_true", help="List available DeepSeek models and exit"
+    )
+    parser.add_argument(
+        "--rewind-files",
+        default=None,
+        metavar="SESSION_ID",
+        help="Revert all filesystem changes from the given session",
+    )
 
     # Trust gate flags (mutually exclusive)
     trust_group = parser.add_mutually_exclusive_group()
     trust_group.add_argument(
-        "--trust", action="store_true",
+        "--trust",
+        action="store_true",
         help="Trust the workspace and load all project-local features",
     )
     trust_group.add_argument(
-        "--no-trust", action="store_true",
+        "--no-trust",
+        action="store_true",
         help="Run without trusting the workspace (skip project-local .env, plugins, skills, MCP, memory)",
     )
 
     return parser.parse_args()
 
 
-def _setup_session(args: argparse.Namespace, config: Config) -> tuple[SessionStore | None, list[dict] | None]:
+def _setup_session(
+    args: argparse.Namespace, config: Config
+) -> tuple[SessionStore | None, list[dict] | None]:
     """Create/resume/fork session. Returns (store, resume_messages_or_None)."""
     manager = SessionManager()
     cwd = args.cwd or config.cwd
@@ -88,12 +106,15 @@ def _setup_session(args: argparse.Namespace, config: Config) -> tuple[SessionSto
         return store, None
     elif args.session:
         store = SessionStore(manager.base_dir, args.session, cwd)
-        store.append(SessionEntry(
-            role="system", content="",
-            timestamp=_utc_now(),
-            entry_type="message",
-            metadata={"event": "session_start", "cwd": str(cwd)},
-        ))
+        store.append(
+            SessionEntry(
+                role="system",
+                content="",
+                timestamp=_utc_now(),
+                entry_type="message",
+                metadata={"event": "session_start", "cwd": str(cwd)},
+            )
+        )
         print(f"Session: {store.session_id}")
         return store, None
     else:
@@ -103,7 +124,8 @@ def _setup_session(args: argparse.Namespace, config: Config) -> tuple[SessionSto
 
 
 def _load_plugins(
-    config: Config, hook_registry: HookRegistry,
+    config: Config,
+    hook_registry: HookRegistry,
 ) -> tuple[list, list[dict]]:
     """Load plugins from all sources and register hooks/skills/agents.
 
@@ -141,14 +163,14 @@ def _load_plugins(
                 plugin.hooks_registered += 1
             except (ValueError, KeyError) as e:
                 print(
-                    f"Warning: Plugin '{plugin.manifest.name}': "
-                    f"invalid hook definition: {e}",
+                    f"Warning: Plugin '{plugin.manifest.name}': invalid hook definition: {e}",
                     file=sys.stderr,
                 )
 
         # Load skills from plugin directory
         if plugin.manifest.skills:
             from d2c.skills.loader import SkillDefinition, parse_frontmatter
+
             plugin_dir = Path(plugin.manifest.source_path)
             for skill_file_name in plugin.manifest.skills:
                 skill_path = plugin_dir / skill_file_name
@@ -185,11 +207,13 @@ def _load_plugins(
             for agent_file_name in plugin.manifest.agents:
                 agent_path = plugin_dir / agent_file_name
                 if agent_path.exists():
-                    plugin_agents.append({
-                        "name": agent_path.stem,
-                        "path": str(agent_path),
-                        "source": f"plugin:{plugin.manifest.name}",
-                    })
+                    plugin_agents.append(
+                        {
+                            "name": agent_path.stem,
+                            "path": str(agent_path),
+                            "source": f"plugin:{plugin.manifest.name}",
+                        }
+                    )
                     plugin.agents_loaded += 1
 
     return plugin_skills, plugin_agents
@@ -208,9 +232,20 @@ class D2CCompleter(Completer):
     """
 
     _IGNORE_PATTERNS = {
-        ".git", "node_modules", "__pycache__", ".venv", "venv",
-        ".pytest_cache", ".mypy_cache", ".tox", "dist", "build",
-        ".egg-info", ".d2c", ".hg", ".svn",
+        ".git",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        "venv",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".tox",
+        "dist",
+        "build",
+        ".egg-info",
+        ".d2c",
+        ".hg",
+        ".svn",
     }
     _MAX_DEPTH = 2
 
@@ -218,8 +253,13 @@ class D2CCompleter(Completer):
         self.cwd = cwd
         self.tools = tools
         self.commands = [
-            "/exit", "/quit", "/clear", "/resume", "/fork",
-            "/settings", "/help",
+            "/exit",
+            "/quit",
+            "/clear",
+            "/resume",
+            "/fork",
+            "/settings",
+            "/help",
         ]
 
     def get_completions(self, document, complete_event):
@@ -241,6 +281,7 @@ class D2CCompleter(Completer):
     def _file_completions(self, text: str):
         """Yield file path completions matching the typed prefix."""
         import os
+
         try:
             # Strip trailing separators from text for prefix matching
             clean_text = text.rstrip("/\\")
@@ -320,16 +361,18 @@ class D2CCompleter(Completer):
 
 
 def get_statusbar_text(
-    config: "Config", session_store: Any, active_tasks: int = 0,
+    config: "Config",
+    session_store: Any,
+    active_tasks: int = 0,
 ) -> HTML:
     """Return status bar text formatted as HTML for the bottom toolbar.
 
     Displays session ID, permission mode, model, and active task count.
     """
-    mode = getattr(config, 'permission_mode', 'default').upper()
+    mode = getattr(config, "permission_mode", "default").upper()
     sess_id = ""
     if session_store is not None:
-        sess_id = getattr(session_store, 'session_id', '') or ""
+        sess_id = getattr(session_store, "session_id", "") or ""
     task_str = f" | Tasks: {active_tasks}" if active_tasks > 0 else ""
 
     return HTML(
@@ -367,20 +410,28 @@ async def _wire_runtime(config: Config, session_store, hook_registry) -> None:
     set_audit_logger(logger)
     logger.set_context(
         session_id=(session_store.session_id if session_store else None),
-        cwd=str(config.cwd), model=config.model, permission_mode=config.permission_mode,
+        cwd=str(config.cwd),
+        model=config.model,
+        permission_mode=config.permission_mode,
     )
     audit("session_start", session_id=(session_store.session_id if session_store else None))
-    await hook_registry.fire(HookEvent.SESSION_START, {
-        "session_id": session_store.session_id if session_store else None,
-        "cwd": str(config.cwd),
-        "model": config.model,
-        "mode": config.permission_mode,
-    })
+    await hook_registry.fire(
+        HookEvent.SESSION_START,
+        {
+            "session_id": session_store.session_id if session_store else None,
+            "cwd": str(config.cwd),
+            "model": config.model,
+            "mode": config.permission_mode,
+        },
+    )
     # Phase 40: CLAUDE.md / memory hierarchy is loaded into user context here.
-    await hook_registry.fire(HookEvent.INSTRUCTIONS_LOADED, {
-        "session_id": session_store.session_id if session_store else None,
-        "cwd": str(config.cwd),
-    })
+    await hook_registry.fire(
+        HookEvent.INSTRUCTIONS_LOADED,
+        {
+            "session_id": session_store.session_id if session_store else None,
+            "cwd": str(config.cwd),
+        },
+    )
 
 
 def _pool_config_from(config: Config) -> "PoolConfig":
@@ -393,9 +444,11 @@ def _pool_config_from(config: Config) -> "PoolConfig":
 
 # ── Phase 36: REPL slash commands ─────────────────────────────────────
 
+
 @dataclass
 class SlashCommand:
     """A parsed REPL slash command."""
+
     name: str
     args: list[str] = field(default_factory=list)
 
@@ -403,6 +456,7 @@ class SlashCommand:
 @dataclass
 class ReplState:
     """Mutable REPL state that slash commands operate on."""
+
     config: Config
     session_store: object
     conversation: list[dict] = field(default_factory=list)
@@ -421,6 +475,7 @@ def parse_slash_command(text: str) -> "SlashCommand | None":
 def _tool_input_preview(tool_input: dict) -> str:
     """Compact, non-sensitive preview of tool input for the approval prompt."""
     import json
+
     try:
         s = json.dumps(tool_input, default=str)
     except Exception:
@@ -460,6 +515,7 @@ def _print_help() -> None:
 
 def _print_settings(state: "ReplState") -> None:
     from d2c.trust import get_trust_gate
+
     config = state.config
     try:
         trusted = get_trust_gate().is_project_trusted
@@ -482,25 +538,35 @@ async def _switch_session(state: ReplState, new_store, event_verb: str) -> None:
     """Phase 40: fire SESSION_END for the outgoing session and SESSION_START
     for the incoming one on /clear, /resume, /fork."""
     from d2c.tools import get_active_hooks
+
     hooks = get_active_hooks()
     old_id = getattr(state.session_store, "session_id", None)
     new_id = getattr(new_store, "session_id", None)
     if hooks is not None:
         try:
             await hooks.fire(HookEvent.SESSION_END, {"session_id": old_id, "reason": event_verb})
-            await hooks.fire(HookEvent.SESSION_START, {
-                "session_id": new_id, "cwd": str(state.config.cwd),
-                "model": state.config.model, "mode": state.config.permission_mode,
-                "via": event_verb,
-            })
+            await hooks.fire(
+                HookEvent.SESSION_START,
+                {
+                    "session_id": new_id,
+                    "cwd": str(state.config.cwd),
+                    "model": state.config.model,
+                    "mode": state.config.permission_mode,
+                    "via": event_verb,
+                },
+            )
         except Exception:
             pass
     state.session_store = new_store
     _install_file_history(state.config, new_store)
-    from d2c.observability import set_context, audit
+    from d2c.observability import audit, set_context
+
     set_context(session_id=new_id)
-    audit(f"session_{event_verb}" if event_verb in ("resume", "fork") else "session_start",
-          session_id=new_id, from_session_id=old_id)
+    audit(
+        f"session_{event_verb}" if event_verb in ("resume", "fork") else "session_start",
+        session_id=new_id,
+        from_session_id=old_id,
+    )
 
 
 async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
@@ -577,6 +643,7 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
 
     # Phase 32: Force restricted permission mode in untrusted workspaces
     from d2c.trust import get_trust_gate
+
     if not get_trust_gate().is_project_trusted:
         if config.permission_mode not in ("default", "plan"):
             print(
@@ -639,21 +706,30 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
     prompt_history.append(prompt)
 
     # Phase 15: Fire Setup hook after initialization
-    await hook_registry.fire(HookEvent.SETUP, {
-        "session_id": session_store.session_id if session_store else None,
-        "model": config.model,
-    })
+    await hook_registry.fire(
+        HookEvent.SETUP,
+        {
+            "session_id": session_store.session_id if session_store else None,
+            "model": config.model,
+        },
+    )
 
     # Phase 34: Fire UserPromptSubmit; honor block / injected context.
-    ups = await hook_registry.fire(HookEvent.USER_PROMPT_SUBMIT, {
-        "prompt": prompt,
-        "session_id": session_store.session_id if session_store else None,
-    })
+    ups = await hook_registry.fire(
+        HookEvent.USER_PROMPT_SUBMIT,
+        {
+            "prompt": prompt,
+            "session_id": session_store.session_id if session_store else None,
+        },
+    )
     if getattr(ups, "decision", None) == "deny" or getattr(ups, "veto", False):
         print("[prompt blocked by UserPromptSubmit hook]")
-        await hook_registry.fire(HookEvent.SESSION_END, {
-            "session_id": session_store.session_id if session_store else None,
-        })
+        await hook_registry.fire(
+            HookEvent.SESSION_END,
+            {
+                "session_id": session_store.session_id if session_store else None,
+            },
+        )
         return
     if getattr(ups, "additional_context", None):
         messages.insert(0, {"role": "user", "content": ups.additional_context})
@@ -677,9 +753,12 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
     finally:
         # Phase 15: Fire SessionEnd hook
         audit("session_end", session_id=(session_store.session_id if session_store else None))
-        await hook_registry.fire(HookEvent.SESSION_END, {
-            "session_id": session_store.session_id if session_store else None,
-        })
+        await hook_registry.fire(
+            HookEvent.SESSION_END,
+            {
+                "session_id": session_store.session_id if session_store else None,
+            },
+        )
 
 
 async def run_interactive(args: argparse.Namespace) -> None:
@@ -699,6 +778,7 @@ async def run_interactive(args: argparse.Namespace) -> None:
 
     # Phase 32: Force restricted permission mode in untrusted workspaces
     from d2c.trust import get_trust_gate
+
     if not get_trust_gate().is_project_trusted:
         if config.permission_mode not in ("default", "plan"):
             print(
@@ -736,10 +816,13 @@ async def run_interactive(args: argparse.Namespace) -> None:
     print()
 
     # Phase 15: Fire Setup hook after initialization
-    await hook_registry.fire(HookEvent.SETUP, {
-        "session_id": session_store.session_id if session_store else None,
-        "model": config.model,
-    })
+    await hook_registry.fire(
+        HookEvent.SETUP,
+        {
+            "session_id": session_store.session_id if session_store else None,
+            "model": config.model,
+        },
+    )
 
     # Phase 31: Setup prompt_toolkit PromptSession with history and completions
     history_file = Path.home() / ".d2c" / "repl_history.txt"
@@ -764,7 +847,9 @@ async def run_interactive(args: argparse.Namespace) -> None:
                 prompt_text = await session.prompt_async(
                     "> ",
                     bottom_toolbar=lambda: get_statusbar_text(
-                        state.config, state.session_store, active_tasks,
+                        state.config,
+                        state.session_store,
+                        active_tasks,
                     ),
                 )
                 prompt_text = prompt_text.strip()
@@ -794,10 +879,13 @@ async def run_interactive(args: argparse.Namespace) -> None:
             PromptHistory().append(prompt_text)
 
             # Phase 34: UserPromptSubmit hook — honor block / injected context
-            ups = await hook_registry.fire(HookEvent.USER_PROMPT_SUBMIT, {
-                "prompt": prompt_text,
-                "session_id": getattr(state.session_store, "session_id", None),
-            })
+            ups = await hook_registry.fire(
+                HookEvent.USER_PROMPT_SUBMIT,
+                {
+                    "prompt": prompt_text,
+                    "session_id": getattr(state.session_store, "session_id", None),
+                },
+            )
             if getattr(ups, "decision", None) == "deny" or getattr(ups, "veto", False):
                 print("[prompt blocked by UserPromptSubmit hook]")
                 continue
@@ -833,10 +921,14 @@ async def run_interactive(args: argparse.Namespace) -> None:
             loop_config.system_prompt = full_prompt
             # Record user message
             if state.session_store:
-                state.session_store.append(SessionEntry(
-                    role="user", content=prompt_text,
-                    timestamp=_utc_now(), entry_type="message",
-                ))
+                state.session_store.append(
+                    SessionEntry(
+                        role="user",
+                        content=prompt_text,
+                        timestamp=_utc_now(),
+                        entry_type="message",
+                    )
+                )
 
             assistant_text = ""
             try:
@@ -865,9 +957,12 @@ async def run_interactive(args: argparse.Namespace) -> None:
     finally:
         # Phase 15: Fire SessionEnd hook
         audit("session_end", session_id=getattr(state.session_store, "session_id", None))
-        await hook_registry.fire(HookEvent.SESSION_END, {
-            "session_id": getattr(state.session_store, "session_id", None),
-        })
+        await hook_registry.fire(
+            HookEvent.SESSION_END,
+            {
+                "session_id": getattr(state.session_store, "session_id", None),
+            },
+        )
 
 
 def _has_local_extensions(cwd: Path) -> bool:
@@ -958,7 +1053,9 @@ def main() -> None:
     if args.rewind_files:
         base_dir = Path.home() / ".d2c"
         restored = SessionFileHistory.rewind_session(
-            base_dir, args.rewind_files, cwd=args.cwd,
+            base_dir,
+            args.rewind_files,
+            cwd=args.cwd,
         )
         if restored:
             print(f"Restored {len(restored)} file(s) from session {args.rewind_files}:")
@@ -970,17 +1067,23 @@ def main() -> None:
 
     if args.mcp:
         from d2c.mcp.server import run_mcp_server
+
         asyncio.run(run_mcp_server(args))
         return
 
     if args.list_models:
-        from d2c.config import DEEPSEEK_MODEL_DEFAULTS, DEEPSEEK_MODEL_ALIASES
+        from d2c.config import DEEPSEEK_MODEL_ALIASES, DEEPSEEK_MODEL_DEFAULTS
+
         print("Available DeepSeek models (via Anthropic-compatible API):")
         for model_id, defaults in DEEPSEEK_MODEL_DEFAULTS.items():
-            aliases = [k for k, v in DEEPSEEK_MODEL_ALIASES.items() if v == model_id and k != model_id]
+            aliases = [
+                k for k, v in DEEPSEEK_MODEL_ALIASES.items() if v == model_id and k != model_id
+            ]
             alias_str = f" (aliases: {', '.join(aliases)})" if aliases else ""
             print(f"  {model_id}{alias_str}")
-            print(f"    context: {defaults['context_window']:,} tokens, max_tokens: {defaults['max_tokens']}")
+            print(
+                f"    context: {defaults['context_window']:,} tokens, max_tokens: {defaults['max_tokens']}"
+            )
         return
 
     # Trust gate (must run before Config.load — reads project .env)

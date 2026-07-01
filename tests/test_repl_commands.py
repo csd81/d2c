@@ -8,14 +8,14 @@ from functools import partial
 import pytest
 
 import d2c.main as main
+from d2c.config import Config
 from d2c.main import (
     ReplState,
     SlashCommand,
     handle_slash_command,
     parse_slash_command,
 )
-from d2c.config import Config
-from d2c.persistence import SessionManager, SessionEntry, _utc_now
+from d2c.persistence import SessionEntry, SessionManager, _utc_now
 from d2c.tools import set_file_history_tracker
 
 
@@ -38,6 +38,7 @@ def _state(cwd, session_store) -> ReplState:
 
 # ── Parser ────────────────────────────────────────────────────────────
 
+
 def test_parse_help_no_args():
     cmd = parse_slash_command("/help")
     assert cmd is not None
@@ -58,6 +59,7 @@ def test_parse_non_slash_returns_none():
 
 # ── Dispatch ──────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_unknown_command_handled_locally(tmp_dir, capsys):
     state = _state(tmp_dir, None)
@@ -76,8 +78,11 @@ async def test_exit_returns_false(tmp_dir):
 @pytest.mark.asyncio
 async def test_settings_prints_no_secrets(tmp_dir, tmp_manager, capsys, trusted_gate):
     store = tmp_manager.create_session(tmp_dir)
-    state = ReplState(config=Config(cwd=tmp_dir, deepseek_api_key="sk-SECRET"),
-                      session_store=store, conversation=[])
+    state = ReplState(
+        config=Config(cwd=tmp_dir, deepseek_api_key="sk-SECRET"),
+        session_store=store,
+        conversation=[],
+    )
     await handle_slash_command(SlashCommand(name="/settings"), state)
     out = capsys.readouterr().out
     assert "model" in out
@@ -90,8 +95,11 @@ async def test_settings_prints_no_secrets(tmp_dir, tmp_manager, capsys, trusted_
 @pytest.mark.asyncio
 async def test_clear_replaces_session_and_empties_conversation(tmp_dir, tmp_manager):
     old = tmp_manager.create_session(tmp_dir)
-    state = ReplState(config=Config(cwd=tmp_dir), session_store=old,
-                      conversation=[{"role": "user", "content": "hi"}])
+    state = ReplState(
+        config=Config(cwd=tmp_dir),
+        session_store=old,
+        conversation=[{"role": "user", "content": "hi"}],
+    )
     await handle_slash_command(SlashCommand(name="/clear"), state)
     assert state.conversation == []
     assert state.session_store.session_id != old.session_id
@@ -100,8 +108,11 @@ async def test_clear_replaces_session_and_empties_conversation(tmp_dir, tmp_mana
 @pytest.mark.asyncio
 async def test_resume_loads_messages_and_replaces_session(tmp_dir, tmp_manager):
     src = tmp_manager.create_session(tmp_dir)
-    src.append(SessionEntry(role="user", content="earlier question",
-                            timestamp=_utc_now(), entry_type="message"))
+    src.append(
+        SessionEntry(
+            role="user", content="earlier question", timestamp=_utc_now(), entry_type="message"
+        )
+    )
 
     state = _state(tmp_dir, None)
     await handle_slash_command(SlashCommand(name="/resume", args=[src.session_id]), state)
@@ -113,8 +124,11 @@ async def test_resume_loads_messages_and_replaces_session(tmp_dir, tmp_manager):
 @pytest.mark.asyncio
 async def test_fork_creates_new_session_with_messages(tmp_dir, tmp_manager):
     src = tmp_manager.create_session(tmp_dir)
-    src.append(SessionEntry(role="user", content="forked question",
-                            timestamp=_utc_now(), entry_type="message"))
+    src.append(
+        SessionEntry(
+            role="user", content="forked question", timestamp=_utc_now(), entry_type="message"
+        )
+    )
 
     state = _state(tmp_dir, None)
     await handle_slash_command(SlashCommand(name="/fork", args=[src.session_id]), state)

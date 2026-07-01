@@ -35,7 +35,12 @@ class FakeProvider:
 
     async def search(self, query, *, max_results, recency_days=None, domains=None):
         self.calls.append(
-            {"query": query, "max_results": max_results, "recency_days": recency_days, "domains": domains}
+            {
+                "query": query,
+                "max_results": max_results,
+                "recency_days": recency_days,
+                "domains": domains,
+            }
         )
         if self._raises:
             raise self._raises
@@ -47,6 +52,7 @@ def _inject(monkeypatch, fake):
 
 
 # ── Tool: config + validation ─────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_unconfigured_returns_clear_error(monkeypatch):
@@ -96,13 +102,18 @@ async def test_filters_forwarded(monkeypatch):
 
 # ── Tool: results + errors ────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_successful_search_formats_results(monkeypatch):
     _configure(monkeypatch)
-    fake = FakeProvider(results=[
-        SearchResult(title="Py 3.13", url="https://python.org/3.13", snippet="release notes"),
-        SearchResult(title="Changelog", url="https://docs.python.org/cl", snippet="what changed"),
-    ])
+    fake = FakeProvider(
+        results=[
+            SearchResult(title="Py 3.13", url="https://python.org/3.13", snippet="release notes"),
+            SearchResult(
+                title="Changelog", url="https://docs.python.org/cl", snippet="what changed"
+            ),
+        ]
+    )
     _inject(monkeypatch, fake)
     res = await WebSearchTool().execute(query="python 3.13")
     assert res.error is False
@@ -154,15 +165,24 @@ async def test_rate_limit_error(monkeypatch):
 
 # ── Provider: normalization + HTTP status mapping (mock _http_post_json) ─
 
+
 @pytest.mark.asyncio
 async def test_tavily_normalizes_response(monkeypatch):
     async def fake_post(url, payload, timeout):
         assert payload["query"] == "hello"
         assert payload["max_results"] == 3
-        return 200, {"results": [
-            {"title": "A", "url": "https://a.com", "content": "  snip a  ", "published_date": "2026-06-01"},
-            {"title": "B", "url": "https://b.com", "content": "snip b"},
-        ]}
+        return 200, {
+            "results": [
+                {
+                    "title": "A",
+                    "url": "https://a.com",
+                    "content": "  snip a  ",
+                    "published_date": "2026-06-01",
+                },
+                {"title": "B", "url": "https://b.com", "content": "snip b"},
+            ]
+        }
+
     monkeypatch.setattr(ws, "_http_post_json", fake_post)
     out = await TavilyProvider("k").search("hello", max_results=3)
     assert [r.title for r in out] == ["A", "B"]
@@ -178,6 +198,7 @@ async def test_tavily_passes_filters(monkeypatch):
     async def fake_post(url, payload, timeout):
         captured.update(payload)
         return 200, {"results": []}
+
     monkeypatch.setattr(ws, "_http_post_json", fake_post)
     await TavilyProvider("k").search("q", max_results=5, recency_days=3, domains=["x.com"])
     assert captured["days"] == 3
@@ -185,14 +206,18 @@ async def test_tavily_passes_filters(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status,exc", [
-    (401, WebSearchAuthError),
-    (403, WebSearchAuthError),
-    (429, WebSearchRateLimitError),
-])
+@pytest.mark.parametrize(
+    "status,exc",
+    [
+        (401, WebSearchAuthError),
+        (403, WebSearchAuthError),
+        (429, WebSearchRateLimitError),
+    ],
+)
 async def test_tavily_status_mapping(monkeypatch, status, exc):
     async def fake_post(url, payload, timeout):
         return status, {}
+
     monkeypatch.setattr(ws, "_http_post_json", fake_post)
     with pytest.raises(exc):
         await TavilyProvider("k").search("q", max_results=5)

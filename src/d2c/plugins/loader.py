@@ -56,6 +56,7 @@ class PluginLoader:
 
         # Tier 3: Project (highest precedence) — only if trusted
         from d2c.trust import get_trust_gate
+
         if get_trust_gate().is_project_trusted:
             project_plugins_dir = project_dir / self._project_dir_name
             for m in self._discover_from_dir(project_plugins_dir, "project"):
@@ -70,7 +71,8 @@ class PluginLoader:
         return list(manifests.values())
 
     def discover_and_load(
-        self, cwd: Path | None = None,
+        self,
+        cwd: Path | None = None,
     ) -> list[LoadedPlugin]:
         """Discover and validate all plugins. Returns loaded plugins.
 
@@ -90,7 +92,9 @@ class PluginLoader:
         return loaded
 
     def _discover_from_dir(
-        self, base_dir: Path, source: str,
+        self,
+        base_dir: Path,
+        source: str,
     ) -> list[PluginManifest]:
         """Discover plugin directories in a base directory."""
         if not base_dir.is_dir():
@@ -110,7 +114,9 @@ class PluginLoader:
         return manifests
 
     def _load_plugin(
-        self, manifest: PluginManifest, loaded_names: set[str],
+        self,
+        manifest: PluginManifest,
+        loaded_names: set[str],
     ) -> LoadedPlugin:
         """Validate and load a single plugin. Checks dependencies."""
         errors: list[str] = []

@@ -29,8 +29,9 @@ def test_config_validate_flags_missing_api_key():
 
 def test_config_validate_flags_unknown_model():
     issues = Config(deepseek_api_key="k", model="not-a-real-model").validate()
-    assert any("not a recognized" in i.lower() or "not a recognized deepseek" in i.lower()
-               for i in issues)
+    assert any(
+        "not a recognized" in i.lower() or "not a recognized deepseek" in i.lower() for i in issues
+    )
 
 
 def test_config_validate_clean_when_configured():

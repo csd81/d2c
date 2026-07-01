@@ -7,14 +7,14 @@ working directory. Long-running commands can be backgrounded.
 from __future__ import annotations
 
 import asyncio
-import os
 import platform
-import shlex
-import subprocess
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from d2c.tools import PermissionCategory, Tool, ToolResult
+
+if TYPE_CHECKING:
+    from d2c.sandbox import SandboxConfig, SandboxExecutor
 
 
 class BashTool(Tool):
@@ -68,6 +68,7 @@ class BashTool(Tool):
         """Lazy init sandbox executor."""
         if self._sandbox_executor is None:
             from d2c.sandbox import SandboxExecutor
+
             self._sandbox_executor = SandboxExecutor()
         return self._sandbox_executor
 
@@ -86,10 +87,13 @@ class BashTool(Tool):
 
             # Skip sandbox if dangerouslyDisableSandbox is set
             if not dangerouslyDisableSandbox and executor.should_use_sandbox(
-                command, sandbox_config,
+                command,
+                sandbox_config,
             ):
                 return await self._execute_sandboxed(
-                    command, timeout, sandbox_config,
+                    command,
+                    timeout,
+                    sandbox_config,
                 )
 
         if platform.system() == "Windows":
@@ -159,13 +163,17 @@ class BashTool(Tool):
             proc.kill()
             await proc.wait()  # wait for process to fully terminate
             return ToolResult(
-                output=f"Error: command timed out after {timeout_ms}ms.\n"
-                       f"Command: {command}",
+                output=f"Error: command timed out after {timeout_ms}ms.\nCommand: {command}",
                 error=True,
                 metadata={"exit_code": -1, "timed_out": True},
             )
 
-        return self._build_result(command, proc.returncode or 0, stdout.decode("utf-8", errors="replace"), stderr.decode("utf-8", errors="replace"))
+        return self._build_result(
+            command,
+            proc.returncode or 0,
+            stdout.decode("utf-8", errors="replace"),
+            stderr.decode("utf-8", errors="replace"),
+        )
 
     async def _execute_windows(
         self,
@@ -205,13 +213,17 @@ class BashTool(Tool):
             proc.kill()
             await proc.wait()  # wait for process to fully terminate (Windows cleanup)
             return ToolResult(
-                output=f"Error: command timed out after {timeout_ms}ms.\n"
-                       f"Command: {command}",
+                output=f"Error: command timed out after {timeout_ms}ms.\nCommand: {command}",
                 error=True,
                 metadata={"exit_code": -1, "timed_out": True},
             )
 
-        return self._build_result(command, proc.returncode or 0, stdout.decode("utf-8", errors="replace"), stderr.decode("utf-8", errors="replace"))
+        return self._build_result(
+            command,
+            proc.returncode or 0,
+            stdout.decode("utf-8", errors="replace"),
+            stderr.decode("utf-8", errors="replace"),
+        )
 
     async def _collect_background(self, proc: asyncio.subprocess.Process, task_id: str) -> None:
         try:

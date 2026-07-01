@@ -1,20 +1,25 @@
 """Tests for Phase 1: Tool Base & Built-in Tools."""
 
-import asyncio
 import json
-from pathlib import Path
 
 import pytest
 
 from d2c.tools import PermissionCategory, Tool, ToolResult
 from d2c.tools.bash_tool import BashTool
 from d2c.tools.edit_tool import FileEditTool
-from d2c.tools.pool import Config, Rule, RuleType, assembleToolPool, filterToolsByDenyRules, getAllBaseTools
+from d2c.tools.pool import (
+    Config,
+    Rule,
+    RuleType,
+    assembleToolPool,
+    filterToolsByDenyRules,
+    getAllBaseTools,
+)
 from d2c.tools.read_tool import FileReadTool
 from d2c.tools.write_tool import FileWriteTool, mark_file_read
 
-
 # ── Tool ABC ──────────────────────────────────────────────────────────
+
 
 def test_tool_result_defaults():
     r = ToolResult(output="hello")
@@ -47,6 +52,7 @@ def test_tool_api_format():
 
 
 # ── FileReadTool ──────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_read_text_file(tmp_dir):
@@ -152,6 +158,7 @@ async def test_read_notebook(tmp_dir):
 
 # ── FileWriteTool ─────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_write_new_file(tmp_dir):
     f = tmp_dir / "new.txt"
@@ -206,6 +213,7 @@ async def test_write_parent_missing(tmp_dir):
 
 
 # ── FileEditTool ──────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_edit_single_occurrence(tmp_dir):
@@ -317,6 +325,7 @@ async def test_edit_same_string_fails(tmp_dir):
 
 # ── BashTool ──────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_bash_simple_command(tmp_dir):
     tool = BashTool(cwd=tmp_dir)
@@ -348,13 +357,16 @@ async def test_bash_timeout(tmp_dir):
 async def test_bash_creates_file(tmp_dir):
     tool = BashTool(cwd=tmp_dir)
     # Use python to write the file to avoid PowerShell UTF-16 encoding
-    result = await tool.execute(command="python -c \"open('output.txt','w',encoding='utf-8').write('data')\"")
+    result = await tool.execute(
+        command="python -c \"open('output.txt','w',encoding='utf-8').write('data')\""
+    )
     assert result.error is False
     assert (tmp_dir / "output.txt").exists()
     assert (tmp_dir / "output.txt").read_text(encoding="utf-8").strip() == "data"
 
 
 # ── Tool Pool ─────────────────────────────────────────────────────────
+
 
 def test_get_all_base_tools():
     config = Config()
@@ -393,14 +405,40 @@ async def test_assemble_tool_pool():
     config = Config()
     tools = await assembleToolPool(config)
     names = {t.name for t in tools}
-    assert names == {"Read", "Write", "Edit", "Bash", "Agent", "Skill", "WebFetch", "WebSearch", "Glob", "Grep", "NotebookEdit", "TaskCreate", "TaskUpdate", "TaskList", "ToolSearch", "AgentStatus", "Remember", "GitStatus", "GitDiff", "ListDir", "FileInfo", "ReplaceMany", "JsonEdit"}
+    assert names == {
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "Agent",
+        "Skill",
+        "WebFetch",
+        "WebSearch",
+        "Glob",
+        "Grep",
+        "NotebookEdit",
+        "TaskCreate",
+        "TaskUpdate",
+        "TaskList",
+        "ToolSearch",
+        "AgentStatus",
+        "Remember",
+        "GitStatus",
+        "GitDiff",
+        "ListDir",
+        "FileInfo",
+        "ReplaceMany",
+        "JsonEdit",
+    }
 
 
 @pytest.mark.asyncio
 async def test_assemble_tool_pool_with_deny_rules():
-    config = Config(deny_rules=[
-        Rule(rule_type=RuleType.DENY, pattern="Bash"),
-    ])
+    config = Config(
+        deny_rules=[
+            Rule(rule_type=RuleType.DENY, pattern="Bash"),
+        ]
+    )
     tools = await assembleToolPool(config)
     names = {t.name for t in tools}
     assert "Bash" not in names

@@ -12,7 +12,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 # ── Fixtures ───────────────────────────────────────────────────────────
 
 
@@ -142,7 +141,6 @@ class TestFilePathCompletions:
 
     def test_ignores_common_patterns(self, completer, mock_document):
         """.git, node_modules, __pycache__ etc are excluded from completions."""
-        import os
         # Create a node_modules directory — should be excluded
         node_dir = completer.cwd / "node_modules"
         node_dir.mkdir(exist_ok=True)
@@ -235,8 +233,9 @@ class TestStatusBarRendering:
 
     def test_statusbar_is_html_type(self, mock_config, mock_session_store):
         """get_statusbar_text returns an HTML object."""
-        from d2c.main import get_statusbar_text
         from prompt_toolkit.formatted_text import HTML
+
+        from d2c.main import get_statusbar_text
 
         result = get_statusbar_text(mock_config, mock_session_store)
         assert isinstance(result, HTML)

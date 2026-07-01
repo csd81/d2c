@@ -18,8 +18,8 @@ from d2c.compact import (
     getCompactPrompt,
 )
 
-
 # ── Fixtures ───────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def config():
@@ -42,6 +42,7 @@ def sample_messages():
 
 
 # ── Budget reduction tests ─────────────────────────────────────────────
+
 
 class TestBudgetReduction:
     def test_caps_long_tool_output(self, config):
@@ -93,6 +94,7 @@ class TestBudgetReduction:
 
 # ── Token estimation tests ─────────────────────────────────────────────
 
+
 class TestEstimateTokens:
     def test_estimate_simple_messages(self):
         """Phase 28: BPE token counting — lenient range for BPE overhead."""
@@ -131,6 +133,7 @@ class TestEstimateTokens:
 
 # ── Pressure limit tests ───────────────────────────────────────────────
 
+
 class TestPressureLimit:
     def test_compute_pressure_limit(self):
         config = CompactConfig(context_window_tokens=100_000, pressure_threshold=0.85)
@@ -162,6 +165,7 @@ class TestPressureLimit:
 
 
 # ── Compact prompt tests ───────────────────────────────────────────────
+
 
 class TestGetCompactPrompt:
     def test_formats_messages(self):
@@ -207,10 +211,13 @@ class TestGetCompactPrompt:
 
     def test_handles_list_content(self):
         messages = [
-            {"role": "assistant", "content": [
-                {"type": "text", "text": "hello"},
-                {"type": "tool_use", "name": "Read", "id": "t1", "input": {}},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "hello"},
+                    {"type": "tool_use", "name": "Read", "id": "t1", "input": {}},
+                ],
+            },
         ]
         result = getCompactPrompt(messages)
         assert "[assistant]" in result
@@ -219,6 +226,7 @@ class TestGetCompactPrompt:
 
 
 # ── Post-compact message builder tests ─────────────────────────────────
+
 
 class TestBuildPostCompactMessages:
     def test_keeps_system_messages(self):
@@ -280,6 +288,7 @@ class TestBuildPostCompactMessages:
 
 # ── Context shapers orchestration tests ────────────────────────────────
 
+
 class TestApplyContextShapers:
     def test_applies_budget_reduction_when_config_present(self, config):
         messages = [{"role": "tool", "content": "x" * 1000}]
@@ -308,6 +317,7 @@ class TestApplyContextShapers:
 
 # ── Auto-compact tests (mocked model) ───────────────────────────────────
 
+
 class TestAutoCompact:
     @pytest.mark.asyncio
     async def test_auto_compact_builds_post_compact(self):
@@ -329,9 +339,11 @@ class TestAutoCompact:
 
         with patch("d2c.compact.anthropic.AsyncAnthropic") as mock_cls:
             mock_client = MagicMock()
-            mock_client.messages.create = AsyncMock(return_value=MagicMock(
-                content=[MagicMock(type="text", text="Compacted summary of the conversation")]
-            ))
+            mock_client.messages.create = AsyncMock(
+                return_value=MagicMock(
+                    content=[MagicMock(type="text", text="Compacted summary of the conversation")]
+                )
+            )
             mock_cls.return_value = mock_client
 
             result = await autoCompact(messages, loop_config)
@@ -402,9 +414,9 @@ class TestAutoCompact:
 
         with patch("d2c.compact.anthropic.AsyncAnthropic") as mock_cls:
             mock_client = MagicMock()
-            mock_client.messages.create = AsyncMock(return_value=MagicMock(
-                content=[MagicMock(type="text", text="Summary")]
-            ))
+            mock_client.messages.create = AsyncMock(
+                return_value=MagicMock(content=[MagicMock(type="text", text="Summary")])
+            )
             mock_cls.return_value = mock_client
 
             await autoCompact(messages, loop_config)

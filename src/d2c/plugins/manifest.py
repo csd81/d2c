@@ -24,9 +24,15 @@ logger = logging.getLogger(__name__)
 
 REQUIRED_FIELDS = {"name", "version"}
 KNOWN_FIELDS = {
-    "name", "version", "description",
-    "hooks", "skills", "commands", "agents",
-    "mcp_servers", "dependencies",
+    "name",
+    "version",
+    "description",
+    "hooks",
+    "skills",
+    "commands",
+    "agents",
+    "mcp_servers",
+    "dependencies",
 }
 
 
@@ -59,7 +65,8 @@ def parse_manifest(plugin_dir: Path) -> PluginManifest | None:
     if missing:
         logger.warning(
             "Plugin in %s missing required fields: %s",
-            plugin_dir, ", ".join(missing),
+            plugin_dir,
+            ", ".join(missing),
         )
         return None
 
@@ -78,7 +85,8 @@ def parse_manifest(plugin_dir: Path) -> PluginManifest | None:
     if unknown:
         logger.debug(
             "Plugin '%s' has unknown fields: %s",
-            name, ", ".join(unknown),
+            name,
+            ", ".join(unknown),
         )
 
     # Parse and validate hook definitions
@@ -129,13 +137,15 @@ def _parse_hooks(raw_hooks: list, plugin_name: str) -> list[dict]:
         if not isinstance(hook, dict):
             logger.warning(
                 "Plugin '%s': hook #%d is not an object, skipping",
-                plugin_name, i + 1,
+                plugin_name,
+                i + 1,
             )
             continue
         if "event" not in hook:
             logger.warning(
                 "Plugin '%s': hook #%d missing 'event' field, skipping",
-                plugin_name, i + 1,
+                plugin_name,
+                i + 1,
             )
             continue
         valid.append(hook)
@@ -147,7 +157,9 @@ def _parse_string_list(raw: list, field_name: str, plugin_name: str) -> list[str
     """Validate a list of strings from manifest."""
     if not isinstance(raw, list):
         logger.warning(
-            "Plugin '%s': '%s' must be a list", plugin_name, field_name,
+            "Plugin '%s': '%s' must be a list",
+            plugin_name,
+            field_name,
         )
         return []
 
@@ -156,7 +168,9 @@ def _parse_string_list(raw: list, field_name: str, plugin_name: str) -> list[str
         if not isinstance(item, str):
             logger.warning(
                 "Plugin '%s': %s[%d] is not a string, skipping",
-                plugin_name, field_name, i,
+                plugin_name,
+                field_name,
+                i,
             )
             continue
         result.append(item)

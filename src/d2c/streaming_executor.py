@@ -81,8 +81,7 @@ class StreamingToolExecutor:
             await self._progress.wait()
             self._progress.clear()
 
-        return [self._results[tid] for tid in self._order
-                if tid in self._results]
+        return [self._results[tid] for tid in self._order if tid in self._results]
 
     def abort_all(self) -> None:
         """Sibling abort: terminate all in-flight tools.
@@ -99,7 +98,8 @@ class StreamingToolExecutor:
         return any(not t.done() for t in self._pending.values())
 
     async def _execute_and_store(
-        self, tool_use: ToolUse,
+        self,
+        tool_use: ToolUse,
     ) -> tuple[ToolUse, ToolResult]:
         """Execute a single tool and store the result."""
         try:
@@ -145,18 +145,29 @@ class StreamingToolExecutor:
             )
 
         import time as _time
+
         from d2c.observability import audit, logs_tool_outputs
+
         _t0 = _time.perf_counter()
-        audit("tool_call_start", tool_name=tool_use.name, tool_call_id=tool_use.id,
-              category=getattr(tool.category, "value", None), streaming=True)
+        audit(
+            "tool_call_start",
+            tool_name=tool_use.name,
+            tool_call_id=tool_use.id,
+            category=getattr(tool.category, "value", None),
+            streaming=True,
+        )
 
         # PreToolUse hook
         if self._hooks:
             from d2c.hooks import HookEvent
-            pre_result = await self._hooks.fire(HookEvent.PRE_TOOL_USE, {
-                "tool_name": tool_use.name,
-                "tool_input": tool_use.input,
-            })
+
+            pre_result = await self._hooks.fire(
+                HookEvent.PRE_TOOL_USE,
+                {
+                    "tool_name": tool_use.name,
+                    "tool_input": tool_use.input,
+                },
+            )
             if pre_result.decision == "deny":
                 return ToolResult(
                     output=f"Hook denied: {pre_result.error or 'PreToolUse hook denied'}",
@@ -180,10 +191,14 @@ class StreamingToolExecutor:
             except Exception as e:
                 if self._hooks:
                     from d2c.hooks import HookEvent
-                    await self._hooks.fire(HookEvent.PERMISSION_DENIED, {
-                        "tool_name": tool_use.name,
-                        "reason": f"permission evaluation error: {type(e).__name__}",
-                    })
+
+                    await self._hooks.fire(
+                        HookEvent.PERMISSION_DENIED,
+                        {
+                            "tool_name": tool_use.name,
+                            "reason": f"permission evaluation error: {type(e).__name__}",
+                        },
+                    )
                 return ToolResult(
                     output=f"Permission check failed ({type(e).__name__}); denying for safety.",
                     error=True,
@@ -191,25 +206,40 @@ class StreamingToolExecutor:
                 )
 
             # Phase 43: resolve ASK — do not execute speculatively.
-            from d2c.permissions import resolve_permission_decision, PERMISSION_REQUIRED_REASON
+            from d2c.permissions import PERMISSION_REQUIRED_REASON, resolve_permission_decision
+
             perm_result = await resolve_permission_decision(
-                perm_request, perm_result, self._approval_callback,
+                perm_request,
+                perm_result,
+                self._approval_callback,
             )
 
             if perm_result is not None and perm_result.decision != PermissionDecision.ALLOW:
-                audit("permission_denied", level="WARNING", tool_name=tool_use.name,
-                      tool_call_id=tool_use.id, reason=perm_result.reason)
+                audit(
+                    "permission_denied",
+                    level="WARNING",
+                    tool_name=tool_use.name,
+                    tool_call_id=tool_use.id,
+                    reason=perm_result.reason,
+                )
                 result = ToolResult(
                     output=f"Permission denied: {perm_result.reason}",
                     error=True,
-                    metadata={"denied": True, "permission_required": perm_result.reason == PERMISSION_REQUIRED_REASON},
+                    metadata={
+                        "denied": True,
+                        "permission_required": perm_result.reason == PERMISSION_REQUIRED_REASON,
+                    },
                 )
                 if self._hooks:
                     from d2c.hooks import HookEvent
-                    await self._hooks.fire(HookEvent.PERMISSION_DENIED, {
-                        "tool_name": tool_use.name,
-                        "reason": perm_result.reason,
-                    })
+
+                    await self._hooks.fire(
+                        HookEvent.PERMISSION_DENIED,
+                        {
+                            "tool_name": tool_use.name,
+                            "reason": perm_result.reason,
+                        },
+                    )
                 return result
 
         try:
@@ -218,27 +248,44 @@ class StreamingToolExecutor:
             # PostToolUse hook
             if self._hooks:
                 from d2c.hooks import HookEvent
-                post_result = await self._hooks.fire(HookEvent.POST_TOOL_USE, {
-                    "tool_name": tool_use.name,
-                    "tool_input": tool_use.input,
-                    "tool_result": result.output,
-                    "error": result.error,
-                })
+
+                post_result = await self._hooks.fire(
+                    HookEvent.POST_TOOL_USE,
+                    {
+                        "tool_name": tool_use.name,
+                        "tool_input": tool_use.input,
+                        "tool_result": result.output,
+                        "error": result.error,
+                    },
+                )
                 if post_result.updated_output:
                     result.output = post_result.updated_output
                 if post_result.additional_context:
                     result.output += f"\n[Hook context: {post_result.additional_context}]"
 
-            audit("tool_call_end", tool_name=tool_use.name, tool_call_id=tool_use.id, streaming=True,
-                  duration_ms=round((_time.perf_counter() - _t0) * 1000, 1),
-                  status="error" if result.error else "ok", error=result.error,
-                  output_len=len(result.output),
-                  output=(result.output if logs_tool_outputs() else None))
+            audit(
+                "tool_call_end",
+                tool_name=tool_use.name,
+                tool_call_id=tool_use.id,
+                streaming=True,
+                duration_ms=round((_time.perf_counter() - _t0) * 1000, 1),
+                status="error" if result.error else "ok",
+                error=result.error,
+                output_len=len(result.output),
+                output=(result.output if logs_tool_outputs() else None),
+            )
             return result
         except Exception as e:
-            audit("tool_call_error", level="ERROR", tool_name=tool_use.name, tool_call_id=tool_use.id,
-                  streaming=True, duration_ms=round((_time.perf_counter() - _t0) * 1000, 1),
-                  error=True, error_class=type(e).__name__)
+            audit(
+                "tool_call_error",
+                level="ERROR",
+                tool_name=tool_use.name,
+                tool_call_id=tool_use.id,
+                streaming=True,
+                duration_ms=round((_time.perf_counter() - _t0) * 1000, 1),
+                error=True,
+                error_class=type(e).__name__,
+            )
             error_result = ToolResult(
                 output=f"Error executing tool '{tool_use.name}': {e}",
                 error=True,
@@ -246,11 +293,15 @@ class StreamingToolExecutor:
             )
             if self._hooks:
                 from d2c.hooks import HookEvent
-                await self._hooks.fire(HookEvent.POST_TOOL_USE_FAILURE, {
-                    "tool_name": tool_use.name,
-                    "tool_input": tool_use.input,
-                    "error": str(e),
-                })
+
+                await self._hooks.fire(
+                    HookEvent.POST_TOOL_USE_FAILURE,
+                    {
+                        "tool_name": tool_use.name,
+                        "tool_input": tool_use.input,
+                        "error": str(e),
+                    },
+                )
             return error_result
 
 

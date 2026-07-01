@@ -9,7 +9,6 @@ Zero-dependency isolation approach leveraging Git's built-in mechanism.
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +20,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class WorktreeContext:
     """A created worktree and its metadata."""
+
     worktree_path: Path
     branch_name: str
     original_repo: Path
@@ -65,7 +65,8 @@ class WorktreeManager:
         try:
             result = subprocess.run(
                 ["git", "-C", str(path), "rev-parse", "--git-dir"],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=10,
             )
             return result.returncode == 0
@@ -77,7 +78,8 @@ class WorktreeManager:
         try:
             result = subprocess.run(
                 ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=10,
             )
             if result.returncode == 0:
@@ -108,9 +110,7 @@ class WorktreeManager:
             WorktreeCreationError: If worktree creation fails.
         """
         if not self.is_git_repo(repo_path):
-            raise NotAGitRepoError(
-                f"Cannot create worktree: '{repo_path}' is not a git repository"
-            )
+            raise NotAGitRepoError(f"Cannot create worktree: '{repo_path}' is not a git repository")
 
         repo_root = self._find_repo_root(repo_path)
 
@@ -124,9 +124,19 @@ class WorktreeManager:
 
             # git worktree add <path> -b <branch>
             subprocess.run(
-                ["git", "-C", str(repo_root),
-                 "worktree", "add", str(worktree_path), "-b", branch_name],
-                check=True, capture_output=True, text=True,
+                [
+                    "git",
+                    "-C",
+                    str(repo_root),
+                    "worktree",
+                    "add",
+                    str(worktree_path),
+                    "-b",
+                    branch_name,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
                 timeout=30,
             )
         except subprocess.CalledProcessError as e:
@@ -134,17 +144,15 @@ class WorktreeManager:
                 f"Worktree creation failed: {e.stderr.strip() if e.stderr else e}"
             ) from e
         except subprocess.TimeoutError as e:
-            raise WorktreeCreationError(
-                "Worktree creation timed out after 30s"
-            ) from e
+            raise WorktreeCreationError("Worktree creation timed out after 30s") from e
         except OSError as e:
-            raise WorktreeCreationError(
-                f"Failed to create worktree directory: {e}"
-            ) from e
+            raise WorktreeCreationError(f"Failed to create worktree directory: {e}") from e
 
         logger.info(
             "Created worktree '%s' at %s (branch: %s)",
-            branch_name, worktree_path, branch_name,
+            branch_name,
+            worktree_path,
+            branch_name,
         )
 
         return WorktreeContext(
@@ -165,9 +173,18 @@ class WorktreeManager:
         # Remove worktree
         try:
             subprocess.run(
-                ["git", "-C", str(ctx.original_repo),
-                 "worktree", "remove", str(ctx.worktree_path), "--force"],
-                check=True, capture_output=True, text=True,
+                [
+                    "git",
+                    "-C",
+                    str(ctx.original_repo),
+                    "worktree",
+                    "remove",
+                    str(ctx.worktree_path),
+                    "--force",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
                 timeout=30,
             )
         except subprocess.CalledProcessError as e:
@@ -179,15 +196,17 @@ class WorktreeManager:
         except (subprocess.TimeoutError, OSError) as e:
             logger.warning(
                 "Failed to remove worktree '%s': %s",
-                ctx.worktree_path, e,
+                ctx.worktree_path,
+                e,
             )
 
         # Delete branch
         try:
             subprocess.run(
-                ["git", "-C", str(ctx.original_repo),
-                 "branch", "-D", ctx.branch_name],
-                check=True, capture_output=True, text=True,
+                ["git", "-C", str(ctx.original_repo), "branch", "-D", ctx.branch_name],
+                check=True,
+                capture_output=True,
+                text=True,
                 timeout=30,
             )
         except subprocess.CalledProcessError as e:
@@ -199,12 +218,14 @@ class WorktreeManager:
         except (subprocess.TimeoutError, OSError) as e:
             logger.warning(
                 "Failed to delete branch '%s': %s",
-                ctx.branch_name, e,
+                ctx.branch_name,
+                e,
             )
 
         logger.info(
             "Removed worktree '%s' (branch: %s)",
-            ctx.worktree_path, ctx.branch_name,
+            ctx.worktree_path,
+            ctx.branch_name,
         )
 
     def get_changes(self, ctx: WorktreeContext) -> str:
@@ -221,7 +242,8 @@ class WorktreeManager:
         try:
             result = subprocess.run(
                 ["git", "-C", str(ctx.worktree_path), "diff", "HEAD"],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=30,
             )
             return result.stdout if result.returncode == 0 else ""
@@ -239,9 +261,9 @@ class WorktreeManager:
         """
         try:
             result = subprocess.run(
-                ["git", "-C", str(ctx.worktree_path),
-                 "diff", "--name-only", "HEAD"],
-                capture_output=True, text=True,
+                ["git", "-C", str(ctx.worktree_path), "diff", "--name-only", "HEAD"],
+                capture_output=True,
+                text=True,
                 timeout=30,
             )
             if result.returncode == 0:

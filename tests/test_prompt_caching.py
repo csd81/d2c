@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Tests ─────────────────────────────────────────────────────────────
+
 
 class TestBuildAnthropicMessages:
     """Test _build_anthropic_messages with cache control injection."""
@@ -43,10 +43,7 @@ class TestBuildAnthropicMessages:
         from d2c.loop import _build_anthropic_messages
 
         # Build a conversation with 10 messages (> 8 threshold)
-        messages = [
-            {"role": "user", "content": f"message {i}"}
-            for i in range(10)
-        ]
+        messages = [{"role": "user", "content": f"message {i}"} for i in range(10)]
 
         result = _build_anthropic_messages(messages, enable_caching=True)
 
@@ -62,10 +59,7 @@ class TestBuildAnthropicMessages:
         """Under 8 messages, no sliding cache breakpoint."""
         from d2c.loop import _build_anthropic_messages
 
-        messages = [
-            {"role": "user", "content": f"msg {i}"}
-            for i in range(5)
-        ]
+        messages = [{"role": "user", "content": f"msg {i}"} for i in range(5)]
 
         result = _build_anthropic_messages(messages, enable_caching=True)
 
@@ -84,10 +78,7 @@ class TestBuildAnthropicMessages:
         messages = [
             {"role": "user", "content": "Context"},
             {"role": "user", "content": "Hello"},
-        ] + [
-            {"role": "user", "content": f"msg {i}"}
-            for i in range(10)
-        ]
+        ] + [{"role": "user", "content": f"msg {i}"} for i in range(10)]
 
         result = _build_anthropic_messages(messages, enable_caching=False)
 
@@ -103,18 +94,22 @@ class TestBuildAnthropicMessages:
 
         messages = [
             {"role": "user", "content": "Context"},
-            {"role": "assistant", "content": [
-                {"type": "text", "text": "Some text."},
-                {"type": "tool_use", "id": "tu_1", "name": "Read", "input": {}},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Some text."},
+                    {"type": "tool_use", "id": "tu_1", "name": "Read", "input": {}},
+                ],
+            },
             {"role": "user", "content": "next"},
-            {"role": "assistant", "content": [
-                {"type": "text", "text": "Reply."},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Reply."},
+                ],
+            },
             {"role": "user", "content": "another"},
-        ] + [
-            {"role": "user", "content": f"msg {i}"} for i in range(8)
-        ]
+        ] + [{"role": "user", "content": f"msg {i}"} for i in range(8)]
 
         result = _build_anthropic_messages(messages, enable_caching=True)
 
@@ -161,6 +156,7 @@ class TestBuildAnthropicMessages:
 
 
 # ── Integration tests ────────────────────────────────────────────────
+
 
 class TestQueryLoopCaching:
     @pytest.mark.asyncio

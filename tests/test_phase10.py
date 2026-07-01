@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── .env loading tests ─────────────────────────────────────────────────
+
 
 class TestEnvLoading:
     def test_parse_simple_key_value(self, tmp_path, monkeypatch):
@@ -20,6 +19,7 @@ class TestEnvLoading:
         env_file.write_text("DEEPSEEK_API_KEY=sk-test-12345\n")
 
         from d2c.config import _parse_env_file
+
         _parse_env_file(env_file)
         assert os.environ["DEEPSEEK_API_KEY"] == "sk-test-12345"
 
@@ -31,6 +31,7 @@ class TestEnvLoading:
         env_file.write_text('DEEPSEEK_API_KEY="sk-test-abc"\n')
 
         from d2c.config import _parse_env_file
+
         _parse_env_file(env_file)
         assert os.environ["DEEPSEEK_API_KEY"] == "sk-test-abc"
 
@@ -41,6 +42,7 @@ class TestEnvLoading:
         env_file.write_text("DEEPSEEK_API_KEY='sk-test-xyz'\n")
 
         from d2c.config import _parse_env_file
+
         _parse_env_file(env_file)
         assert os.environ["DEEPSEEK_API_KEY"] == "sk-test-xyz"
 
@@ -51,6 +53,7 @@ class TestEnvLoading:
         env_file.write_text("# This is a comment\nDEEPSEEK_API_KEY=sk-key\n")
 
         from d2c.config import _parse_env_file
+
         _parse_env_file(env_file)
         assert os.environ["DEEPSEEK_API_KEY"] == "sk-key"
 
@@ -61,6 +64,7 @@ class TestEnvLoading:
         env_file.write_text("\n\nDEEPSEEK_API_KEY=sk-key\n\n")
 
         from d2c.config import _parse_env_file
+
         _parse_env_file(env_file)
         assert os.environ["DEEPSEEK_API_KEY"] == "sk-key"
 
@@ -71,6 +75,7 @@ class TestEnvLoading:
         env_file.write_text("export DEEPSEEK_API_KEY=sk-exported\n")
 
         from d2c.config import _parse_env_file
+
         _parse_env_file(env_file)
         assert os.environ["DEEPSEEK_API_KEY"] == "sk-exported"
 
@@ -82,12 +87,14 @@ class TestEnvLoading:
         env_file.write_text("DEEPSEEK_API_KEY=sk-from-file\n")
 
         from d2c.config import _parse_env_file
+
         _parse_env_file(env_file)
         assert os.environ["DEEPSEEK_API_KEY"] == "sk-from-shell"
 
     def test_load_dotenv_no_files(self, tmp_path):
         """No .env files — does nothing, no error."""
         from d2c.config import _load_project_dotenv
+
         _load_project_dotenv(tmp_path)  # Should not raise
 
     def test_load_dotenv_reads_project_env(self, tmp_path, monkeypatch):
@@ -97,57 +104,68 @@ class TestEnvLoading:
         env_file.write_text("DEEPSEEK_API_KEY=sk-project\n")
 
         from d2c.config import _load_project_dotenv
+
         _load_project_dotenv(tmp_path)
         assert os.environ["DEEPSEEK_API_KEY"] == "sk-project"
 
 
 # ── Model mapping tests ────────────────────────────────────────────────
 
+
 class TestModelMapping:
     def test_resolve_v4_pro(self):
         from d2c.config import resolve_model
+
         assert resolve_model("v4-pro") == "deepseek-v4-pro"
         assert resolve_model("v4") == "deepseek-v4-pro"
         assert resolve_model("deepseek-v4-pro") == "deepseek-v4-pro"
 
     def test_resolve_chat(self):
         from d2c.config import resolve_model
+
         assert resolve_model("chat") == "deepseek-chat"
         assert resolve_model("v3") == "deepseek-chat"
         assert resolve_model("deepseek-chat") == "deepseek-chat"
 
     def test_resolve_reasoner(self):
         from d2c.config import resolve_model
+
         assert resolve_model("r1") == "deepseek-reasoner"
         assert resolve_model("reasoner") == "deepseek-reasoner"
         assert resolve_model("deepseek-reasoner") == "deepseek-reasoner"
 
     def test_resolve_case_insensitive(self):
         from d2c.config import resolve_model
+
         assert resolve_model("V4-PRO") == "deepseek-v4-pro"
         assert resolve_model("Chat") == "deepseek-chat"
 
     def test_resolve_unknown_passthrough(self):
         from d2c.config import resolve_model
+
         assert resolve_model("some-custom-model") == "some-custom-model"
 
     def test_get_model_defaults_known(self):
         from d2c.config import get_model_defaults
+
         defaults = get_model_defaults("v4-pro")
         assert "max_tokens" in defaults
         assert "context_window" in defaults
 
     def test_get_model_defaults_unknown(self):
         from d2c.config import get_model_defaults
+
         defaults = get_model_defaults("unknown-model")
         assert defaults["max_tokens"] == 8192
 
 
 # ── Config validation tests ────────────────────────────────────────────
 
+
 class TestConfigValidate:
     def test_validates_missing_api_key(self):
         from d2c.config import Config
+
         config = Config(deepseek_api_key=None)
         issues = config.validate()
         assert len(issues) > 0
@@ -155,6 +173,7 @@ class TestConfigValidate:
 
     def test_validates_unknown_model(self):
         from d2c.config import Config
+
         config = Config(model="nonexistent-model", deepseek_api_key="sk-test")
         issues = config.validate()
         has_model_warning = any("not a recognized" in i for i in issues)
@@ -162,6 +181,7 @@ class TestConfigValidate:
 
     def test_validates_known_model_no_warning(self):
         from d2c.config import Config
+
         config = Config(model="deepseek-chat", deepseek_api_key="sk-test")
         issues = config.validate()
         model_warnings = [i for i in issues if "not a recognized" in i]
@@ -169,22 +189,26 @@ class TestConfigValidate:
 
     def test_valid_config_no_issues(self):
         from d2c.config import Config
+
         config = Config(model="deepseek-v4-pro", deepseek_api_key="sk-test")
         issues = config.validate()
         assert issues == []
 
     def test_model_aliases_resolved_in_post_init(self):
         from d2c.config import Config
+
         config = Config(model="v4-pro", deepseek_api_key="sk-test")
         assert config.model == "deepseek-v4-pro"
 
     def test_context_window_defaults_applied(self):
         from d2c.config import Config
+
         config = Config(model="deepseek-chat")
         assert config.context_window_tokens == 128_000
 
 
 # ── Config.load tests ──────────────────────────────────────────────────
+
 
 class TestConfigLoad:
     def test_load_from_env(self, monkeypatch):
@@ -193,6 +217,7 @@ class TestConfigLoad:
         monkeypatch.setenv("D2C_MODEL", "deepseek-chat")
 
         from d2c.config import Config
+
         config = Config.load()
         assert config.deepseek_api_key == "sk-from-env"
         assert config.deepseek_base_url == "https://api.deepseek.com/anthropic"
@@ -205,6 +230,7 @@ class TestConfigLoad:
         monkeypatch.delenv("D2C_MODEL", raising=False)
 
         from d2c.config import Config
+
         config = Config.load()
         assert config.model == "deepseek-v4-pro"
         assert config.deepseek_base_url == "https://api.deepseek.com/anthropic"
@@ -217,6 +243,7 @@ class TestConfigLoad:
         env_file.write_text("DEEPSEEK_API_KEY=sk-from-dotenv\nD2C_MODEL=deepseek-chat\n")
 
         from d2c.config import Config
+
         config = Config.load(cwd=tmp_path)
         assert config.deepseek_api_key == "sk-from-dotenv"
         assert config.model == "deepseek-chat"
@@ -227,29 +254,33 @@ class TestConfigLoad:
 
 # ── TextDelta tests ────────────────────────────────────────────────────
 
+
 class TestTextDelta:
     def test_text_delta_creation(self):
         from d2c.loop import TextDelta
+
         delta = TextDelta(text="Hello", first=True)
         assert delta.text == "Hello"
         assert delta.first is True
 
     def test_text_delta_defaults(self):
         from d2c.loop import TextDelta
+
         delta = TextDelta(text="world")
         assert delta.first is False
 
 
 # ── Streaming behavior tests ───────────────────────────────────────────
 
+
 class TestStreaming:
     @pytest.mark.asyncio
     async def test_loop_stream_disabled_uses_create(self):
         """When stream=False, should use client.messages.create."""
-        from d2c.loop import LoopConfig, queryLoop, TextResponse, StopEvent
         from d2c.config import Config
-        from d2c.permissions import PermissionEngine
         from d2c.hooks import HookRegistry
+        from d2c.loop import LoopConfig, TextResponse, queryLoop
+        from d2c.permissions import PermissionEngine
 
         config = Config.load()
         config.deepseek_api_key = "test-key"
@@ -287,10 +318,10 @@ class TestStreaming:
     @pytest.mark.asyncio
     async def test_loop_stream_enabled_uses_stream(self):
         """When stream=True, should use client.messages.stream."""
-        from d2c.loop import LoopConfig, queryLoop, TextDelta, TextResponse
         from d2c.config import Config
-        from d2c.permissions import PermissionEngine
         from d2c.hooks import HookRegistry
+        from d2c.loop import LoopConfig, TextDelta, TextResponse, queryLoop
+        from d2c.permissions import PermissionEngine
 
         config = Config.load()
         config.deepseek_api_key = "test-key"
@@ -368,12 +399,13 @@ class TestStreaming:
     @pytest.mark.asyncio
     async def test_loop_auth_error_handling(self):
         """AuthenticationError should yield clear error message."""
-        from d2c.loop import LoopConfig, queryLoop, TextResponse
-        from d2c.config import Config
-        from d2c.permissions import PermissionEngine
-        from d2c.hooks import HookRegistry
-
         import anthropic
+
+        from d2c.config import Config
+        from d2c.hooks import HookRegistry
+        from d2c.loop import LoopConfig, TextResponse, queryLoop
+        from d2c.permissions import PermissionEngine
+
         config = Config.load()
         config.deepseek_api_key = "bad-key"
 
@@ -416,12 +448,13 @@ class TestStreaming:
     @pytest.mark.asyncio
     async def test_loop_rate_limit_handling(self):
         """RateLimitError should yield clear error message."""
-        from d2c.loop import LoopConfig, queryLoop, TextResponse
-        from d2c.config import Config
-        from d2c.permissions import PermissionEngine
-        from d2c.hooks import HookRegistry
-
         import anthropic
+
+        from d2c.config import Config
+        from d2c.hooks import HookRegistry
+        from d2c.loop import LoopConfig, TextResponse, queryLoop
+        from d2c.permissions import PermissionEngine
+
         config = Config.load()
         config.deepseek_api_key = "test-key"
 
