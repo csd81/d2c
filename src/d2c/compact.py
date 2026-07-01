@@ -151,6 +151,22 @@ def applyBudgetReduction(
     return result
 
 
+def _audit_shaper_applied(shaper: str, pre_count: int, post_count: int, **fields: Any) -> None:
+    """Emit a compaction_shaper_applied audit event for a graduated-pipeline
+    shaper (snip/microcompact/context_collapse) once it has actually
+    changed the message list. Auto-compact emits its own compaction_end
+    event with shaper="auto_compact" (see autoCompact below)."""
+    from d2c.observability import audit
+
+    audit(
+        "compaction_shaper_applied",
+        shaper=shaper,
+        pre_message_count=pre_count,
+        post_message_count=post_count,
+        **fields,
+    )
+
+
 # ── Shaper 2: Snip ─────────────────────────────────────────────────────
 
 
@@ -222,6 +238,7 @@ def applySnip(
                 # Inject cache_control at the alignment boundary
                 kept[0] = _inject_cache_control(kept[0])
             result.extend(kept)
+            _audit_shaper_applied("snip", len(messages), len(result))
             return result
 
     # Fallback: standard snip (no alignment or alignment not applicable)
@@ -230,6 +247,7 @@ def applySnip(
         result.append(first_user)
     result.extend(keep_recent)
 
+    _audit_shaper_applied("snip", len(messages), len(result))
     return result
 
 
@@ -405,6 +423,8 @@ async def applyMicrocompact(
             prefix = "[Microcompact: summarized]\n"
             result[idx]["content"] = prefix + (str(summary_or_exc) or "(summary unavailable)")
 
+        _audit_shaper_applied("microcompact", len(messages), len(result), pairs=len(summary_tasks))
+
     return result
 
 
@@ -516,6 +536,13 @@ async def applyContextCollapse(
                 content = str(summary_or_exc) or "(summary unavailable)"
                 if idx < len(result):
                     result[idx]["content"] = prefix + content
+
+        _audit_shaper_applied(
+            "context_collapse",
+            len(messages),
+            len(result) + len(messages[recent_start:]),
+            segments=len(segments),
+        )
 
     # Append recent messages with cache_control injection if aligned
     recent = messages[recent_start:]

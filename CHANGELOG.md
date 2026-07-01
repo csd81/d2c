@@ -5,6 +5,14 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 66:** a headless eval harness (`python -m d2c eval corpus.yaml --out-dir
+  ./eval-results`) runs a YAML corpus of task prompts through `d2c.sdk.D2CClient`
+  sequentially and reports, per task, turn count, tool-call distribution, token/cost
+  usage, compaction events, tool sequence, and outcome — plus a `divergences` list
+  against the corpus's advisory `expect` field (never a pass/fail assertion). Adds
+  `compaction_shaper_applied` audit events to the snip/microcompact/context-collapse
+  shapers (`auto_compact` already audited) so compaction activity is fully observable,
+  not just the last-resort model-generated summary.
 - **Phase 65:** the REPL's bare-text `Allow? [y/N/a]:` permission prompt is now a styled, color-coded
   dialog (`prompt_toolkit`, no new dependency): category-colored header, Bash commands risk-colored
   via the existing `acceptEdits` classifier, and Edit/Write/ApplyPatch get a `+N / -M` diff summary

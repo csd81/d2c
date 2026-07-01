@@ -1540,7 +1540,77 @@ def _run_doctor_cli(args: argparse.Namespace) -> int:
     return exit_code(results)
 
 
+def _build_eval_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="d2c eval", description="Run a headless eval corpus (Phase 66)"
+    )
+    parser.add_argument("corpus", type=Path, help="Path to a YAML eval corpus")
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=Path("./eval-results"),
+        help="Directory for per-task and summary JSON output (default: ./eval-results)",
+    )
+    parser.add_argument("--model", default=None, help="DeepSeek model to use for eval tasks")
+    parser.add_argument(
+        "--permission-mode",
+        default="bypass",
+        help="Permission mode for eval tasks (default: bypass — deny rules still apply)",
+    )
+    parser.add_argument("--max-turns", type=int, default=25, help="Maximum agent turns per task")
+    trust_group = parser.add_mutually_exclusive_group()
+    trust_group.add_argument(
+        "--trust", action="store_true", help="Trust each task's repo (required for edits/bash)"
+    )
+    trust_group.add_argument(
+        "--no-trust",
+        action="store_true",
+        help="Do not trust task repos, even if previously trusted",
+    )
+    return parser
+
+
+def _run_eval_cli(argv: list[str]) -> int:
+    """`d2c eval <corpus.yaml> --out-dir <dir>` — headless eval harness (Phase 66)."""
+    from d2c.eval import EvalCorpus, run_eval
+
+    args = _build_eval_parser().parse_args(argv)
+
+    try:
+        corpus = EvalCorpus.load(args.corpus)
+    except Exception as exc:
+        print(f"Error loading corpus {args.corpus}: {exc}", file=sys.stderr)
+        return 1
+
+    if not corpus.tasks:
+        print(f"Corpus {args.corpus} has no tasks.", file=sys.stderr)
+        return 1
+
+    trust = True if args.trust else False if args.no_trust else None
+    print(f"Running {len(corpus.tasks)} eval task(s) -> {args.out_dir}")
+    summary = asyncio.run(
+        run_eval(
+            corpus,
+            args.out_dir,
+            model=args.model,
+            permission_mode=args.permission_mode,
+            max_turns=args.max_turns,
+            trust=trust,
+        )
+    )
+    print(
+        f"Done: {summary.success_count}/{summary.task_count} succeeded, "
+        f"mean {summary.mean_turns} turns, ${summary.total_cost_estimate:.4f} estimated cost"
+    )
+    return 0
+
+
 def main() -> None:
+    # Phase 66: `d2c eval <corpus.yaml>` is a separate mini-CLI, dispatched
+    # before parse_args() so it never touches the flat prompt/flag parser.
+    if len(sys.argv) > 1 and sys.argv[1] == "eval":
+        sys.exit(_run_eval_cli(sys.argv[2:]))
+
     args = parse_args()
 
     # Phase 23: Handle --rewind-files (no project config needed)

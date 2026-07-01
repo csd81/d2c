@@ -5,6 +5,8 @@ Covers all 5 shapers in the pipeline plus edge cases.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from d2c.compact import (
@@ -19,6 +21,20 @@ from d2c.compact import (
     applyMicrocompact,
     applySnip,
 )
+from d2c.observability import AuditLogger, set_audit_logger
+
+
+@pytest.fixture(autouse=True)
+def _reset_audit_logger():
+    yield
+    set_audit_logger(None)
+
+
+def _read_events(path):
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -143,6 +159,29 @@ class TestSnip:
         assert result[0]["content"] == "Task 1"
         assert result[-1]["content"] == "Response 3"
 
+    def test_emits_compaction_shaper_applied_audit_event(self, config, sample_messages, tmp_path):
+        """Phase 66: snip actually firing is observable via the audit log,
+        so the eval harness can count compaction events."""
+        set_audit_logger(AuditLogger(path=tmp_path / "audit.jsonl", enabled=True))
+        config.snip_keep_last = 4
+        applySnip(sample_messages, config)
+        events = _read_events(tmp_path / "audit.jsonl")
+        shaper_events = [e for e in events if e["event"] == "compaction_shaper_applied"]
+        assert len(shaper_events) == 1
+        assert shaper_events[0]["shaper"] == "snip"
+
+    def test_noop_snip_emits_no_audit_event(self, config, tmp_path):
+        """When snip has nothing to trim, no compaction event should fire."""
+        set_audit_logger(AuditLogger(path=tmp_path / "audit.jsonl", enabled=True))
+        config.snip_keep_last = 20
+        short = [
+            {"role": "system", "content": "System."},
+            {"role": "user", "content": "Hello."},
+        ]
+        applySnip(short, config)
+        events = _read_events(tmp_path / "audit.jsonl")
+        assert not any(e["event"] == "compaction_shaper_applied" for e in events)
+
 
 # ── Shaper 3: Microcompact ────────────────────────────────────────────────
 
@@ -228,6 +267,29 @@ class TestMicrocompact:
         summaries = [m for m in result if "Microcompact" in str(m.get("content", ""))]
         assert len(summaries) >= 1
 
+    @pytest.mark.asyncio
+    async def test_emits_compaction_shaper_applied_audit_event(
+        self, loop_config, sample_messages, tmp_path
+    ):
+        """Phase 66: microcompact firing is observable via the audit log."""
+        set_audit_logger(AuditLogger(path=tmp_path / "audit.jsonl", enabled=True))
+        await applyMicrocompact(sample_messages, loop_config)
+        events = _read_events(tmp_path / "audit.jsonl")
+        shaper_events = [e for e in events if e["event"] == "compaction_shaper_applied"]
+        assert len(shaper_events) == 1
+        assert shaper_events[0]["shaper"] == "microcompact"
+
+    @pytest.mark.asyncio
+    async def test_noop_microcompact_emits_no_audit_event(self, loop_config, tmp_path):
+        set_audit_logger(AuditLogger(path=tmp_path / "audit.jsonl", enabled=True))
+        short = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi!"},
+        ]
+        await applyMicrocompact(short, loop_config)
+        events = _read_events(tmp_path / "audit.jsonl")
+        assert not any(e["event"] == "compaction_shaper_applied" for e in events)
+
 
 # ── Shaper 4: Context Collapse ─────────────────────────────────────────────
 
@@ -310,6 +372,42 @@ class TestContextCollapse:
         ]
         result = await applyContextCollapse(short, loop_config)
         assert result == short
+
+    @pytest.mark.asyncio
+    async def test_emits_compaction_shaper_applied_audit_event(self, loop_config, tmp_path):
+        """Phase 66: context collapse firing is observable via the audit log."""
+        set_audit_logger(AuditLogger(path=tmp_path / "audit.jsonl", enabled=True))
+        loop_config.compact_config.collapse_min_turns = 2
+        loop_config.compact_config.collapse_segment_size = 3
+        msgs = [
+            {"role": "user", "content": "Task 1"},
+            {"role": "assistant", "content": "Response 1"},
+            {"role": "user", "content": "Task 2"},
+            {"role": "assistant", "content": "Response 2"},
+            {"role": "user", "content": "Task 3"},
+            {"role": "assistant", "content": "Response 3"},
+            {"role": "user", "content": "Task 4"},
+            {"role": "assistant", "content": "Response 4"},
+            {"role": "user", "content": "Task 5"},
+            {"role": "assistant", "content": "Response 5"},
+        ]
+        await applyContextCollapse(msgs, loop_config)
+        events = _read_events(tmp_path / "audit.jsonl")
+        shaper_events = [e for e in events if e["event"] == "compaction_shaper_applied"]
+        assert len(shaper_events) == 1
+        assert shaper_events[0]["shaper"] == "context_collapse"
+
+    @pytest.mark.asyncio
+    async def test_noop_collapse_emits_no_audit_event(self, loop_config, tmp_path):
+        set_audit_logger(AuditLogger(path=tmp_path / "audit.jsonl", enabled=True))
+        loop_config.compact_config.collapse_min_turns = 5
+        short = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi!"},
+        ]
+        await applyContextCollapse(short, loop_config)
+        events = _read_events(tmp_path / "audit.jsonl")
+        assert not any(e["event"] == "compaction_shaper_applied" for e in events)
 
 
 # ── Full Pipeline ──────────────────────────────────────────────────────────
