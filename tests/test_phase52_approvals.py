@@ -54,7 +54,33 @@ def test_cache_stores_hashes_not_plaintext():
     c.approve(_req("curl http://x?token=supersecretvalue123"))
     assert "supersecretvalue123" not in str(c._keys)
     assert all(len(k) == 64 for k in c._keys)  # sha256 hex
-    assert not hasattr(c, "save") and not hasattr(c, "to_dict")  # no persistence api
+
+
+def test_cache_with_no_path_never_touches_disk(tmp_path):
+    # ApprovalCache() with no path stays in-memory-only (pre-Phase-64
+    # behavior) — tests and other callers that don't opt in never do I/O.
+    c = ApprovalCache()
+    assert c._path is None
+    c.approve(_req())
+    assert not (tmp_path / "approvals.json").exists()
+
+
+def test_persisted_file_contains_only_hashes_and_timestamps(tmp_path):
+    # Phase 64: what actually lands on disk is {sha256_hash: iso_timestamp}
+    # — never the raw command/tool input.
+    path = tmp_path / "approvals.json"
+    c = ApprovalCache(path=path)
+    c.approve(_req("curl http://x?token=supersecretvalue123"))
+
+    assert path.exists()
+    raw = path.read_text()
+    assert "supersecretvalue123" not in raw
+
+    data = json.loads(raw)
+    assert len(data) == 1
+    h, ts = next(iter(data.items()))
+    assert len(h) == 64 and all(c in "0123456789abcdef" for c in h)
+    assert ts  # a non-empty ISO timestamp string
 
 
 # ── Interactive callback with [y/N/a] ─────────────────────────────────
@@ -134,13 +160,17 @@ async def test_session_switch_clears_approvals(tmp_dir, monkeypatch, cmd, args):
     assert len(state.approvals) == 0  # cleared on session switch
 
 
-def test_new_replstate_has_empty_cache(tmp_dir):
-    # Process restart == a fresh ReplState → empty cache (nothing persisted).
+def test_new_replstate_reloads_persisted_approvals(tmp_dir):
+    # Phase 64: ReplState's default_factory routes through
+    # _new_approval_cache(), which persists to disk — so a fresh ReplState
+    # (simulating a new session / process restart) gets its OWN cache
+    # object but still sees a previously "always"-approved action, because
+    # it reloads it from disk. See test_phase64_approvals.py for more.
     s1 = ReplState(config=Config(cwd=tmp_dir), session_store=None)
     s1.approvals.approve(_req())
     s2 = ReplState(config=Config(cwd=tmp_dir), session_store=None)
-    assert len(s2.approvals) == 0
     assert s1.approvals is not s2.approvals
+    assert s2.approvals.is_approved(_req())
 
 
 # ── Phase 59 fix: concurrent approval prompts must not interleave ──────

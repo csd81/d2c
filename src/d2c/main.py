@@ -630,9 +630,12 @@ class ReplState:
 
 
 def _new_approval_cache() -> "ApprovalCache":
-    from d2c.approvals import ApprovalCache
+    """Phase 64: the live REPL opts into cross-session/restart persistence
+    at ~/.d2c/approvals.json; ApprovalCache() with no path (used directly
+    in tests) stays in-memory-only."""
+    from d2c.approvals import DEFAULT_APPROVALS_PATH, ApprovalCache
 
-    return ApprovalCache()
+    return ApprovalCache(path=DEFAULT_APPROVALS_PATH)
 
 
 def _new_usage_tracker() -> "UsageTracker":

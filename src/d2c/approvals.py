@@ -1,25 +1,60 @@
-"""Session-scoped approval cache (Phase 52).
+"""Approval cache (Phase 52), with optional cross-session/restart persistence
+(Phase 64).
 
-In-memory only. When the user answers ``a`` ("always allow this exact action
-for this session") to an ASK prompt, the exact action is cached so identical
-repeats don't re-prompt. The cache stores only SHA-256 hashes of the action
-(never raw tool input), is never persisted, and is cleared on session switch
-(/clear, /resume, /fork) and process restart.
+In-memory only by default. When the user answers ``a`` ("always allow this
+exact action for this session") to an ASK prompt, the exact action is cached
+so identical repeats don't re-prompt. The cache stores only SHA-256 hashes of
+the action (never raw tool input).
+
+Phase 64: passing a ``path`` opts into a JSON file (default
+``~/.d2c/approvals.json``) of ``{sha256_hash: iso_timestamp}`` pairs — never
+raw tool input or command text, so a process reading the file cannot
+reconstruct the original commands. The file lives in ``~/.d2c/``, which
+already stores trusted user-level data (``trusted.json``, sessions); no new
+trust boundary applies. Loaded once at construction; ``approve()``
+write-throughs immediately (the write is triggered by a single "a" keypress,
+not per tool call, so this is cheap). A corrupted or unreadable file never
+raises — the cache just starts empty and logs a warning.
+
+``clear()`` (called on session switch — ``/clear``/``/resume``/``/fork``)
+only empties the in-memory set; it never touches disk, so a session switch
+resets what *this* session trusts without forgetting approvals persisted for
+future sessions or process restarts. ``reset()`` empties the in-memory set
+*and* deletes the persisted file — the explicit "forget everything" action.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import os
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_APPROVALS_PATH = Path.home() / ".d2c" / "approvals.json"
 
 
 class ApprovalCache:
     """Conservative, exact-match approval cache keyed by a hash of
-    (tool name, permission category, normalized tool input)."""
+    (tool name, permission category, normalized tool input).
 
-    def __init__(self) -> None:
-        self._keys: set[str] = set()
+    ``path=None`` (default) keeps the cache purely in-memory — no disk I/O,
+    the pre-Phase-64 behavior. Pass an explicit path (or the
+    ``DEFAULT_APPROVALS_PATH`` constant) to load existing approvals at
+    construction and persist new ones as they're approved.
+    """
+
+    def __init__(self, path: Path | None = None) -> None:
+        self._keys: dict[str, str] = {}  # sha256 hash -> ISO timestamp
+        self._path = path
+        self._lock = threading.Lock()
+        if self._path is not None:
+            self.load()
 
     @staticmethod
     def _key(request: Any) -> str:
@@ -40,10 +75,65 @@ class ApprovalCache:
         return self._key(request) in self._keys
 
     def approve(self, request: Any) -> None:
-        self._keys.add(self._key(request))
+        self._keys[self._key(request)] = datetime.now(timezone.utc).isoformat()
+        if self._path is not None:
+            self.save()
 
     def clear(self) -> None:
+        """Empty the in-memory (runtime) approval set. Never touches disk."""
         self._keys.clear()
+
+    def reset(self) -> None:
+        """Empty the runtime set AND delete the persisted file, if any."""
+        self._keys.clear()
+        if self._path is not None and self._path.exists():
+            try:
+                self._path.unlink()
+            except OSError as e:
+                logger.warning("Failed to delete approvals file %s: %s", self._path, e)
 
     def __len__(self) -> int:
         return len(self._keys)
+
+    # ── Persistence (Phase 64) ──────────────────────────────────────
+
+    def load(self) -> None:
+        """Load {hash: timestamp} pairs from disk into the runtime set.
+
+        Never raises: a missing, unreadable, or corrupted file just means
+        starting empty (with a warning logged for the latter two).
+        """
+        if self._path is None or not self._path.exists():
+            return
+        try:
+            raw = self._path.read_text(encoding="utf-8")
+        except OSError as e:
+            logger.warning("Failed to read approvals file %s: %s", self._path, e)
+            return
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.warning("Approvals file %s is corrupted (%s); starting empty", self._path, e)
+            return
+        if not isinstance(data, dict):
+            logger.warning("Approvals file %s is not a JSON object; starting empty", self._path)
+            return
+        for k, v in data.items():
+            if isinstance(k, str) and len(k) == 64:
+                self._keys[k] = v if isinstance(v, str) else datetime.now(timezone.utc).isoformat()
+
+    def save(self) -> None:
+        """Persist the current {hash: timestamp} set to disk atomically
+        (write a sibling .tmp file, then os.replace over the target)."""
+        if self._path is None:
+            return
+        with self._lock:
+            try:
+                self._path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path = self._path.with_suffix(self._path.suffix + ".tmp")
+                tmp_path.write_text(
+                    json.dumps(self._keys, indent=2, sort_keys=True), encoding="utf-8"
+                )
+                os.replace(tmp_path, self._path)
+            except OSError as e:
+                logger.warning("Failed to save approvals to %s: %s", self._path, e)

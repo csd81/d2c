@@ -5,6 +5,11 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 64:** approval cache (`a` / "always allow") now persists across sessions and process
+  restarts to `~/.d2c/approvals.json` (SHA-256 hashes + timestamps only, atomic writes). `/clear`,
+  `/resume`, and `/fork` still reset the in-memory view for the current session; the persisted file
+  is untouched.
+
 ## 0.1.0 — 2026-07-01
 
 First packaged release. A Python re-implementation of the Claude Code agent
