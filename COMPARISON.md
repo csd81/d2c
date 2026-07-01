@@ -85,38 +85,48 @@ design.
 Several features exist as complete-looking modules but are **never wired into the loop**, so at
 runtime they do nothing. Two are outright correctness bugs.
 
-1. **Read-before-Write safety check is broken.** The paper requires Read-before-Edit/Write. In
-   `d2c`, `FileReadTool` **never marks a file as read** — only `FileWriteTool` does. The safety gate
-   can therefore essentially only be satisfied by a prior *write*, not a read. This is a bug, not a
-   simplification.
+1. **Read-before-Write safety check is broken.** ✅ *Fixed in Phase 34; regression-tested in Phase 37.*
+   `FileReadTool` now marks files read (in the tool, so it holds on both the streaming and
+   non-streaming paths); Edit and Write both enforce it. Covered by `tests/test_phase34.py` and
+   `tests/test_phase37.py` (Edit-without-Read blocked, Read-then-Edit succeeds).
 2. **Output-token recovery (§4.4) is absent.** ✅ *Fixed in Phase 35.* The paper describes escalating
    retries (`MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3`). `d2c` previously had the
    `output_tokens_recovery_attempts` field but never read it; `max_tokens` was hardcoded to 8192.
    Now `queryLoop` escalates `max_tokens` (8192 → 16384 → 32768, capped) and retries up to 3× on a
    `max_tokens` stop, resetting after any clean response; covered by `tests/test_loop_output_recovery.py`.
-3. **Reactive vs. proactive compaction share one flag.** The `prompt_too_long` recovery (§4.4) and
-   proactive `autoCompact` both consume `has_attempted_reactive_compact`, so only one can ever fire
-   per session. The reactive path also does crude slice truncation rather than a real summary.
-4. **Sandbox (§5.4) is implemented but never attached.** `BashTool` is constructed without a
-   `sandbox_config`, so `should_use_sandbox()` is dead in the default pool. The Windows-sandbox
-   backend is an explicit stub.
-5. **File-history checkpoints / `--rewind-files` (§9) don't work.** `set_file_history_tracker()` is
-   never called → the tracker is always `None` → no checkpoints are written → `--rewind-files` scans
-   an empty directory. The feature is a no-op.
+3. **Reactive vs. proactive compaction share one flag.** ✅ *Fixed in Phase 34.* Proactive
+   `autoCompact` now uses `has_attempted_proactive_compact`, independent of the reactive
+   `prompt_too_long` path. (The reactive path still does a crude slice truncation rather than a full
+   summary — an intentional simplification, not a blocker.)
+4. **Sandbox (§5.4) is implemented but never attached.** ✅ *Wired in Phase 34; tested in Phase 37.*
+   `SandboxConfig` flows through the pool into `BashTool` (`D2C_SANDBOX=1`, off by default); the
+   process backend is reachable and exercised on POSIX and Windows. Covered by `tests/test_sandbox.py`
+   and `tests/test_phase37.py`. *The Windows-sandbox backend remains an explicit stub* (falls back to
+   the process backend).
+5. **File-history checkpoints / `--rewind-files` (§9) don't work.** ✅ *Fixed in Phase 34; tested in
+   Phase 37.* The tracker is installed at startup (headless + interactive) and re-pointed on session
+   switch (`/clear`, `/resume`, `/fork`). Write/Edit checkpoint before mutating; `--rewind-files`
+   restores. Covered by `tests/test_phase34.py` (checkpoint + rewind end-to-end) and
+   `tests/test_phase37.py` (tracker re-points on `/clear`).
 6. **KAIROS (§11.6) is completely un-instantiated** — dead code (the paper also flags it as
-   feature-gated / unconfirmed-in-production, so this is a fair reflection).
-7. **Other implemented-but-unwired modules:** `AutoMemoryStore` (auto-memory, §7.2),
-   `PathScopedRules` (§7.1 path-scoped rules), background-subagent status tools (the manager exists
-   but no tool exposes it to the model — yet the AgentTool prompt tells the model to use them), and
-   `applyFullContextShapers`.
-8. **~15 hook events defined but never fired**, including `SESSION_START`, `USER_PROMPT_SUBMIT`,
-   `SUBAGENT_STOP`, and the `TASK_CREATED/COMPLETED` set.
-9. **WebSearch is a stub** (returns "not configured").
-10. **REPL slash commands are cosmetic** — `/clear`, `/resume`, `/fork`, `/settings`, `/help` are
-    advertised by the completer but only `/exit`/`/quit` are handled.
+   feature-gated / unconfirmed-in-production, so this is a fair reflection). *Still unresolved (out of
+   scope).*
+7. **Other implemented-but-unwired modules.** ✅ *Mostly wired in Phase 34.* `AutoMemoryStore` is now
+   reachable via the `Remember` tool with the `MEMORY.md` index injected into context;
+   `PathScopedRules` are consulted by `PermissionEngine.evaluate` (Phase 34/37); the
+   background-subagent manager is exposed via the `AgentStatus` tool. (`applyFullContextShapers`
+   remains an unused duplicate of the loop's inlined shaper pipeline — harmless dead code.)
+8. **~15 hook events defined but never fired.** ✅ *Partially fixed in Phase 34.* `SESSION_START`,
+   `USER_PROMPT_SUBMIT`, `SUBAGENT_STOP`, and `TASK_CREATED`/`TASK_COMPLETED` now fire; other
+   lifecycle events (e.g. `CWD_CHANGED`, `FILE_CHANGED`, elicitation) remain unfired.
+9. **WebSearch is a stub** (returns "not configured"). *Still unresolved (out of scope — needs a real
+   search backend, not wiring).*
+10. **REPL slash commands are cosmetic.** ✅ *Fixed in Phases 34/36.* `/help`, `/settings`, `/clear`,
+    `/resume`, `/fork` are real (and the REPL is now multi-turn); unknown `/x` is reported locally and
+    never sent to the model. Covered by `tests/test_repl_commands.py`.
 11. **`_check_safe_shell` auto-allows `rm`, `mv`, `sed`** under `acceptEdits` via first-word-only
     matching. The paper lists these among acceptEdits auto-approvals, but combined with first-word
-    parsing it's weaker than the paper's structural analysis implies.
+    parsing it's weaker than the paper's structural analysis implies. *Still unresolved (out of scope).*
 
 ---
 
@@ -140,15 +150,16 @@ five-layer compaction pipeline, deny-first permissions with an AST shell classif
 client+server, worktree isolation, tiktoken accounting, and append-only persistence all match the
 described designs closely, often down to function names.
 
-Where it diverges, it's mostly **breadth** (15 tools vs 54, and 12 of the 27 hook events
-actually firing) and
-**"last-mile wiring"**: a cluster of subsystems (sandbox, file-history/rewind, auto-memory, path
-rules, KAIROS, background-status tools) are built but not connected — plus two genuine correctness
-issues: the Read-before-Write gate and the shared compaction flag.
+Most of the original "last-mile wiring" gaps and both correctness bugs were **closed in Phases
+34–37** (Read-before-Write, file-history/rewind, sandbox, path rules, hook firing, auto-memory,
+background-status, output-token recovery, compaction-flag split, real slash commands) — each now
+covered by tests and the full suite is green. What remains diverging is mostly **breadth** (17 tools
+vs 54; a subset of the 27 hook events firing) and a few **deliberately out-of-scope** items.
 
-### Highest-impact fixes, if pursued
+### Still open (intentionally deferred)
 
-1. Read-before-Write gate — have `FileReadTool` mark files read (small, correctness).
-2. Wire `SandboxConfig` into `BashTool` in the pool (small, safety).
-3. Call `set_file_history_tracker()` at startup so `--rewind-files` works (small, feature).
-4. Give reactive and proactive compaction independent flags (small, robustness).
+1. **KAIROS** background heartbeat mode — un-instantiated (paper flags it as unconfirmed too).
+2. **WebSearch** — stub; needs a real search backend, not wiring.
+3. **`_check_safe_shell`** first-word-only matching auto-allows `rm`/`mv`/`sed` under `acceptEdits`.
+4. **Windows sandbox backend** — explicit stub (falls back to the process backend).
+5. Remaining unfired lifecycle hooks (`CWD_CHANGED`, `FILE_CHANGED`, elicitation, …).

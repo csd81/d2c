@@ -18,6 +18,28 @@ from d2c.sandbox import (
 from d2c.tools.bash_tool import BashTool
 from d2c.tools import ToolResult
 
+import platform
+
+_IS_WINDOWS = platform.system() == "Windows"
+
+
+def _print_cmd(text: str) -> str:
+    """A command NOT in SAFE_READONLY_COMMANDS that prints `text`.
+
+    The sandbox/BashTool run PowerShell on Windows and exec the binary
+    directly on POSIX, so the command must be chosen per platform.
+    """
+    return f"Write-Output {text}" if _IS_WINDOWS else f"printf {text}"
+
+
+def _sleep_cmd(seconds: int) -> str:
+    return f"Start-Sleep -Seconds {seconds}" if _IS_WINDOWS else f"sleep {seconds}"
+
+
+def _failing_cmd() -> str:
+    """A real command that spawns but exits non-zero (sandboxed + errored)."""
+    return "nonexistent-command-xyz" if _IS_WINDOWS else "false"
+
 
 # ── SandboxConfig tests ──────────────────────────────────────────────────
 
@@ -157,7 +179,7 @@ class TestProcessSandbox:
 
         async def run():
             result = await executor.execute_sandboxed(
-                "nonexistent-command-xyz", config,
+                _failing_cmd(), config,
             )
             return result
 
@@ -172,7 +194,7 @@ class TestProcessSandbox:
 
         async def run():
             result = await executor.execute_sandboxed(
-                "Start-Sleep -Seconds 30",  # PowerShell sleep
+                _sleep_cmd(30),
                 config,
                 timeout_ms=500,  # Very short timeout
             )
@@ -189,7 +211,7 @@ class TestProcessSandbox:
 
         async def run():
             result = await executor.execute_sandboxed(
-                "Write-Output success", config,
+                _print_cmd("success"), config,
             )
             return result
 
@@ -243,7 +265,7 @@ class TestBashToolSandbox:
 
         async def run():
             # 'Write-Output' is NOT in SAFE_READONLY_COMMANDS
-            result = await tool.execute("Write-Output sandboxed-output")
+            result = await tool.execute(_print_cmd("sandboxed-output"))
             return result
 
         result = asyncio.run(run())
@@ -258,7 +280,7 @@ class TestBashToolSandbox:
 
         async def run():
             result = await tool.execute(
-                "Write-Output no-sandbox",
+                _print_cmd("no-sandbox"),
                 dangerouslyDisableSandbox=True,
             )
             return result
@@ -273,7 +295,7 @@ class TestBashToolSandbox:
         tool = BashTool(sandbox_config=SandboxConfig(enabled=False))
 
         async def run():
-            result = await tool.execute("Write-Output normal-exec")
+            result = await tool.execute(_print_cmd("normal-exec"))
             return result
 
         result = asyncio.run(run())
