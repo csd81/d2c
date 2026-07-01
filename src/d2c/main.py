@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from d2c.approvals import ApprovalCache
     from d2c.persistence import SessionStore
     from d2c.trust import WorkSpaceTrustGate
+    from d2c.usage import UsageTracker
 
 
 def parse_args() -> argparse.Namespace:
@@ -284,6 +285,7 @@ class D2CCompleter(Completer):
             "/resume",
             "/fork",
             "/settings",
+            "/usage",
             "/help",
         ]
 
@@ -389,10 +391,12 @@ def get_statusbar_text(
     config: "Config",
     session_store: Any,
     active_tasks: int = 0,
+    usage: Any = None,
 ) -> HTML:
     """Return status bar text formatted as HTML for the bottom toolbar.
 
-    Displays session ID, permission mode, model, and active task count.
+    Displays session ID, permission mode, model, active task count, and
+    (Phase 55) compact token/cost usage once there has been a model call.
     """
     mode = getattr(config, "permission_mode", "default").upper()
     sess_id = ""
@@ -400,13 +404,20 @@ def get_statusbar_text(
         sess_id = getattr(session_store, "session_id", "") or ""
     task_str = f" | Tasks: {active_tasks}" if active_tasks > 0 else ""
 
+    usage_str = ""
+    if usage is not None and getattr(usage, "calls", 0) > 0:
+        from d2c.usage import usage_status_fragment
+
+        usage_str = f" | {usage_status_fragment(usage)}"
+
     return HTML(
         f"<style bg='ansiblue' fg='ansiwhite'>"
         f" <b>d2c</b> | "
         f"Session: <b>{sess_id}</b> | "
         f"Mode: <b>{mode}</b> | "
         f"Model: {config.model}"
-        f"{task_str} "
+        f"{task_str}"
+        f"{usage_str} "
         f"</style>"
     )
 
@@ -487,12 +498,19 @@ class ReplState:
     conversation: list[dict] = field(default_factory=list)
     stream: bool = True
     approvals: "ApprovalCache" = field(default_factory=lambda: _new_approval_cache())
+    usage: "UsageTracker" = field(default_factory=lambda: _new_usage_tracker())
 
 
 def _new_approval_cache() -> "ApprovalCache":
     from d2c.approvals import ApprovalCache
 
     return ApprovalCache()
+
+
+def _new_usage_tracker() -> "UsageTracker":
+    from d2c.usage import UsageTracker
+
+    return UsageTracker()
 
 
 def parse_slash_command(text: str) -> "SlashCommand | None":
@@ -573,6 +591,7 @@ def _print_help() -> None:
         "Commands:\n"
         "  /help                 Show commands\n"
         "  /settings             Show current model, mode, cwd, session\n"
+        "  /usage                Show session token usage and estimated cost\n"
         "  /clear                Start a fresh session\n"
         "  /resume <session_id>  Resume an existing session\n"
         "  /fork <session_id>    Fork an existing session into a new session\n"
@@ -629,6 +648,11 @@ async def _switch_session(state: ReplState, new_store, event_verb: str) -> None:
     _install_file_history(state.config, new_store)
     # Phase 52: session-scoped approvals never survive a session switch.
     state.approvals.clear()
+    # Phase 55: flush usage totals for the outgoing session, then reset.
+    from d2c.usage import audit_session_usage
+
+    audit_session_usage(state.usage.session, session_id=old_id)
+    state.usage.reset()
     from d2c.observability import audit, set_context
 
     set_context(session_id=new_id)
@@ -656,6 +680,13 @@ async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
 
     if name == "/settings":
         _print_settings(state)
+        return True
+
+    if name == "/usage":
+        from d2c.usage import format_session_usage
+
+        sid = getattr(state.session_store, "session_id", None)
+        print(format_session_usage(state.usage.session, session_id=sid))
         return True
 
     if name == "/clear":
@@ -732,6 +763,12 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
 
     # Phase 34: wire runtime subsystems + fire SessionStart
     await _wire_runtime(config, session_store, hook_registry)
+
+    # Phase 55: session usage accounting
+    from d2c.usage import UsageTracker, audit_session_usage, set_usage_tracker
+
+    usage_tracker = UsageTracker()
+    set_usage_tracker(usage_tracker)
 
     # Assemble tools
     pool_config = _pool_config_from(config)
@@ -821,7 +858,11 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
                 if event.reason != "model_finished":
                     print(f"\n[stopped: {event.reason}]")
     finally:
-        # Phase 15: Fire SessionEnd hook
+        # Phase 55: flush session usage totals, then Phase 15 SessionEnd hook
+        audit_session_usage(
+            usage_tracker.session,
+            session_id=(session_store.session_id if session_store else None),
+        )
         audit("session_end", session_id=(session_store.session_id if session_store else None))
         await hook_registry.fire(
             HookEvent.SESSION_END,
@@ -910,6 +951,11 @@ async def run_interactive(args: argparse.Namespace) -> None:
     active_tasks = 0
     # Phase 36: explicit mutable REPL state that slash commands operate on.
     state = ReplState(config=config, session_store=session_store, conversation=[])
+
+    # Phase 55: session usage accounting (read by /usage and the status bar).
+    from d2c.usage import audit_session_usage, set_usage_tracker
+
+    set_usage_tracker(state.usage)
     # Phase 52: approval callback backed by the session-scoped cache (cleared in
     # place on /clear/resume/fork, so this closure stays valid).
     _approval_cb = make_interactive_approval(state.approvals)
@@ -923,6 +969,7 @@ async def run_interactive(args: argparse.Namespace) -> None:
                         state.config,
                         state.session_store,
                         active_tasks,
+                        usage=state.usage.session,
                     ),
                 )
                 prompt_text = prompt_text.strip()
@@ -1028,7 +1075,10 @@ async def run_interactive(args: argparse.Namespace) -> None:
             if assistant_text:
                 state.conversation.append({"role": "assistant", "content": assistant_text})
     finally:
-        # Phase 15: Fire SessionEnd hook
+        # Phase 55: flush session usage totals, then Phase 15 SessionEnd hook
+        audit_session_usage(
+            state.usage.session, session_id=getattr(state.session_store, "session_id", None)
+        )
         audit("session_end", session_id=getattr(state.session_store, "session_id", None))
         await hook_registry.fire(
             HookEvent.SESSION_END,

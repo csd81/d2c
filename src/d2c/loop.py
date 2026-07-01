@@ -31,6 +31,7 @@ from d2c.permissions import (
 from d2c.persistence import SessionEntry, _utc_now
 from d2c.streaming_executor import StreamingToolExecutor, StreamToolParser
 from d2c.tools import Tool, ToolResult, ToolUse
+from d2c.usage import record_model_usage
 
 # ── Loop events (yielded by the async generator) ────────────────────
 
@@ -662,6 +663,7 @@ async def queryLoop(
         text = ""
         tool_uses: list[ToolUse] = []
         response_stop_reason: str | None = None
+        raw_response: Any = None  # Phase 55: provider message w/ usage fields
 
         # Phase 34: escalate the output budget on each recovery attempt.
         recovery_max_tokens = min(
@@ -744,6 +746,7 @@ async def queryLoop(
                 # Get the complete final message from the stream
                 try:
                     final_msg = await stream.get_final_message()
+                    raw_response = final_msg
                     text = _response_text(final_msg)
                     tool_uses = _extract_tool_uses(final_msg)
                     response_stop_reason = getattr(final_msg, "stop_reason", None)
@@ -767,6 +770,7 @@ async def queryLoop(
                     messages=cast(Any, anthropic_messages),
                     tools=cast(Any, api_tools),
                 )
+                raw_response = response
                 text = _response_text(response)
                 tool_uses = _extract_tool_uses(response)
                 response_stop_reason = getattr(response, "stop_reason", None)
@@ -876,6 +880,16 @@ async def queryLoop(
             duration_ms=round((time.perf_counter() - _model_t0) * 1000, 1),
             stop_reason=response_stop_reason,
             tool_uses=len(tool_uses),
+        )
+
+        # Phase 55: usage/cost accounting. Falls back to estimation when the
+        # provider reports no usage; never fails the loop.
+        record_model_usage(
+            loop_config.model,
+            raw_response,
+            fallback_messages=anthropic_messages,
+            fallback_text=text,
+            turn_id=state.turn_count,
         )
 
         # Phase 34: output-token recovery. If the response was truncated at the

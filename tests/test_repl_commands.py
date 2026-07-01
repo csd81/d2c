@@ -163,3 +163,63 @@ async def test_resume_unknown_id_keeps_current_session(tmp_dir, tmp_manager, cap
     # still changes to the requested one, but nothing crashes.
     out = capsys.readouterr().out
     assert "Resumed session" in out or "Could not resume" in out
+
+
+# ── /usage (Phase 55) ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_usage_before_any_model_calls(tmp_dir, capsys):
+    state = _state(tmp_dir, None)
+    cont = await handle_slash_command(SlashCommand(name="/usage"), state)
+    assert cont is True
+    out = capsys.readouterr().out
+    assert "Session usage" in out
+    assert "Model calls:   0" in out
+
+
+@pytest.mark.asyncio
+async def test_usage_prints_totals(tmp_dir, tmp_manager, capsys):
+    from types import SimpleNamespace
+
+    from d2c.usage import extract_usage
+
+    store = tmp_manager.create_session(tmp_dir)
+    state = _state(tmp_dir, store)
+    resp = SimpleNamespace(
+        usage=SimpleNamespace(
+            input_tokens=1500,
+            output_tokens=300,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+        )
+    )
+    state.usage.record(extract_usage(resp, model="deepseek-chat"))
+    await handle_slash_command(SlashCommand(name="/usage"), state)
+    out = capsys.readouterr().out
+    assert store.session_id in out
+    assert "Model calls:   1" in out
+    assert "1,500" in out and "300" in out
+    assert "Estimated cost" in out
+
+
+@pytest.mark.asyncio
+async def test_session_switch_resets_usage(tmp_dir, tmp_manager):
+    from types import SimpleNamespace
+
+    from d2c.usage import extract_usage
+
+    store = tmp_manager.create_session(tmp_dir)
+    state = _state(tmp_dir, store)
+    resp = SimpleNamespace(
+        usage=SimpleNamespace(
+            input_tokens=10,
+            output_tokens=1,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+        )
+    )
+    state.usage.record(extract_usage(resp, model="deepseek-chat"))
+    assert state.usage.session.calls == 1
+    await handle_slash_command(SlashCommand(name="/clear"), state)
+    assert state.usage.session.calls == 0  # fresh session, fresh totals

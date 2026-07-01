@@ -24,6 +24,16 @@ def reset_trust():
     reset_trust_gate()
 
 
+@pytest.fixture(autouse=True)
+def reset_usage_tracker():
+    """Reset the global usage tracker between tests (Phase 55)."""
+    from d2c.usage import set_usage_tracker
+
+    set_usage_tracker(None)
+    yield
+    set_usage_tracker(None)
+
+
 @pytest.fixture
 def tmp_dir():
     with tempfile.TemporaryDirectory() as d:

@@ -28,6 +28,12 @@ export D2C_WEBSEARCH_PROVIDER=tavily
 export D2C_WEBSEARCH_API_KEY=tvly-...
 export D2C_WEBSEARCH_TIMEOUT=15                               # seconds (default)
 
+# optional — cost accounting (Phase 55; costs are ESTIMATES, not invoices):
+export D2C_PRICING_INPUT_PER_MILLION=0.56                     # USD/M input tokens
+export D2C_PRICING_OUTPUT_PER_MILLION=1.68                    # USD/M output tokens
+export D2C_PRICING_CACHE_READ_PER_MILLION=0.07                # USD/M cache-read tokens
+export D2C_DISABLE_COST_ESTIMATES=1                           # track tokens, skip cost math
+
 # optional — structured audit logging (off by default):
 export D2C_AUDIT_LOG=1                                        # enable JSONL audit log
 export D2C_AUDIT_LOG_PATH=~/.d2c/logs/audit.jsonl            # default
@@ -79,7 +85,12 @@ Common flags:
 | `--rewind-files <id>` | Revert all filesystem changes made during a session |
 | `--trust` / `--no-trust` | Control the workspace trust gate |
 
-In the REPL, slash commands include `/exit`, `/clear`, `/resume`, `/fork`, `/settings`, and `/help`.
+In the REPL, slash commands include `/exit`, `/clear`, `/resume`, `/fork`, `/settings`, `/usage`,
+and `/help`. `/usage` shows session token totals (input/output/cache) and an estimated cost; the
+status bar shows a compact `133.4k in / 9.2k out | ~$0.42` summary once the model has been called.
+Token counts fall back to local estimation when the provider omits usage fields, and costs use a
+built-in DeepSeek pricing snapshot — treat them as estimates and override via `D2C_PRICING_*` when
+pricing changes.
 
 ## How it works
 
