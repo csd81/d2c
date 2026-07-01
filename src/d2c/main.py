@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # Phase 31: Rich TUI / REPL Console
@@ -341,6 +342,14 @@ def get_statusbar_text(
     )
 
 
+def _install_file_history(config: Config, session_store) -> None:
+    """Point the global file-history tracker at a session (Phase 34/36)."""
+    if session_store is not None:
+        base_dir = Path.home() / ".d2c"
+        file_history = SessionFileHistory(base_dir, session_store.session_id, cwd=config.cwd)
+        set_file_history_tracker(FileHistoryTracker(file_history))
+
+
 async def _wire_runtime(config: Config, session_store, hook_registry) -> None:
     """Phase 34: connect the built-but-inert runtime subsystems.
 
@@ -349,10 +358,7 @@ async def _wire_runtime(config: Config, session_store, hook_registry) -> None:
     - Active memory loader so file access surfaces nested CLAUDE.md / path rules.
     - Fire the SessionStart hook.
     """
-    if session_store is not None:
-        base_dir = Path.home() / ".d2c"
-        file_history = SessionFileHistory(base_dir, session_store.session_id, cwd=config.cwd)
-        set_file_history_tracker(FileHistoryTracker(file_history))
+    _install_file_history(config, session_store)
     set_active_hooks(hook_registry)
     set_active_memory_loader(LazyMemoryLoader(config.cwd))
     await hook_registry.fire(HookEvent.SESSION_START, {
@@ -369,34 +375,124 @@ def _pool_config_from(config: Config) -> "PoolConfig":
     )
 
 
+# ── Phase 36: REPL slash commands ─────────────────────────────────────
+
+@dataclass
+class SlashCommand:
+    """A parsed REPL slash command."""
+    name: str
+    args: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ReplState:
+    """Mutable REPL state that slash commands operate on."""
+    config: Config
+    session_store: object
+    conversation: list[dict] = field(default_factory=list)
+    stream: bool = True
+
+
+def parse_slash_command(text: str) -> "SlashCommand | None":
+    """Parse `/name arg...` into a SlashCommand, or None if not a slash command."""
+    text = text.strip()
+    if not text.startswith("/"):
+        return None
+    parts = text.split()
+    return SlashCommand(name=parts[0].lower(), args=parts[1:])
+
+
 def _print_help() -> None:
-    """Phase 34: REPL slash-command help."""
     print(
         "Commands:\n"
-        "  /help            Show this help\n"
-        "  /settings        Show current model, mode, cwd, trust\n"
-        "  /clear           Start a fresh session (clears conversation)\n"
-        "  /resume <id>     Resume a saved session\n"
-        "  /fork <id>       Fork a new session from an existing one\n"
-        "  /exit, /quit     Leave the REPL"
+        "  /help                 Show commands\n"
+        "  /settings             Show current model, mode, cwd, session\n"
+        "  /clear                Start a fresh session\n"
+        "  /resume <session_id>  Resume an existing session\n"
+        "  /fork <session_id>    Fork an existing session into a new session\n"
+        "  /exit, /quit          Exit"
     )
 
 
-def _print_settings(config: Config) -> None:
-    """Phase 34: print current session settings."""
+def _print_settings(state: "ReplState") -> None:
     from d2c.trust import get_trust_gate
+    config = state.config
     try:
         trusted = get_trust_gate().is_project_trusted
     except Exception:
         trusted = "unknown"
+    sid = getattr(state.session_store, "session_id", None)
     print(
         f"Settings:\n"
         f"  model:       {config.model}\n"
         f"  permission:  {config.permission_mode}\n"
         f"  cwd:         {config.cwd}\n"
+        f"  session:     {sid}\n"
+        f"  stream:      {'on' if state.stream else 'off'}\n"
         f"  sandbox:     {'on' if config.sandbox_enabled else 'off'}\n"
         f"  trusted:     {trusted}"
     )
+
+
+async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
+    """Dispatch a REPL slash command. Returns True to keep the REPL running,
+    False to exit. Mutates `state` (session_store / conversation) in place.
+
+    Unknown commands are reported locally and never sent to the model.
+    """
+    name = cmd.name
+
+    if name in ("/exit", "/quit"):
+        return False
+
+    if name == "/help":
+        _print_help()
+        return True
+
+    if name == "/settings":
+        _print_settings(state)
+        return True
+
+    if name == "/clear":
+        state.session_store = SessionManager().create_session(state.config.cwd)
+        state.conversation.clear()
+        _install_file_history(state.config, state.session_store)
+        print(f"Cleared. New session: {state.session_store.session_id}")
+        return True
+
+    if name == "/resume":
+        if not cmd.args:
+            print("Usage: /resume <session_id>")
+            return True
+        try:
+            store, restored = SessionManager().resume_session(cmd.args[0], state.config.cwd)
+        except Exception as e:
+            print(f"Could not resume: {e}")
+            return True
+        state.session_store = store
+        state.conversation[:] = list(restored)
+        _install_file_history(state.config, store)
+        print(f"Resumed session {store.session_id} ({len(state.conversation)} messages).")
+        return True
+
+    if name == "/fork":
+        if not cmd.args:
+            print("Usage: /fork <session_id>")
+            return True
+        try:
+            store = SessionManager().fork_session(cmd.args[0], state.config.cwd)
+            _, restored = SessionManager().resume_session(cmd.args[0], state.config.cwd)
+        except Exception as e:
+            print(f"Could not fork: {e}")
+            return True
+        state.session_store = store
+        state.conversation[:] = list(restored)
+        _install_file_history(state.config, store)
+        print(f"Forked {cmd.args[0]} → new session {store.session_id}.")
+        return True
+
+    print(f"Unknown command: {name}")
+    return True
 
 
 async def run_headless(prompt: str, args: argparse.Namespace) -> None:
@@ -591,7 +687,8 @@ async def run_interactive(args: argparse.Namespace) -> None:
     )
 
     active_tasks = 0
-    conversation: list[dict] = []  # Phase 34: running multi-turn history
+    # Phase 36: explicit mutable REPL state that slash commands operate on.
+    state = ReplState(config=config, session_store=session_store, conversation=[])
 
     try:
         while True:
@@ -599,7 +696,7 @@ async def run_interactive(args: argparse.Namespace) -> None:
                 prompt_text = await session.prompt_async(
                     "> ",
                     bottom_toolbar=lambda: get_statusbar_text(
-                        config, session_store, active_tasks,
+                        state.config, state.session_store, active_tasks,
                     ),
                 )
                 prompt_text = prompt_text.strip()
@@ -613,55 +710,25 @@ async def run_interactive(args: argparse.Namespace) -> None:
             if not prompt_text:
                 continue
 
-            # ── Slash commands (Phase 34) ─────────────────────────────
-            low = prompt_text.lower()
-            if low in ("/exit", "/quit", "exit", "quit", "q"):
+            # Bare stop words (no slash prefix).
+            if prompt_text.lower() in ("exit", "quit", "q"):
                 break
-            if low == "/help":
-                _print_help()
-                continue
-            if low == "/settings":
-                _print_settings(config)
-                continue
-            if low == "/clear":
-                session_store = SessionManager().create_session(config.cwd)
-                conversation = []
-                print(f"Cleared. New session: {session_store.session_id}")
-                continue
-            if low.startswith("/resume"):
-                parts = prompt_text.split()
-                if len(parts) < 2:
-                    print("Usage: /resume <session_id>")
-                    continue
-                try:
-                    session_store, restored = SessionManager().resume_session(parts[1], config.cwd)
-                    conversation = list(restored)
-                    print(f"Resumed session {session_store.session_id} ({len(conversation)} messages).")
-                except Exception as e:
-                    print(f"Could not resume: {e}")
-                continue
-            if low.startswith("/fork"):
-                parts = prompt_text.split()
-                if len(parts) < 2:
-                    print("Usage: /fork <session_id>")
-                    continue
-                try:
-                    session_store = SessionManager().fork_session(parts[1], config.cwd)
-                    _, restored = SessionManager().resume_session(parts[1], config.cwd)
-                    conversation = list(restored)
-                    print(f"Forked {parts[1]} → new session {session_store.session_id}.")
-                except Exception as e:
-                    print(f"Could not fork: {e}")
+
+            # Phase 36: slash commands are handled locally and never sent to
+            # the model (including unknown ones).
+            cmd = parse_slash_command(prompt_text)
+            if cmd is not None:
+                if not await handle_slash_command(cmd, state):
+                    break
                 continue
 
             # Phase 22: Record prompt in global history
-            prompt_history = PromptHistory()
-            prompt_history.append(prompt_text)
+            PromptHistory().append(prompt_text)
 
             # Phase 34: UserPromptSubmit hook — honor block / injected context
             ups = await hook_registry.fire(HookEvent.USER_PROMPT_SUBMIT, {
                 "prompt": prompt_text,
-                "session_id": session_store.session_id if session_store else None,
+                "session_id": getattr(state.session_store, "session_id", None),
             })
             if getattr(ups, "decision", None) == "deny" or getattr(ups, "veto", False):
                 print("[prompt blocked by UserPromptSubmit hook]")
@@ -678,26 +745,26 @@ async def run_interactive(args: argparse.Namespace) -> None:
                 config=config,
                 deepseek_api_key=config.deepseek_api_key,
                 deepseek_base_url=config.deepseek_base_url,
-                session_store=session_store,
+                session_store=state.session_store,
                 compact_config=compact_config,
-                stream=True,  # Phase 10: streaming enabled
+                stream=state.stream,  # Phase 10: streaming enabled
             )
 
             # Phase 34: multi-turn — carry running conversation into the loop
             if getattr(ups, "additional_context", None):
-                conversation.append({"role": "user", "content": ups.additional_context})
-            conversation.append({"role": "user", "content": prompt_text})
+                state.conversation.append({"role": "user", "content": ups.additional_context})
+            state.conversation.append({"role": "user", "content": prompt_text})
 
             full_prompt, messages = assembleMessages(
                 loop_config.system_prompt,
                 system_context,
                 loop_config.user_context,
-                list(conversation),
+                list(state.conversation),
             )
             loop_config.system_prompt = full_prompt
             # Record user message
-            if session_store:
-                session_store.append(SessionEntry(
+            if state.session_store:
+                state.session_store.append(SessionEntry(
                     role="user", content=prompt_text,
                     timestamp=_utc_now(), entry_type="message",
                 ))
@@ -725,11 +792,11 @@ async def run_interactive(args: argparse.Namespace) -> None:
 
             # Phase 34: append assistant turn so the next prompt has context
             if assistant_text:
-                conversation.append({"role": "assistant", "content": assistant_text})
+                state.conversation.append({"role": "assistant", "content": assistant_text})
     finally:
         # Phase 15: Fire SessionEnd hook
         await hook_registry.fire(HookEvent.SESSION_END, {
-            "session_id": session_store.session_id if session_store else None,
+            "session_id": getattr(state.session_store, "session_id", None),
         })
 
 
