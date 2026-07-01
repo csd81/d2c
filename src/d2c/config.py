@@ -177,6 +177,10 @@ class Config:
     # --- Shell sandboxing (Phase 34) ---
     sandbox_enabled: bool = False  # gate BashTool execution through SandboxExecutor
 
+    # --- WebSearch (Phase 39) ---
+    websearch_provider: str = ""       # e.g. "tavily"; empty = unconfigured
+    websearch_api_key: str | None = None
+
     # --- OS ---
     os: str = field(default="")
 
@@ -218,6 +222,8 @@ class Config:
         base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic")
         model = os.environ.get("D2C_MODEL", "deepseek-v4-pro")
         sandbox_enabled = os.environ.get("D2C_SANDBOX", "").lower() in ("1", "true", "yes", "on")
+        websearch_provider = os.environ.get("D2C_WEBSEARCH_PROVIDER", "").strip().lower()
+        websearch_api_key = os.environ.get("D2C_WEBSEARCH_API_KEY") or None
 
         return cls(
             model=model,
@@ -225,6 +231,8 @@ class Config:
             deepseek_base_url=base_url,
             cwd=project_dir,
             sandbox_enabled=sandbox_enabled,
+            websearch_provider=websearch_provider,
+            websearch_api_key=websearch_api_key,
         )
 
     def validate(self) -> list[str]:

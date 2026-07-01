@@ -380,23 +380,28 @@ class TestWebSearchTool:
         assert "query" in result.output.lower()
 
     @pytest.mark.asyncio
-    async def test_not_configured_message(self):
+    async def test_not_configured_message(self, monkeypatch):
+        # Phase 39: unconfigured is now a clear (non-secret) error.
+        monkeypatch.delenv("D2C_WEBSEARCH_PROVIDER", raising=False)
+        monkeypatch.delenv("D2C_WEBSEARCH_API_KEY", raising=False)
         from d2c.tools.web_search import WebSearchTool
         tool = WebSearchTool()
         result = await tool.execute(query="test query")
-        assert result.error is False
-        assert "not configured" in result.output
+        assert result.error is True
+        assert "not configured" in result.output.lower()
         assert result.metadata["configured"] is False
-        assert "test query" in result.output
 
     @pytest.mark.asyncio
-    async def test_max_results_clamped(self):
+    async def test_unconfigured_regardless_of_max_results(self, monkeypatch):
+        # Clamping is covered in test_web_search.py; here just confirm a large
+        # max_results still yields the clean unconfigured error.
+        monkeypatch.delenv("D2C_WEBSEARCH_PROVIDER", raising=False)
+        monkeypatch.delenv("D2C_WEBSEARCH_API_KEY", raising=False)
         from d2c.tools.web_search import WebSearchTool
         tool = WebSearchTool()
         result = await tool.execute(query="test", max_results=50)
-        assert result.error is False
-        # max_results is clamped to 20 internally, so 50 → 20
-        assert "20" in result.output
+        assert result.error is True
+        assert "not configured" in result.output.lower()
 
     def test_websearch_tool_attributes(self):
         from d2c.tools.web_search import WebSearchTool

@@ -21,7 +21,16 @@ export DEEPSEEK_API_KEY=sk-...
 # optional:
 export DEEPSEEK_BASE_URL=https://api.deepseek.com/anthropic   # default
 export D2C_MODEL=deepseek-v4-pro                              # default
+export D2C_SANDBOX=1                                          # sandbox Bash (off by default)
+
+# optional — enable the WebSearch tool (Tavily):
+export D2C_WEBSEARCH_PROVIDER=tavily
+export D2C_WEBSEARCH_API_KEY=tvly-...
+export D2C_WEBSEARCH_TIMEOUT=15                               # seconds (default)
 ```
+
+Without `D2C_WEBSEARCH_PROVIDER`/`D2C_WEBSEARCH_API_KEY`, the `WebSearch` tool returns a clear
+"not configured" error instead of results.
 
 `.env` resolution: `~/.d2c/.env` always loads; a project-local `.env` loads **only if the workspace is trusted** (see [Workspace trust](#workspace-trust)). Shell environment variables take precedence over `.env` values.
 

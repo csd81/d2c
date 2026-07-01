@@ -78,8 +78,8 @@ design.
 
 ## 3. Gaps and bugs (scaffolded but inert, or behaviorally wrong)
 
-> **Status update:** The gaps below describe the pre-Phase-34 state. **Phases 34–38 resolved most of
-> them** (see the `plans/phase34`…`phase38` docs). Resolved items are marked ✅ inline.
+> **Status update:** The gaps below describe the pre-Phase-34 state. **Phases 34–39 resolved most of
+> them** (see the `plans/phase34`…`phase39` docs). Resolved items are marked ✅ inline.
 
 Several features exist as complete-looking modules but are **never wired into the loop**, so at
 runtime they do nothing. Two are outright correctness bugs.
@@ -118,8 +118,11 @@ runtime they do nothing. Two are outright correctness bugs.
 8. **~15 hook events defined but never fired.** ✅ *Partially fixed in Phase 34.* `SESSION_START`,
    `USER_PROMPT_SUBMIT`, `SUBAGENT_STOP`, and `TASK_CREATED`/`TASK_COMPLETED` now fire; other
    lifecycle events (e.g. `CWD_CHANGED`, `FILE_CHANGED`, elicitation) remain unfired.
-9. **WebSearch is a stub** (returns "not configured"). *Still unresolved (out of scope — needs a real
-   search backend, not wiring).*
+9. **WebSearch is a stub** (returns "not configured"). ✅ *Fixed in Phase 39.* Now a real
+   provider-backed tool (`SearchProvider` abstraction + a Tavily provider) reading
+   `D2C_WEBSEARCH_PROVIDER`/`D2C_WEBSEARCH_API_KEY` from the environment; returns normalized
+   title/URL/snippet results with clean auth/rate-limit/timeout/empty handling and no key leakage.
+   Unconfigured still returns a clear error. Covered by `tests/test_web_search.py` (mocked network).
 10. **REPL slash commands are cosmetic.** ✅ *Fixed in Phases 34/36.* `/help`, `/settings`, `/clear`,
     `/resume`, `/fork` are real (and the REPL is now multi-turn); unknown `/x` is reported locally and
     never sent to the model. Covered by `tests/test_repl_commands.py`.
@@ -165,10 +168,9 @@ vs 54; a subset of the 27 hook events firing) and a few **deliberately out-of-sc
 ### Still open (intentionally deferred)
 
 1. **KAIROS** background heartbeat mode — un-instantiated (paper flags it as unconfirmed too).
-2. **WebSearch** — stub; needs a real search backend, not wiring.
-3. **Windows sandbox backend** — explicit stub (falls back to the process backend).
-4. Remaining unfired lifecycle hooks (`CWD_CHANGED`, `FILE_CHANGED`, elicitation, …).
-5. **ASK is non-interactive in the executors** — outside the acceptEdits/deny path, an `ASK` decision
+2. **Windows sandbox backend** — explicit stub (falls back to the process backend).
+3. Remaining unfired lifecycle hooks (`CWD_CHANGED`, `FILE_CHANGED`, elicitation, …).
+4. **ASK is non-interactive in the executors** — outside the acceptEdits/deny path, an `ASK` decision
    currently falls through to execution (there's no interactive prompt wired into the async
    executors). Deny-first rules and the Phase 38 acceptEdits denials still hold; wiring true
    interactive approval is a larger, separate change.
