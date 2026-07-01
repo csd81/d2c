@@ -58,7 +58,13 @@ python -m d2c                    # interactive REPL (rich prompt_toolkit console
 python -m d2c "fix the bug in foo.py"   # single-shot headless run
 python -m d2c --mcp              # run as an MCP server (stdio JSON-RPC) for IDE integration
 python -m d2c --list-models
+python -m d2c --doctor           # diagnose config/env (PASS/WARN/FAIL); add --json or --doctor-live
 ```
+
+`--doctor` runs offline checks (Python, imports, DeepSeek/WebSearch/sandbox/audit config, git,
+workspace, trust, MCP, bundled skills) and prints actionable `PASS`/`WARN`/`FAIL` results without any
+model/API calls or printing secrets. It exits `1` only if something **FAIL**s. `--doctor-live` adds a
+small live WebSearch probe; `--json` emits machine-readable output.
 
 Common flags:
 

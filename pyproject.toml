@@ -63,6 +63,7 @@ warn_return_any = false
 disable_error_code = ["annotation-unchecked"]
 files = [
     "src/d2c/observability.py",
+    "src/d2c/doctor.py",
     "src/d2c/config.py",
     "src/d2c/history.py",
     "src/d2c/path_rules.py",

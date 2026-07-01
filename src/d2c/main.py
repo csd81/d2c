@@ -72,6 +72,21 @@ def parse_args() -> argparse.Namespace:
         metavar="SESSION_ID",
         help="Revert all filesystem changes from the given session",
     )
+    parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Run local diagnostics (config/env checks) and exit",
+    )
+    parser.add_argument(
+        "--doctor-live",
+        action="store_true",
+        help="With --doctor: also make a small live WebSearch probe",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="With --doctor: machine-readable JSON output",
+    )
 
     # Trust gate flags (mutually exclusive)
     trust_group = parser.add_mutually_exclusive_group()
@@ -1046,6 +1061,31 @@ def _resolve_trust(args: argparse.Namespace) -> "WorkSpaceTrustGate":
     return gate
 
 
+def _run_doctor_cli(args: argparse.Namespace) -> int:
+    """Run diagnostics non-interactively and print results. Returns exit code."""
+    from d2c.doctor import exit_code, render_json, render_text, run_doctor
+    from d2c.trust import TrustStore, WorkSpaceTrustGate, set_trust_gate
+
+    cwd = (args.cwd or Path.cwd()).resolve()
+    if args.no_trust:
+        trusted = False
+    elif args.trust:
+        trusted = True
+    else:
+        try:
+            trusted = TrustStore().is_trusted(cwd)
+        except Exception:
+            trusted = False
+    gate = WorkSpaceTrustGate(cwd)
+    gate.decide(trusted)
+    set_trust_gate(gate)
+
+    config = Config.load(cwd)
+    results = run_doctor(config, cwd=cwd, trusted=trusted, live=args.doctor_live)
+    print(render_json(results) if args.json else render_text(results))
+    return exit_code(results)
+
+
 def main() -> None:
     args = parse_args()
 
@@ -1085,6 +1125,10 @@ def main() -> None:
                 f"    context: {defaults['context_window']:,} tokens, max_tokens: {defaults['max_tokens']}"
             )
         return
+
+    # Phase 47: diagnostics — offline, no model/API access needed.
+    if args.doctor:
+        sys.exit(_run_doctor_cli(args))
 
     # Trust gate (must run before Config.load — reads project .env)
     _resolve_trust(args)
