@@ -54,6 +54,7 @@ class SubagentDefinition:
     permission_mode: str | None = None  # override permission mode
     max_turns: int = 25
     background: bool = False
+    isolation: str = "default"  # Phase 61: "default" | "worktree"
 
 
 @dataclass
@@ -129,6 +130,11 @@ async def spawn_subagent(
     isolation_mode:
       - "default": run in-process, same cwd
       - "worktree": git worktree isolation (requires git repo)
+
+    Phase 61: an explicit ``isolation_mode`` argument overrides the profile;
+    when left at "default", the definition's own ``isolation`` field applies
+    (so a capability profile can request worktree isolation without the
+    caller threading it through).
     """
     # Deferred imports to avoid circular dependency
     from d2c.context import assembleMessages, getSystemContext, getUserContext
@@ -145,6 +151,8 @@ async def spawn_subagent(
         WorktreeManager,
     )
 
+    effective_isolation = isolation_mode if isolation_mode != "default" else definition.isolation
+
     # ── Worktree isolation ──────────────────────────────────────────
     worktree_ctx: WorktreeContext | None = None
     worktree_manager: WorktreeManager | None = None
@@ -152,7 +160,7 @@ async def spawn_subagent(
     diff_output = ""
     subagent_id = str(uuid.uuid4())[:8]
 
-    if isolation_mode == "worktree":
+    if effective_isolation == "worktree":
         try:
             worktree_manager = WorktreeManager()
             worktree_ctx = worktree_manager.create(parent_config.cwd)
@@ -372,18 +380,48 @@ BUILTIN_SUBAGENTS: dict[str, SubagentDefinition] = {
 }
 
 
-def load_subagent_definition(name: str) -> SubagentDefinition:
+def load_subagent_definition(name: str, cwd: Path | None = None) -> SubagentDefinition:
     """Load a subagent definition by name.
 
-    Checks built-in types first, then .d2c/agents/*.md files.
+    Resolution order:
+      1. Built-in types (Explore/Plan/General-purpose) — always available.
+      2. Phase 61 YAML capability profiles (``.d2c/agents/*.yaml``) — trusted
+         workspaces only.
+      3. Legacy ``.d2c/agents/*.md`` frontmatter agents — trusted only.
+
+    Project-local definitions (2 & 3) carry executable-ish config — custom
+    system prompts, permission modes, tool boundaries — so they load ONLY
+    when the workspace is trusted, matching the gate applied to .env / skills
+    / MCP / CLAUDE.md. Prior to Phase 61 the ``.md`` path loaded
+    unconditionally; that trust gap is now closed.
     """
     if name in BUILTIN_SUBAGENTS:
         return BUILTIN_SUBAGENTS[name]
 
-    # Check custom definitions in .d2c/agents/*.md
-    agents_dir = Path.cwd() / ".d2c" / "agents"
+    from d2c.trust import get_trust_gate
+
+    try:
+        trusted = get_trust_gate().is_project_trusted
+    except Exception:
+        # Fail closed: an undecided/broken trust gate must not load
+        # project-local agent definitions.
+        trusted = False
+    if not trusted:
+        raise ValueError(f"Unknown subagent type: {name}")
+
+    base = cwd or Path.cwd()
+
+    # Phase 61: YAML capability profiles (nested tools/isolation/instructions).
+    from d2c.subagent_profiles import load_profiles
+
+    profiles, _errors = load_profiles(base, trusted=True)
+    if name in profiles:
+        return profiles[name]
+
+    # Legacy .md frontmatter agents (scalar-only), kept for backward compat.
+    agents_dir = base / ".d2c" / "agents"
     if agents_dir.is_dir():
-        for agent_file in agents_dir.glob("*.md"):
+        for agent_file in sorted(agents_dir.glob("*.md")):
             frontmatter, body = _parse_frontmatter(agent_file.read_text(encoding="utf-8"))
             if frontmatter.get("name") == name:
                 return SubagentDefinition(

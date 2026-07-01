@@ -211,6 +211,34 @@ permission_rules:
     reason: "shell disabled by org policy"
 ```
 
+## Subagent profiles
+
+The built-in subagent types (`Explore`, `Plan`, `General-purpose`) can be extended with named
+**capability profiles** — YAML files in a trusted workspace's `.d2c/agents/*.yaml` (or `.yml`). A
+profile sets the subagent's model, permission mode, tool allow/deny boundaries, optional git-worktree
+isolation, and instructions (system prompt):
+
+```yaml
+# .d2c/agents/security-reviewer.yaml
+name: security-reviewer
+model: deepseek-reasoner
+permission_mode: plan
+tools:
+  allow: [Read, Grep, Glob, GitDiff]
+  deny: [Write, Edit, Bash]
+isolation: worktree           # run in a throwaway git worktree
+instructions: |
+  Review the changes for security vulnerabilities. Do not modify files.
+```
+
+The model invokes it by name via the `Agent` tool (`subagent_type: "security-reviewer"`), and can
+request `isolation: worktree` per call to override a profile's setting. Profiles are project-local,
+executable-ish config, so — like `.env`, CLAUDE.md, skills, and MCP — they load **only in a trusted
+workspace**; an untrusted workspace sees only the built-in types. A malformed profile (bad YAML,
+missing `name`, invalid `permission_mode`/`isolation`, wrong tool shape) is reported and skipped, not
+loaded. `tools.allow` narrows the pool to exactly those tools; `tools.deny` (used when no `allow` is
+given) removes them.
+
 ## Security
 
 See [`docs/security.md`](./docs/security.md) for the safety model, known protections, and limitations

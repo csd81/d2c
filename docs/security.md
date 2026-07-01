@@ -41,6 +41,15 @@ is protected, what is not, and what you should not rely on. The invariants below
   results through the same untrusted-content wrapper above regardless of provider.
 - **Subagent isolation.** Subagents run with their own context and tool pool; optional git-worktree
   isolation for filesystem separation.
+- **Subagent profiles are trust-gated (Phase 61).** Project-local subagent definitions
+  (`.d2c/agents/*.yaml` capability profiles and legacy `.d2c/agents/*.md` agents) carry
+  executable-ish config — a custom system prompt, a permission mode, and tool allow/deny boundaries —
+  so they load **only in a trusted workspace**, the same gate as `.env`/skills/MCP/CLAUDE.md. Built-in
+  types (`Explore`/`Plan`/`General-purpose`) always resolve; only project-local definitions are
+  gated. Loading fails closed (an undecided/broken trust gate loads nothing project-local), and a
+  malformed profile is reported and skipped, never applied. A profile cannot escalate beyond what the
+  session already permits — its `permission_mode` selects among the same modes, and its tool
+  allow/deny only ever *narrows* the pool.
 - **Scoped settings, managed lock (Phase 60).** `Config.load()` layers `permission_mode` /
   `sandbox_enabled` / `permission_rules` / `hooks` from managed (`/etc/d2c/settings.yaml`) → user
   (`~/.d2c/settings.yaml`) → project → local YAML. A value set at the managed scope **cannot be

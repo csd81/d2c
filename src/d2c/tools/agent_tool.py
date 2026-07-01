@@ -43,6 +43,14 @@ AGENT_TOOL_INPUT_SCHEMA: dict[str, Any] = {
             "type": "boolean",
             "description": "Set to true to run in the background",
         },
+        "isolation": {
+            "type": "string",
+            "description": (
+                "Filesystem isolation: 'default' (in-place, same cwd) or "
+                "'worktree' (run in a fresh git worktree, requires a git repo). "
+                "Overrides the subagent profile's isolation setting."
+            ),
+        },
     },
     "required": ["description", "prompt"],
 }
@@ -78,6 +86,7 @@ class AgentTool(Tool):
         permission_mode_override: str | None = None,
         max_turns: int = 25,
         background: bool = False,
+        isolation: str | None = None,
         **kwargs: Any,
     ) -> ToolResult:
         """Spawn an isolated subagent and return its summary.
@@ -85,6 +94,8 @@ class AgentTool(Tool):
         When background=True, the subagent runs as a fire-and-forget task.
         The parent gets back a subagent_id and can query status/results later.
         """
+        from dataclasses import replace
+
         from d2c.subagent import (
             SubagentResult,
             get_background_manager,
@@ -92,9 +103,23 @@ class AgentTool(Tool):
             spawn_subagent,
         )
 
-        # Resolve definition
+        if isolation is not None and isolation not in ("default", "worktree"):
+            return ToolResult(
+                output=f"Error: invalid isolation '{isolation}'; expected 'default' or 'worktree'.",
+                error=True,
+                metadata={"invalid_isolation": True},
+            )
+
+        # Get parent config/session from the tool's execution context.
+        # Resolve BEFORE loading the definition so project-local capability
+        # profiles are looked up under the parent's cwd (trust-gated).
+        from d2c.config import Config
+
+        parent_config = self._config or Config.load()
+
+        # Resolve definition (built-in, YAML profile, or legacy .md agent)
         try:
-            definition = load_subagent_definition(subagent_type)
+            definition = load_subagent_definition(subagent_type, cwd=parent_config.cwd)
         except ValueError as e:
             return ToolResult(
                 output=f"Error: {e}",
@@ -102,16 +127,15 @@ class AgentTool(Tool):
                 metadata={"unknown_subagent": True},
             )
 
-        # Apply overrides
+        # Apply per-invocation overrides on a COPY — built-ins and loaded
+        # profiles are shared objects; mutating them would leak state across
+        # calls. dataclasses.replace() builds an independent definition.
+        overrides: dict[str, Any] = {"max_turns": max_turns, "background": background}
         if permission_mode_override:
-            definition.permission_mode = permission_mode_override
-        definition.max_turns = max_turns
-        definition.background = background
-
-        # Get parent config/session from the tool's execution context
-        from d2c.config import Config
-
-        parent_config = self._config or Config.load()
+            overrides["permission_mode"] = permission_mode_override
+        if isolation is not None:
+            overrides["isolation"] = isolation
+        definition = replace(definition, **overrides)
 
         # ── Background execution ──────────────────────────────────────
         if background:
@@ -121,6 +145,7 @@ class AgentTool(Tool):
                 task_prompt=prompt,
                 parent_config=parent_config,
                 parent_session_store=None,
+                isolation_mode=definition.isolation,
             )
             return ToolResult(
                 output=(
@@ -142,6 +167,7 @@ class AgentTool(Tool):
             task_prompt=prompt,
             parent_config=parent_config,
             parent_session_store=None,
+            isolation_mode=definition.isolation,
         )
 
         # Paper Section 8.3: "only the subagent's final response text and metadata

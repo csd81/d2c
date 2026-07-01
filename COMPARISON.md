@@ -67,7 +67,7 @@ Structure and behavior match the paper closely, often down to function names.
 | **Tool count** (§6.2, App. A) | up to **54** (19 unconditional + 35 gated) | **28** built-ins + dynamic MCP (Phase 56 added ConfigInfo/PackageInfo/CodeSymbols; see `plans/tool-inventory.md`) |
 | **Permission modes** (§5.1) | **7** (plan, default, acceptEdits, auto, dontAsk, bypassPermissions, bubble) | **6** — has AUTO + BYPASS, **no `bubble`** (subagent-escalation mode) |
 | **Hook events** (§6.1) | **27** defined, 5 in permission flow | **27 defined** (matches), but only **12 actually fired** |
-| **Subagent types** (§8) | up to 6 (Explore, Plan, general, Guide, Verification, Statusline) | 3 (Explore, Plan, general-purpose) |
+| **Subagent types** (§8) | up to 6 (Explore, Plan, general, Guide, Verification, Statusline) | 3 built-in (Explore, Plan, general-purpose) + user-defined YAML capability profiles (Phase 61: model/mode/tool-boundaries/isolation, trust-gated) |
 | **Bundled skills/plugins** | skill + command + plugin registries | **1 skill** (`commit.md`), **0 bundled plugins** |
 | **Permission handler paths** (§5.2) | coordinator / swarm / speculative / interactive | interactive + async classifier only |
 
