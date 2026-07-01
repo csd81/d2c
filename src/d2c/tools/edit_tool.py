@@ -144,5 +144,8 @@ class FileEditTool(Tool):
                 "bytes_after": len(new_content),
             },
         )
-        from d2c.tools import notify_file_access
+        from d2c.tools import notify_file_access, fire_active_hook
+        await fire_active_hook("FILE_CHANGED", {
+            "path": str(path), "tool": "Edit", "operation": "edit",
+        })
         return notify_file_access(path, result)

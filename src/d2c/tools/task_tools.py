@@ -17,20 +17,9 @@ from d2c.tools import PermissionCategory, Tool, ToolResult
 
 
 async def _fire_task_hook(event_name: str, payload: dict) -> None:
-    """Phase 34: fire a task lifecycle hook via the active HookRegistry.
-
-    Task tools receive no hooks handle, so we read the process-wide active
-    registry (set at startup). Best-effort — never raises into the tool.
-    """
-    from d2c.tools import get_active_hooks
-    hooks = get_active_hooks()
-    if hooks is None:
-        return
-    try:
-        from d2c.hooks import HookEvent
-        await hooks.fire(HookEvent[event_name], payload)
-    except Exception:
-        pass
+    """Phase 34: fire a task lifecycle hook via the active HookRegistry."""
+    from d2c.tools import fire_active_hook
+    await fire_active_hook(event_name, payload)
 
 
 # ── In-memory task store (per-session) ───────────────────────────────────

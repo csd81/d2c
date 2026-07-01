@@ -364,6 +364,13 @@ async def _wire_runtime(config: Config, session_store, hook_registry) -> None:
     await hook_registry.fire(HookEvent.SESSION_START, {
         "session_id": session_store.session_id if session_store else None,
         "cwd": str(config.cwd),
+        "model": config.model,
+        "mode": config.permission_mode,
+    })
+    # Phase 40: CLAUDE.md / memory hierarchy is loaded into user context here.
+    await hook_registry.fire(HookEvent.INSTRUCTIONS_LOADED, {
+        "session_id": session_store.session_id if session_store else None,
+        "cwd": str(config.cwd),
     })
 
 
@@ -434,6 +441,27 @@ def _print_settings(state: "ReplState") -> None:
     )
 
 
+async def _switch_session(state: ReplState, new_store, event_verb: str) -> None:
+    """Phase 40: fire SESSION_END for the outgoing session and SESSION_START
+    for the incoming one on /clear, /resume, /fork."""
+    from d2c.tools import get_active_hooks
+    hooks = get_active_hooks()
+    old_id = getattr(state.session_store, "session_id", None)
+    new_id = getattr(new_store, "session_id", None)
+    if hooks is not None:
+        try:
+            await hooks.fire(HookEvent.SESSION_END, {"session_id": old_id, "reason": event_verb})
+            await hooks.fire(HookEvent.SESSION_START, {
+                "session_id": new_id, "cwd": str(state.config.cwd),
+                "model": state.config.model, "mode": state.config.permission_mode,
+                "via": event_verb,
+            })
+        except Exception:
+            pass
+    state.session_store = new_store
+    _install_file_history(state.config, new_store)
+
+
 async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
     """Dispatch a REPL slash command. Returns True to keep the REPL running,
     False to exit. Mutates `state` (session_store / conversation) in place.
@@ -454,9 +482,9 @@ async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
         return True
 
     if name == "/clear":
-        state.session_store = SessionManager().create_session(state.config.cwd)
+        new_store = SessionManager().create_session(state.config.cwd)
+        await _switch_session(state, new_store, "clear")
         state.conversation.clear()
-        _install_file_history(state.config, state.session_store)
         print(f"Cleared. New session: {state.session_store.session_id}")
         return True
 
@@ -469,9 +497,8 @@ async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
         except Exception as e:
             print(f"Could not resume: {e}")
             return True
-        state.session_store = store
+        await _switch_session(state, store, "resume")
         state.conversation[:] = list(restored)
-        _install_file_history(state.config, store)
         print(f"Resumed session {store.session_id} ({len(state.conversation)} messages).")
         return True
 
@@ -485,9 +512,8 @@ async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
         except Exception as e:
             print(f"Could not fork: {e}")
             return True
-        state.session_store = store
+        await _switch_session(state, store, "fork")
         state.conversation[:] = list(restored)
-        _install_file_history(state.config, store)
         print(f"Forked {cmd.args[0]} → new session {store.session_id}.")
         return True
 

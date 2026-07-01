@@ -106,6 +106,23 @@ def get_active_memory_loader() -> Any:
     return _active_memory_loader
 
 
+async def fire_active_hook(event_name: str, payload: dict) -> None:
+    """Fire an observability hook via the active HookRegistry (Phase 40).
+
+    Tools receive no hooks handle, so read the process-wide active registry
+    (set at startup). Best-effort — an observability hook must never crash the
+    tool path.
+    """
+    hooks = get_active_hooks()
+    if hooks is None:
+        return
+    try:
+        from d2c.hooks import HookEvent
+        await hooks.fire(HookEvent[event_name], payload)
+    except Exception:
+        pass
+
+
 def notify_file_access(path: Any, result: "ToolResult") -> "ToolResult":
     """Surface nested CLAUDE.md / path rules for a file the agent just touched.
 

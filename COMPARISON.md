@@ -78,8 +78,8 @@ design.
 
 ## 3. Gaps and bugs (scaffolded but inert, or behaviorally wrong)
 
-> **Status update:** The gaps below describe the pre-Phase-34 state. **Phases 34–39 resolved most of
-> them** (see the `plans/phase34`…`phase39` docs). Resolved items are marked ✅ inline.
+> **Status update:** The gaps below describe the pre-Phase-34 state. **Phases 34–40 resolved most of
+> them** (see the `plans/phase34`…`phase40` docs). Resolved items are marked ✅ inline.
 
 Several features exist as complete-looking modules but are **never wired into the loop**, so at
 runtime they do nothing. Two are outright correctness bugs.
@@ -115,9 +115,15 @@ runtime they do nothing. Two are outright correctness bugs.
    `PathScopedRules` are consulted by `PermissionEngine.evaluate` (Phase 34/37); the
    background-subagent manager is exposed via the `AgentStatus` tool. (`applyFullContextShapers`
    remains an unused duplicate of the loop's inlined shaper pipeline — harmless dead code.)
-8. **~15 hook events defined but never fired.** ✅ *Partially fixed in Phase 34.* `SESSION_START`,
-   `USER_PROMPT_SUBMIT`, `SUBAGENT_STOP`, and `TASK_CREATED`/`TASK_COMPLETED` now fire; other
-   lifecycle events (e.g. `CWD_CHANGED`, `FILE_CHANGED`, elicitation) remain unfired.
+8. **~15 hook events defined but never fired.** ✅ *Fixed across Phases 34 & 40.* **19 of the 27**
+   `HookEvent`s now fire from tested runtime paths (session/prompt/tool/compaction/subagent/task
+   lifecycle, plus `FILE_CHANGED` on Write/Edit/NotebookEdit and `INSTRUCTIONS_LOADED` at session
+   start; `/clear`/`/resume`/`/fork` fire `SESSION_END`+`SESSION_START`). The remaining **8** are
+   **intentionally inactive** — they have no runtime source in a single-user CLI (`CWD_CHANGED`,
+   `CONFIG_CHANGE` — cwd/config are immutable after load; `ELICITATION`/`ELICITATION_RESULT`,
+   `NOTIFICATION`, `PERMISSION_REQUEST`, `STOP_FAILURE`, `TEAMMATE_IDLE`). A categorization test
+   (`tests/test_phase40_hooks.py`) asserts every event is either fired or documented-inactive, and
+   observability-hook failures are isolated from the tool path.
 9. **WebSearch is a stub** (returns "not configured"). ✅ *Fixed in Phase 39.* Now a real
    provider-backed tool (`SearchProvider` abstraction + a Tavily provider) reading
    `D2C_WEBSEARCH_PROVIDER`/`D2C_WEBSEARCH_API_KEY` from the environment; returns normalized
@@ -169,7 +175,9 @@ vs 54; a subset of the 27 hook events firing) and a few **deliberately out-of-sc
 
 1. **KAIROS** background heartbeat mode — un-instantiated (paper flags it as unconfirmed too).
 2. **Windows sandbox backend** — explicit stub (falls back to the process backend).
-3. Remaining unfired lifecycle hooks (`CWD_CHANGED`, `FILE_CHANGED`, elicitation, …).
+3. 8 lifecycle hooks are **intentionally inactive** (no runtime source in a single-user CLI:
+   `CWD_CHANGED`, `CONFIG_CHANGE`, elicitation, `NOTIFICATION`, `PERMISSION_REQUEST`, `STOP_FAILURE`,
+   `TEAMMATE_IDLE`) — documented and asserted, not broken.
 4. **ASK is non-interactive in the executors** — outside the acceptEdits/deny path, an `ASK` decision
    currently falls through to execution (there's no interactive prompt wired into the async
    executors). Deny-first rules and the Phase 38 acceptEdits denials still hold; wiring true

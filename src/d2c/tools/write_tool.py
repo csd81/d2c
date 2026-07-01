@@ -84,7 +84,10 @@ class FileWriteTool(Tool):
                 output=f"Successfully wrote {len(content)} bytes to {file_path}.",
                 metadata={"bytes_written": len(content), "lines": content.count('\n') + 1},
             )
-            from d2c.tools import notify_file_access
+            from d2c.tools import notify_file_access, fire_active_hook
+            await fire_active_hook("FILE_CHANGED", {
+                "path": str(path), "tool": "Write", "operation": "write",
+            })
             return notify_file_access(path, result)
         except OSError as e:
             return ToolResult(output=f"Error writing file: {e}", error=True)

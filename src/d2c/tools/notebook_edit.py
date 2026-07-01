@@ -107,6 +107,11 @@ class NotebookEditTool(Tool):
         except OSError as e:
             return ToolResult(output=f"Error writing notebook: {e}", error=True)
 
+        # Phase 40: FILE_CHANGED fires once per successful notebook mutation.
+        from d2c.tools import fire_active_hook
+        await fire_active_hook("FILE_CHANGED", {
+            "path": str(nb_path), "tool": "NotebookEdit", "operation": "notebook_edit",
+        })
         return result
 
     def _read_cells(self, cells: list[dict]) -> ToolResult:
