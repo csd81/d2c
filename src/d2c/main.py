@@ -387,38 +387,100 @@ class D2CCompleter(Completer):
                 )
 
 
+_SESSION_ID_SHORT_LEN = 8
+_STATUSBAR_MODEL_MAX = 24
+_STATUSBAR_CWD_MAX = 20
+_STATUSBAR_FALLBACK_WIDTH = 80
+
+
+def _truncate_field(value: str, max_len: int) -> str:
+    """Truncate a single field value to max_len chars, marking cuts with '…'."""
+    if len(value) <= max_len or max_len <= 0:
+        return value if max_len > 0 else ""
+    if max_len == 1:
+        return "…"
+    return value[: max_len - 1] + "…"
+
+
+def _statusbar_trust_label() -> str:
+    try:
+        from d2c.trust import get_trust_gate
+
+        return "trusted" if get_trust_gate().is_project_trusted else "untrusted"
+    except Exception:
+        return "unknown"
+
+
 def get_statusbar_text(
     config: "Config",
     session_store: Any,
     active_tasks: int = 0,
     usage: Any = None,
+    width: int | None = None,
 ) -> HTML:
     """Return status bar text formatted as HTML for the bottom toolbar.
 
-    Displays session ID, permission mode, model, active task count, and
-    (Phase 55) compact token/cost usage once there has been a model call.
+    Phase 57: short session id, model, permission mode, cwd basename, trust
+    status, active background task count, and (Phase 55) compact token/cost
+    usage once there has been a model call — all width-aware: optional
+    fields are dropped (widest-to-narrowest terminal) before any field is
+    hard-truncated, so a narrow terminal degrades gracefully instead of
+    wrapping or corrupting the line.
     """
+    import html as _html
+
+    if width is None:
+        import shutil
+
+        try:
+            width = shutil.get_terminal_size(fallback=(_STATUSBAR_FALLBACK_WIDTH, 24)).columns
+        except Exception:
+            width = _STATUSBAR_FALLBACK_WIDTH
+
     mode = getattr(config, "permission_mode", "default").upper()
     sess_id = ""
     if session_store is not None:
         sess_id = getattr(session_store, "session_id", "") or ""
-    task_str = f" | Tasks: {active_tasks}" if active_tasks > 0 else ""
+    sess_short = sess_id[:_SESSION_ID_SHORT_LEN]
 
-    usage_str = ""
+    model = _truncate_field(str(getattr(config, "model", "")), _STATUSBAR_MODEL_MAX)
+    cwd_name = ""
+    cwd = getattr(config, "cwd", None)
+    if cwd:
+        try:
+            cwd_name = _truncate_field(Path(cwd).name, _STATUSBAR_CWD_MAX)
+        except (TypeError, ValueError):
+            cwd_name = ""
+
+    core = f"Session: {sess_short} | Mode: {mode} | Model: {model}"
+
+    optional_segments = [
+        f"cwd: {cwd_name}" if cwd_name else "",
+        f"Trust: {_statusbar_trust_label()}",
+        f"Tasks: {active_tasks}" if active_tasks > 0 else "",
+    ]
     if usage is not None and getattr(usage, "calls", 0) > 0:
         from d2c.usage import usage_status_fragment
 
-        usage_str = f" | {usage_status_fragment(usage)}"
+        optional_segments.append(usage_status_fragment(usage))
+    optional_segments = [s for s in optional_segments if s]
+
+    # " d2c | " prefix + trailing space account for fixed chrome width.
+    budget = max(width - len(" d2c |  "), 0)
+
+    content = core
+    for seg in optional_segments:
+        # A segment that doesn't fit is skipped, not fatal — a later,
+        # shorter segment may still fit.
+        candidate = f"{content} | {seg}"
+        if len(candidate) <= budget:
+            content = candidate
+
+    if len(content) > budget:
+        content = _truncate_field(content, budget)
 
     return HTML(
-        f"<style bg='ansiblue' fg='ansiwhite'>"
-        f" <b>d2c</b> | "
-        f"Session: <b>{sess_id}</b> | "
-        f"Mode: <b>{mode}</b> | "
-        f"Model: {config.model}"
-        f"{task_str}"
-        f"{usage_str} "
-        f"</style>"
+        f"<style bg='ansiblue' fg='ansiwhite'> <b>d2c</b> | {_html.escape(content)} </style>"
     )
 
 
@@ -525,14 +587,34 @@ def parse_slash_command(text: str) -> "SlashCommand | None":
 
 
 def _tool_input_preview(tool_input: dict) -> str:
-    """Compact, non-sensitive preview of tool input for the approval prompt."""
+    """Compact, redacted preview of tool input for the approval prompt.
+
+    Phase 57: routed through observability.redact() so a secret embedded in
+    the tool input (e.g. a Bash command with a literal API key) is never
+    printed to the terminal, matching what the audit log already redacts.
+    """
     import json
 
+    from d2c.observability import redact
+
+    safe_input = redact(tool_input)
     try:
-        s = json.dumps(tool_input, default=str)
+        s = json.dumps(safe_input, default=str)
     except Exception:
-        s = str(tool_input)
+        s = str(safe_input)
     return s[:200] + ("…" if len(s) > 200 else "")
+
+
+def _permission_prompt_lines(request, result) -> list[str]:
+    """Phase 57: permission-dialog body — tool name, risk category, reason,
+    and a redacted input preview, formatted for easy scanning."""
+    category = getattr(getattr(request, "tool_category", None), "value", None) or "unknown"
+    reason = getattr(result, "reason", "") or "approval required"
+    return [
+        f"\nPermission required: {request.tool_name} [{category}]",
+        f"  Reason: {reason}",
+        f"  Input:  {_tool_input_preview(request.tool_input)}",
+    ]
 
 
 async def interactive_approval(request, result) -> bool:
@@ -541,12 +623,10 @@ async def interactive_approval(request, result) -> bool:
     Default is deny (empty input). `y`/`yes` approves once. Runs input() off
     the event loop so streaming isn't blocked.
     """
-    reason = getattr(result, "reason", "") or "approval required"
-    print(f"\nAllow {request.tool_name}?")
-    print(f"  Reason: {reason}")
-    print(f"  Input:  {_tool_input_preview(request.tool_input)}")
+    for line in _permission_prompt_lines(request, result):
+        print(line)
     try:
-        ans = (await asyncio.to_thread(input, "  [y/N]: ")).strip().lower()
+        ans = (await asyncio.to_thread(input, "  Allow? [y/N]: ")).strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
         return False
@@ -569,12 +649,10 @@ def make_interactive_approval(cache: "ApprovalCache"):
                 category=getattr(request.tool_category, "value", None),
             )
             return True
-        reason = getattr(result, "reason", "") or "approval required"
-        print(f"\nAllow {request.tool_name}?")
-        print(f"  Reason: {reason}")
-        print(f"  Input:  {_tool_input_preview(request.tool_input)}")
+        for line in _permission_prompt_lines(request, result):
+            print(line)
         try:
-            ans = (await asyncio.to_thread(input, "  [y/N/a]: ")).strip().lower()
+            ans = (await asyncio.to_thread(input, "  Allow? [y/N/a]: ")).strip().lower()
         except (EOFError, KeyboardInterrupt):
             print()
             return False
@@ -611,6 +689,24 @@ def _print_settings(state: "ReplState") -> None:
     except Exception:
         trusted = "unknown"
     sid = getattr(state.session_store, "session_id", None)
+
+    # Phase 57: background task visibility + readable session usage state.
+    try:
+        from d2c.subagent import get_background_manager
+
+        bg_active = get_background_manager().active_count
+    except Exception:
+        bg_active = 0
+
+    usage_line = "  usage:       (no model calls yet)"
+    session_usage = getattr(getattr(state, "usage", None), "session", None)
+    if session_usage is not None and getattr(session_usage, "calls", 0) > 0:
+        from d2c.usage import usage_status_fragment
+
+        usage_line = (
+            f"  usage:       {session_usage.calls} call(s), {usage_status_fragment(session_usage)}"
+        )
+
     print(
         f"Settings:\n"
         f"  model:       {config.model}\n"
@@ -619,7 +715,9 @@ def _print_settings(state: "ReplState") -> None:
         f"  session:     {sid}\n"
         f"  stream:      {'on' if state.stream else 'off'}\n"
         f"  sandbox:     {'on' if config.sandbox_enabled else 'off'}\n"
-        f"  trusted:     {trusted}"
+        f"  trusted:     {trusted}\n"
+        f"  bg tasks:    {bg_active}\n"
+        f"{usage_line}"
     )
 
 
@@ -950,7 +1048,6 @@ async def run_interactive(args: argparse.Namespace) -> None:
         complete_while_typing=True,
     )
 
-    active_tasks = 0
     # Phase 36: explicit mutable REPL state that slash commands operate on.
     state = ReplState(config=config, session_store=session_store, conversation=[])
 
@@ -962,6 +1059,15 @@ async def run_interactive(args: argparse.Namespace) -> None:
     # place on /clear/resume/fork, so this closure stays valid).
     _approval_cb = make_interactive_approval(state.approvals)
 
+    def _active_bg_tasks() -> int:
+        # Phase 57: live background-subagent count for the status bar.
+        try:
+            from d2c.subagent import get_background_manager
+
+            return get_background_manager().active_count
+        except Exception:
+            return 0
+
     try:
         while True:
             try:
@@ -970,7 +1076,7 @@ async def run_interactive(args: argparse.Namespace) -> None:
                     bottom_toolbar=lambda: get_statusbar_text(
                         state.config,
                         state.session_store,
-                        active_tasks,
+                        _active_bg_tasks(),
                         usage=state.usage.session,
                     ),
                 )

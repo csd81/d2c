@@ -21,6 +21,8 @@ def mock_config():
     cfg = MagicMock()
     cfg.model = "deepseek-v4-pro"
     cfg.permission_mode = "default"
+    cfg.cwd = Path("/home/user/myproject")
+    cfg.deepseek_api_key = "sk-should-never-appear-in-statusbar"
     return cfg
 
 
@@ -196,13 +198,14 @@ class TestToolCompletions:
 
 
 class TestStatusBarRendering:
-    def test_renders_session_id_and_mode(self, mock_config, mock_session_store):
-        """Status bar HTML contains session ID and permission mode."""
+    def test_renders_session_id_short_form_and_mode(self, mock_config, mock_session_store):
+        """Status bar HTML contains the 8-char session id prefix and mode."""
         from d2c.main import get_statusbar_text
 
         result = get_statusbar_text(mock_config, mock_session_store)
         html_str = str(result)
-        assert "abc123-4567" in html_str
+        assert "abc123-4" in html_str  # first 8 chars of "abc123-4567"
+        assert "abc123-4567" not in html_str  # full id is not shown
         assert "DEFAULT" in html_str
         assert "deepseek-v4-pro" in html_str
 
@@ -239,6 +242,86 @@ class TestStatusBarRendering:
 
         result = get_statusbar_text(mock_config, mock_session_store)
         assert isinstance(result, HTML)
+
+    def test_renders_cwd_basename(self, mock_config, mock_session_store):
+        """Status bar shows the cwd basename, not the full path."""
+        from d2c.main import get_statusbar_text
+
+        result = get_statusbar_text(mock_config, mock_session_store, width=200)
+        html_str = str(result)
+        assert "myproject" in html_str
+        assert "/home/user/myproject" not in html_str
+
+    def test_renders_trust_status(self, mock_config, mock_session_store, trusted_gate):
+        """Status bar reflects the workspace trust decision."""
+        from d2c.main import get_statusbar_text
+
+        result = get_statusbar_text(mock_config, mock_session_store, width=200)
+        assert "Trust: trusted" in str(result)
+
+    def test_renders_untrusted_status(self, mock_config, mock_session_store, untrusted_gate):
+        from d2c.main import get_statusbar_text
+
+        result = get_statusbar_text(mock_config, mock_session_store, width=200)
+        assert "Trust: untrusted" in str(result)
+
+    def test_no_secret_leakage(self, mock_config, mock_session_store):
+        """The API key on config is never surfaced in the status bar."""
+        from d2c.main import get_statusbar_text
+
+        result = get_statusbar_text(mock_config, mock_session_store, width=200)
+        assert "sk-should-never-appear-in-statusbar" not in str(result)
+
+    def test_long_model_name_is_field_truncated(self, mock_config, mock_session_store):
+        """A very long model name is truncated with an ellipsis, not wrapped."""
+        from d2c.main import get_statusbar_text
+
+        mock_config.model = "a-very-long-model-name-that-exceeds-the-field-budget"
+        result = get_statusbar_text(mock_config, mock_session_store, width=200)
+        assert "…" in str(result)
+
+    def test_narrow_width_drops_optional_fields_before_corrupting_html(
+        self, mock_config, mock_session_store
+    ):
+        """A narrow terminal drops enrichments (cwd/trust/tasks) but still
+        produces valid, parseable HTML — never a truncated/broken tag."""
+        from prompt_toolkit.formatted_text import HTML
+
+        from d2c.main import get_statusbar_text
+
+        result = get_statusbar_text(mock_config, mock_session_store, active_tasks=3, width=40)
+        assert isinstance(result, HTML)
+        html_str = str(result)
+        assert "<b>d2c</b>" in html_str
+        assert html_str.count("<style") == html_str.count("</style>")
+        # Wide-only fields are the first to go under a tight budget.
+        assert "myproject" not in html_str
+
+    def test_extremely_narrow_width_still_produces_valid_html(
+        self, mock_config, mock_session_store
+    ):
+        """Even a pathologically narrow width degrades to a hard-truncated
+        core line rather than raising or emitting unparseable markup."""
+        from prompt_toolkit.formatted_text import HTML
+
+        from d2c.main import get_statusbar_text
+
+        result = get_statusbar_text(mock_config, mock_session_store, width=10)
+        assert isinstance(result, HTML)
+        assert "<b>d2c</b>" in str(result)
+
+    def test_statusbar_html_is_well_formed_for_prompt_toolkit(
+        self, mock_config, mock_session_store
+    ):
+        """prompt_toolkit's HTML() must be able to parse the output without
+        raising — this is what would break if truncation ever split a tag."""
+        from d2c.main import get_statusbar_text
+
+        for width in (10, 20, 40, 60, 80, 120, 200):
+            result = get_statusbar_text(mock_config, mock_session_store, width=width)
+            # to_formatted_text() forces prompt_toolkit to actually parse
+            # the HTML; a corrupted tag raises here.
+            result.__pt_formatted_text__()
 
 
 # ── D2CCompleter initialization tests ──────────────────────────────────
