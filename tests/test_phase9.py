@@ -319,7 +319,9 @@ class TestWebFetchTool:
 
         assert result.error is False
         assert "Truncated" in result.output
-        assert len(result.output) <= 200  # 100 + truncation notice
+        # 100 chars + truncation notice + Phase 53 untrusted-content wrapper
+        assert len(result.output) <= 320
+        assert result.output.startswith("<untrusted_web_content")
 
     @pytest.mark.asyncio
     async def test_http_error(self):

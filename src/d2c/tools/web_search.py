@@ -319,8 +319,13 @@ class WebSearchTool(Tool):
                 metadata={"provider": provider_name, "query": query, "result_count": 0},
             )
 
+        # Phase 53: delimit retrieved snippets as untrusted data.
+        from d2c.untrusted import wrap_untrusted_web
+
         return ToolResult(
-            output=_format_results(results),
+            output=wrap_untrusted_web(
+                _format_results(results), source=f"web_search:{provider_name}"
+            ),
             metadata={
                 "provider": provider_name,
                 "query": query,

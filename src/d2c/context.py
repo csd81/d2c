@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 
 def getSystemPrompt() -> str:
     """Base system prompt. Paper: assembly via asSystemPrompt()."""
+    from d2c.untrusted import UNTRUSTED_GUIDANCE
+
     return (
         "You are d2c, an interactive CLI agent that helps users with software engineering tasks.\n"
         "Use the tools available to you to assist the user.\n\n"
@@ -37,6 +39,8 @@ def getSystemPrompt() -> str:
         "- Edit files with the Edit tool for exact string replacements.\n"
         "- Write new files with the Write tool.\n"
         "- Run shell commands with the Bash tool.\n\n"
+        "## Untrusted content\n"
+        f"{UNTRUSTED_GUIDANCE}\n\n"
         "## Tone and style\n"
         "- Be concise and direct.\n"
         "- Do not use emojis.\n"
@@ -121,14 +125,18 @@ def getUserContext(config: "Config") -> str:
         parts.append(memory)
 
     # Phase 34: recall saved auto-memories by injecting the MEMORY.md index.
+    # Phase 53: delimit it — memories are model-written, a persisted-injection
+    # channel — so recalled text is visibly data, not instructions.
     try:
         from d2c.memory import AutoMemoryStore
+        from d2c.untrusted import wrap_untrusted_memory
 
         index_file = AutoMemoryStore.INDEX_FILE
         if index_file.exists():
             index = index_file.read_text(encoding="utf-8").strip()
             if index:
-                parts.append(f"# Saved memories (from MEMORY.md)\n{index}")
+                wrapped = wrap_untrusted_memory(index, source="MEMORY.md")
+                parts.append(f"# Saved memories (from MEMORY.md)\n{wrapped}")
     except Exception:
         pass
 

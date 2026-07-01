@@ -29,6 +29,11 @@ is protected, what is not, and what you should not rely on. The invariants below
 - **Secret redaction.** Audit logs redact API keys (`sk-…`/`tvly-…`), `Authorization`,
   `X-Api-Key`/`X-Subscription-Token`, literal env secrets, and password/token fields. WebSearch and
   permission errors never include the key. Full prompts/tool-outputs are not logged by default.
+- **Untrusted-content delimiting.** WebFetch pages, WebSearch snippets, and recalled auto-memories
+  are wrapped in explicit `<untrusted_web_content>`/`<untrusted_memory_content>` tags (embedded
+  closing tags are neutralized so content can't break out of the wrapper), and the system prompt
+  instructs the model to treat tagged content as data. CLAUDE.md sections carry `<!-- LEVEL: path -->`
+  provenance markers.
 - **Subagent isolation.** Subagents run with their own context and tool pool; optional git-worktree
   isolation for filesystem separation.
 
@@ -43,8 +48,9 @@ is protected, what is not, and what you should not rely on. The invariants below
   allows; there is no path-jail confining them to the project directory.
 - **Prompt injection is mitigated by design, not filtered.** Untrusted text from memory / WebFetch /
   WebSearch is carried as data/context; no code path executes retrieved text or changes permission
-  state from it. But d2c does not scrub injected instructions from model context — treat retrieved
-  content as untrusted.
+  state from it. Retrieved content is delimited (see above) and the model is instructed to treat it
+  as data — but d2c does not scrub injected instructions from model context, and delimiters guide
+  the model rather than constrain it. The permission gate remains the enforcement layer.
 - **`ASK` outside the REPL blocks rather than prompts.** There is no interactive approval channel in
   headless/MCP mode; such actions are denied (permission-required), not queued.
 - **Policy, not proof.** These are runtime checks, not formally verified guarantees.

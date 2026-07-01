@@ -125,8 +125,11 @@ class WebFetchTool(Tool):
                     text = text[:max_length]
                     text += f"\n\n[Truncated to {max_length} chars. Original size: {len(response.text)}]"
 
+                # Phase 53: delimit retrieved web content as untrusted data.
+                from d2c.untrusted import wrap_untrusted_web
+
                 return ToolResult(
-                    output=text,
+                    output=wrap_untrusted_web(text, source=url),
                     metadata={
                         "url": url,
                         "status_code": response.status_code,
