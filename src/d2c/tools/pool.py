@@ -29,6 +29,7 @@ from d2c.tools.grep_tool import GrepTool
 from d2c.tools.memory_tool import MemoryTool
 from d2c.tools.notebook_edit import NotebookEditTool
 from d2c.tools.package_info import PackageInfoTool
+from d2c.tools.read_range_tool import ReadRangeTool
 from d2c.tools.read_tool import FileReadTool
 from d2c.tools.skill_tool import SkillTool
 from d2c.tools.structured_edit import JsonEditTool, ReplaceManyTool
@@ -96,6 +97,7 @@ def getAllBaseTools(config: Config) -> list[Tool]:
     tools: list[Tool] = [
         # Read tools
         FileReadTool(),
+        ReadRangeTool(),  # Phase 63: line-range reads for context economy
         GlobTool(),
         GrepTool(),
         # Write tools

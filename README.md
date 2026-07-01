@@ -167,8 +167,8 @@ The loop runs until the model returns a text-only response, hits the turn limit,
 
 Key subsystems (see [`CLAUDE.md`](./CLAUDE.md) for the full map):
 
-- **Tools** (`tools/`) — 28 built-ins assembled through a single deny-first pool:
-  - *files/search*: Read, Write, Edit, Glob, Grep, NotebookEdit, ListDir, FileInfo, ReplaceMany, JsonEdit, ApplyPatch
+- **Tools** (`tools/`) — 29 built-ins assembled through a single deny-first pool:
+  - *files/search*: Read, ReadRange, Write, Edit, Glob, Grep, NotebookEdit, ListDir, FileInfo, ReplaceMany, JsonEdit, ApplyPatch
   - *shell/git/diagnostics*: Bash, GitStatus, GitDiff, EnvInfo, ConfigInfo, PackageInfo, CodeSymbols
   - *web*: WebFetch, WebSearch
   - *tasks/memory/meta*: TaskCreate/Update/List, Remember, AgentStatus, ToolSearch, and meta-tools Skill + Agent

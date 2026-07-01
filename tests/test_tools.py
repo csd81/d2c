@@ -407,6 +407,7 @@ async def test_assemble_tool_pool():
     names = {t.name for t in tools}
     assert names == {
         "Read",
+        "ReadRange",
         "Write",
         "Edit",
         "Bash",
