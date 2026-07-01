@@ -1,0 +1,43 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[dev]"
+
+      # Re-run the quality gates so a tag can't ship a broken build.
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+      - run: bandit -c pyproject.toml -r src/d2c
+      - run: pytest -q
+
+      - name: Build sdist + wheel
+        run: |
+          rm -rf dist build src/d2c.egg-info
+          python -m build
+      - name: Verify artifacts
+        run: |
+          twine check dist/*
+          python -m zipfile -l dist/*.whl
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+  # Publishing to PyPI is intentionally NOT automatic. To enable it, add a
+  # publish job gated on an environment/approval using PyPI Trusted Publishing
+  # (OIDC via pypa/gh-action-pypi-publish) or a scoped API token secret.

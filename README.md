@@ -59,6 +59,7 @@ python -m d2c "fix the bug in foo.py"   # single-shot headless run
 python -m d2c --mcp              # run as an MCP server (stdio JSON-RPC) for IDE integration
 python -m d2c --list-models
 python -m d2c --doctor           # diagnose config/env (PASS/WARN/FAIL); add --json or --doctor-live
+python -m d2c --version          # print version and exit
 ```
 
 `--doctor` runs offline checks (Python, imports, DeepSeek/WebSearch/sandbox/audit config, git,
@@ -143,5 +144,12 @@ python -m build         # wheel/sdist build (includes bundled d2c/skills/*.md)
 
 `ruff format .` and `ruff check --fix .` apply fixes. Typing is adopted in stages — `[tool.mypy].files`
 lists the modules currently gated; expand it as modules are annotated. See `CONTRIBUTING.md`.
+
+### Releases
+
+The version lives in `d2c.__version__` (`src/d2c/__init__.py`); `pyproject.toml` reads it dynamically.
+See [`CHANGELOG.md`](./CHANGELOG.md) and the release checklist in [`docs/release.md`](./docs/release.md).
+A `v*` tag triggers `.github/workflows/release.yml` (gates → build → `twine check` → upload
+artifacts). Publishing to PyPI is a deliberate, separate step.
 
 See [`CLAUDE.md`](./CLAUDE.md) for architecture details and conventions.

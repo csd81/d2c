@@ -48,7 +48,15 @@ if TYPE_CHECKING:
 
 
 def parse_args() -> argparse.Namespace:
+    from d2c import __version__
+
     parser = argparse.ArgumentParser(description="d2c — an interactive CLI coding agent")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"d2c {__version__}",
+        help="Print the version and exit",
+    )
     parser.add_argument("prompt", nargs="?", help="Single-shot prompt (omit for interactive REPL)")
     parser.add_argument(
         "--model", default=None, help="DeepSeek model to use (v4-pro, chat/v3, reasoner/r1)"
