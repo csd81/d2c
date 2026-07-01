@@ -33,7 +33,7 @@ class MCPServer:
     stdout carries only valid JSON-RPC frames.
     """
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, permission_engine: Any = None) -> None:
         self._config = config
         self._tools: list[Tool] = []
         self._tools_map: dict[str, Tool] = {}
@@ -41,6 +41,10 @@ class MCPServer:
         self._request_id = 0
         # Concurrency control: serialize writes, parallelize reads
         self._write_lock = asyncio.Lock()
+        # Phase 43: optional permission engine. When set, a non-ALLOW decision
+        # (ASK/DENY) fails safe with a permission-required error — MCP has no
+        # interactive approval channel, so it never blocks on terminal input.
+        self._permission_engine = permission_engine
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -187,6 +191,33 @@ class MCPServer:
                                 ),
                             }
                         ],
+                        "isError": True,
+                    },
+                }
+
+        # Phase 43: if a permission engine is wired, ASK/DENY fail safe (MCP has
+        # no interactive approval channel) — never execute automatically.
+        if self._permission_engine is not None:
+            from d2c.permissions import (
+                PermissionRequest, PermissionDecision, resolve_permission_decision,
+            )
+            perm_request = PermissionRequest(
+                tool_name=tool_name, tool_input=arguments, tool_category=tool.category,
+            )
+            try:
+                perm_result = await self._permission_engine.evaluate_async(perm_request)
+            except Exception as e:
+                perm_result = None
+                decision_err = type(e).__name__
+            else:
+                decision_err = None
+            resolved = await resolve_permission_decision(perm_request, perm_result, None)
+            if decision_err is not None or (resolved is not None and resolved.decision != PermissionDecision.ALLOW):
+                reason = decision_err and f"permission check failed ({decision_err})" or resolved.reason
+                return {
+                    "jsonrpc": "2.0", "id": msg_id,
+                    "result": {
+                        "content": [{"type": "text", "text": f"Permission required for '{tool_name}': {reason}"}],
                         "isError": True,
                     },
                 }

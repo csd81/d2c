@@ -129,6 +129,7 @@ class LoopConfig:
     compact_config: Any = None  # Phase 5
     session_store: Any = None   # Phase 4
     stream: bool = False       # Phase 10: streaming responses (opt-in)
+    approval_callback: Any = None  # Phase 43: resolve ASK interactively
 
 
 # ── Anthropic message format helpers ─────────────────────────────────
@@ -285,6 +286,7 @@ async def _execute_one_tool(
     tools_map: dict[str, Tool],
     permission_engine: Any,
     hooks: Any = None,
+    approval_callback: Any = None,
 ) -> ToolResult:
     """Execute a single tool with permission gating (Phase 3) and hooks (Phase 7)."""
     tool = tools_map.get(tu.name)
@@ -335,12 +337,16 @@ async def _execute_one_tool(
                 error=True,
                 metadata={"denied": True, "permission_error": True},
             )
+        # Phase 43: resolve ASK — never falls through to automatic execution.
+        from d2c.permissions import resolve_permission_decision
+        perm_result = await resolve_permission_decision(perm_request, perm_result, approval_callback)
 
-    if perm_result and perm_result.decision == PermissionDecision.DENY:
+    if perm_result is not None and perm_result.decision != PermissionDecision.ALLOW:
+        from d2c.permissions import PERMISSION_REQUIRED_REASON
         result = ToolResult(
             output=f"Permission denied: {perm_result.reason}",
             error=True,
-            metadata={"denied": True},
+            metadata={"denied": True, "permission_required": perm_result.reason == PERMISSION_REQUIRED_REASON},
         )
         # Phase 7: PermissionDenied hook
         if hooks:
@@ -392,6 +398,7 @@ async def dispatchTools(
     permission_engine: Any = None,
     session_store: Any = None,
     hooks: Any = None,
+    approval_callback: Any = None,
 ) -> AsyncGenerator[ToolExecutionEvent, None]:
     """Execute tools in partitions. Within each partition, tools run concurrently.
 
@@ -410,7 +417,7 @@ async def dispatchTools(
 
         tasks = []
         for tu in partition:
-            task = asyncio.create_task(_execute_one_tool(tu, tools_map, permission_engine, hooks))
+            task = asyncio.create_task(_execute_one_tool(tu, tools_map, permission_engine, hooks, approval_callback))
             tasks.append((tu, task))
 
         for tu, task in tasks:
@@ -610,6 +617,7 @@ async def queryLoop(
                                             permission_engine=loop_config.permission_engine,
                                             hooks=loop_config.hooks,
                                             session_store=loop_config.session_store,
+                                            approval_callback=loop_config.approval_callback,
                                         )
                                     stream_executor.submit(tool_use)
 
@@ -747,7 +755,7 @@ async def queryLoop(
                             event="session_stop", stop_reason="hook_intervention")
                     break
         else:
-            async for event in dispatchTools(tool_uses, tools_map, state, loop_config.permission_engine, loop_config.session_store, loop_config.hooks):
+            async for event in dispatchTools(tool_uses, tools_map, state, loop_config.permission_engine, loop_config.session_store, loop_config.hooks, loop_config.approval_callback):
                 yield event
 
                 # Phase 7: Hook intervention check (hook_stopped_continuation)

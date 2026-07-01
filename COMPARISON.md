@@ -169,11 +169,17 @@ client+server, worktree isolation, tiktoken accounting, and append-only persiste
 described designs closely, often down to function names.
 
 Most of the original "last-mile wiring" gaps and both correctness bugs were **closed in Phases
-34–40** (Read-before-Write, file-history/rewind, sandbox, path rules, hook firing, auto-memory,
+34–43** (Read-before-Write, file-history/rewind, sandbox, path rules, hook firing, auto-memory,
 background-status, output-token recovery, compaction-flag split, real slash commands, shell
-permission hardening, and Tavily-backed WebSearch) — each now covered by tests, with WebSearch also
-live-verified against the real Tavily API. What remains diverging is mostly **breadth** (17 tools vs
-54) and a few **deliberately out-of-scope** items.
+permission hardening, Tavily-backed WebSearch, +6 built-in tools, and interactive ASK handling) —
+each now covered by tests, with WebSearch also live-verified against the real Tavily API. What
+remains diverging is mostly **breadth** (23 tools vs 54) and a few **deliberately out-of-scope**
+items.
+
+**Interactive ASK (Phase 43).** `ASK` no longer falls through to automatic execution anywhere: a
+shared `resolve_permission_decision` gates both executors and the MCP path. The REPL prompts the
+user (`[y/N]`, default deny); headless / MCP / no-callback contexts return a clear
+permission-required denial. Verified with side-effect tools in `tests/test_phase43_ask_permissions.py`.
 
 ### Still open (intentionally deferred)
 
@@ -182,7 +188,5 @@ live-verified against the real Tavily API. What remains diverging is mostly **br
 3. 8 lifecycle hooks are **intentionally inactive** (no runtime source in a single-user CLI:
    `CWD_CHANGED`, `CONFIG_CHANGE`, elicitation, `NOTIFICATION`, `PERMISSION_REQUEST`, `STOP_FAILURE`,
    `TEAMMATE_IDLE`) — documented and asserted, not broken.
-4. **ASK is non-interactive in the executors** — outside the acceptEdits/deny path, an `ASK` decision
-   currently falls through to execution (there's no interactive prompt wired into the async
-   executors). Deny-first rules and the Phase 38 acceptEdits denials still hold; wiring true
-   interactive approval is a larger, separate change.
+4. **Persistent "always allow"** approvals and a full TUI permission dialog — Phase 43 does one-shot
+   approval only; caching approvals is a later phase.

@@ -40,11 +40,13 @@ class StreamingToolExecutor:
         permission_engine: Any = None,
         hooks: Any = None,
         session_store: Any = None,
+        approval_callback: Any = None,
     ):
         self._tools_map = tools_map
         self._permission_engine = permission_engine
         self._hooks = hooks
         self._session_store = session_store
+        self._approval_callback = approval_callback
 
         self._pending: dict[str, asyncio.Task[tuple[ToolUse, ToolResult]]] = {}
         self._results: dict[str, tuple[ToolUse, ToolResult]] = {}
@@ -182,11 +184,17 @@ class StreamingToolExecutor:
                     metadata={"denied": True, "permission_error": True},
                 )
 
-            if perm_result and perm_result.decision == PermissionDecision.DENY:
+            # Phase 43: resolve ASK — do not execute speculatively.
+            from d2c.permissions import resolve_permission_decision, PERMISSION_REQUIRED_REASON
+            perm_result = await resolve_permission_decision(
+                perm_request, perm_result, self._approval_callback,
+            )
+
+            if perm_result is not None and perm_result.decision != PermissionDecision.ALLOW:
                 result = ToolResult(
                     output=f"Permission denied: {perm_result.reason}",
                     error=True,
-                    metadata={"denied": True},
+                    metadata={"denied": True, "permission_required": perm_result.reason == PERMISSION_REQUIRED_REASON},
                 )
                 if self._hooks:
                     from d2c.hooks import HookEvent

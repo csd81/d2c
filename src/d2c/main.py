@@ -409,6 +409,34 @@ def parse_slash_command(text: str) -> "SlashCommand | None":
     return SlashCommand(name=parts[0].lower(), args=parts[1:])
 
 
+def _tool_input_preview(tool_input: dict) -> str:
+    """Compact, non-sensitive preview of tool input for the approval prompt."""
+    import json
+    try:
+        s = json.dumps(tool_input, default=str)
+    except Exception:
+        s = str(tool_input)
+    return s[:200] + ("…" if len(s) > 200 else "")
+
+
+async def interactive_approval(request, result) -> bool:
+    """Phase 43: prompt the user to approve/deny an ASK tool request.
+
+    Default is deny (empty input). `y`/`yes` approves once. Runs input() off
+    the event loop so streaming isn't blocked.
+    """
+    reason = getattr(result, "reason", "") or "approval required"
+    print(f"\nAllow {request.tool_name}?")
+    print(f"  Reason: {reason}")
+    print(f"  Input:  {_tool_input_preview(request.tool_input)}")
+    try:
+        ans = (await asyncio.to_thread(input, "  [y/N]: ")).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return ans in ("y", "yes")
+
+
 def _print_help() -> None:
     print(
         "Commands:\n"
@@ -774,6 +802,7 @@ async def run_interactive(args: argparse.Namespace) -> None:
                 session_store=state.session_store,
                 compact_config=compact_config,
                 stream=state.stream,  # Phase 10: streaming enabled
+                approval_callback=interactive_approval,  # Phase 43: interactive ASK
             )
 
             # Phase 34: multi-turn — carry running conversation into the loop

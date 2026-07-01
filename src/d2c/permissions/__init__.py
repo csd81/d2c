@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from d2c.tools import PermissionCategory, Tool
 from d2c.tools.pool import Rule as PoolRule, RuleType as PoolRuleType
@@ -329,6 +329,52 @@ class PermissionEngine:
         except Exception:
             pass
         return engine
+
+
+# ── Phase 43: interactive ASK resolution ──────────────────────────────
+
+# An approval callback decides an ASK: True → run the tool, False → deny.
+# Raising → deny (fail safe).
+ApprovalCallback = Callable[["PermissionRequest", "PermissionResult"], Awaitable[bool]]
+
+# Sentinel reason used when an ASK can't be resolved (no approval channel).
+PERMISSION_REQUIRED_REASON = (
+    "Permission required: interactive approval is not available in this mode."
+)
+
+
+async def resolve_permission_decision(
+    request: "PermissionRequest",
+    result: "PermissionResult | None",
+    approval_callback: "ApprovalCallback | None",
+) -> "PermissionResult | None":
+    """Collapse an evaluated PermissionResult to ALLOW/DENY.
+
+    - result is None (no engine wired) → return None; the caller executes.
+    - ALLOW / DENY → returned unchanged.
+    - ASK + callback approves → ALLOW; rejects → DENY.
+    - ASK + no callback → DENY (permission-required, fail safe).
+    - ASK + callback raises → DENY (fail safe).
+
+    ASK therefore never falls through to automatic execution.
+    """
+    if result is None:
+        return None
+    if result.decision in (PermissionDecision.ALLOW, PermissionDecision.DENY):
+        return result
+    # ASK
+    if approval_callback is None:
+        return PermissionResult(PermissionDecision.DENY, reason=PERMISSION_REQUIRED_REASON)
+    try:
+        approved = await approval_callback(request, result)
+    except Exception as e:
+        return PermissionResult(
+            PermissionDecision.DENY,
+            reason=f"Permission approval error ({type(e).__name__}); denied for safety.",
+        )
+    if approved:
+        return PermissionResult(PermissionDecision.ALLOW, reason="approved by user")
+    return PermissionResult(PermissionDecision.DENY, reason="denied by user")
 
 
 # ── Authorization pipeline ───────────────────────────────────────────
