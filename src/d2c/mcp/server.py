@@ -238,6 +238,15 @@ class MCPServer:
                 reason = (
                     decision_err and f"permission check failed ({decision_err})" or resolved.reason
                 )
+                from d2c.observability import audit
+
+                audit(
+                    "permission_required",
+                    level="WARNING",
+                    tool_name=tool_name,
+                    surface="mcp",
+                    reason=reason,
+                )
                 return {
                     "jsonrpc": "2.0",
                     "id": msg_id,

@@ -205,23 +205,37 @@ class StreamingToolExecutor:
                     metadata={"denied": True, "permission_error": True},
                 )
 
-            # Phase 43: resolve ASK — do not execute speculatively.
-            from d2c.permissions import PERMISSION_REQUIRED_REASON, resolve_permission_decision
-
-            perm_result = await resolve_permission_decision(
-                perm_request,
-                perm_result,
-                self._approval_callback,
+            # Phase 43/49: resolve ASK — do not execute speculatively.
+            from d2c.permissions import (
+                PERMISSION_REQUIRED_REASON,
+                classify_permission_event,
+                resolve_permission_decision,
             )
 
-            if perm_result is not None and perm_result.decision != PermissionDecision.ALLOW:
+            raw_result = perm_result
+            if raw_result is not None and raw_result.decision == PermissionDecision.ASK:
                 audit(
-                    "permission_denied",
-                    level="WARNING",
+                    "permission_ask",
                     tool_name=tool_use.name,
                     tool_call_id=tool_use.id,
-                    reason=perm_result.reason,
+                    reason=raw_result.reason,
                 )
+            perm_result = await resolve_permission_decision(
+                perm_request,
+                raw_result,
+                self._approval_callback,
+            )
+            event = classify_permission_event(raw_result, perm_result)
+            if event:
+                audit(
+                    event,
+                    level="INFO" if event == "permission_approved" else "WARNING",
+                    tool_name=tool_use.name,
+                    tool_call_id=tool_use.id,
+                    reason=perm_result.reason if perm_result else None,
+                )
+
+            if perm_result is not None and perm_result.decision != PermissionDecision.ALLOW:
                 result = ToolResult(
                     output=f"Permission denied: {perm_result.reason}",
                     error=True,

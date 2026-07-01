@@ -11,9 +11,11 @@ is protected, what is not, and what you should not rely on. The invariants below
   win. Under `acceptEdits`, destructive shell (`rm`, `mv`, `sed -i`, `find -delete`, pipe-to-shell,
   interpreter `-c`/`-lc`, `sudo`, `chmod -R`, wrapper-hidden variants like `env bash -c`) is
   **denied**; uncertain commands **ask**. Nothing destructive is silently allowed.
-- **`ASK` never auto-executes.** In the REPL you're prompted (`[y/N]`, default deny); headless / MCP /
-  no-callback contexts return a permission-required denial. Permission-evaluation errors **fail
-  closed**.
+- **`ASK` never auto-executes.** In the REPL you're prompted (`[y/N]`, default deny; `y`/`yes`
+  approves once); headless / MCP / no-callback contexts return a permission-required denial (MCP has
+  no terminal, so it never blocks on stdin). Permission-evaluation errors **fail closed**. Every
+  decision is audited (`permission_ask`/`approved`/`denied`/`required`/`approval_error`, correlated
+  by tool-call id, no secrets).
 - **Read-before-Write.** Write/Edit/ReplaceMany/JsonEdit require the file to have been Read first.
   Paths are **canonicalized** (`..`/`.`/symlinks resolved), so alternate spellings or a symlink alias
   cannot bypass the guard, and you can't read one realpath then mutate a different one.

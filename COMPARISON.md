@@ -176,10 +176,12 @@ each now covered by tests, with WebSearch also live-verified against the real Ta
 remains diverging is mostly **breadth** (23 tools vs 54) and a few **deliberately out-of-scope**
 items.
 
-**Interactive ASK (Phase 43).** `ASK` no longer falls through to automatic execution anywhere: a
-shared `resolve_permission_decision` gates both executors and the MCP path. The REPL prompts the
+**Interactive ASK (Phases 43 & 49).** `ASK` no longer falls through to automatic execution anywhere:
+a shared `resolve_permission_decision` gates both executors and the MCP path. The REPL prompts the
 user (`[y/N]`, default deny); headless / MCP / no-callback contexts return a clear
-permission-required denial. Verified with side-effect tools in `tests/test_phase43_ask_permissions.py`.
+permission-required denial. Phase 49 adds granular, correlated audit events
+(`permission_ask`/`approved`/`denied`/`required`/`approval_error`, no secrets). Verified with
+side-effect tools in `tests/test_phase43_ask_permissions.py` and `tests/test_phase49_ask_permissions.py`.
 
 **Observability (Phase 44).** Addresses the paper's silent-failure / observability–evaluation gap
 (§11.6, §12.1): opt-in structured JSONL audit logging (`observability.py`) with central redaction and

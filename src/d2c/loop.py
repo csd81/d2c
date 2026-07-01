@@ -378,32 +378,32 @@ async def _execute_one_tool(
                 error=True,
                 metadata={"denied": True, "permission_error": True},
             )
-        # Phase 43: resolve ASK — never falls through to automatic execution.
-        from d2c.permissions import resolve_permission_decision
+        # Phase 43/49: resolve ASK — never falls through to automatic execution.
+        from d2c.permissions import classify_permission_event, resolve_permission_decision
 
-        perm_result = await resolve_permission_decision(
-            perm_request, perm_result, approval_callback
-        )
-        if perm_result is not None:
+        raw_result = perm_result
+        if raw_result is not None and raw_result.decision == PermissionDecision.ASK:
             audit(
-                "permission_decision",
+                "permission_ask",
                 tool_name=tu.name,
                 tool_call_id=tu.id,
                 category=getattr(tool.category, "value", None),
-                decision=getattr(perm_result.decision, "value", None),
-                reason=perm_result.reason,
+                reason=raw_result.reason,
+            )
+        perm_result = await resolve_permission_decision(perm_request, raw_result, approval_callback)
+        event = classify_permission_event(raw_result, perm_result)
+        if event:
+            audit(
+                event,
+                level="INFO" if event == "permission_approved" else "WARNING",
+                tool_name=tu.name,
+                tool_call_id=tu.id,
+                reason=perm_result.reason if perm_result else None,
             )
 
     if perm_result is not None and perm_result.decision != PermissionDecision.ALLOW:
         from d2c.permissions import PERMISSION_REQUIRED_REASON
 
-        audit(
-            "permission_denied",
-            level="WARNING",
-            tool_name=tu.name,
-            tool_call_id=tu.id,
-            reason=perm_result.reason,
-        )
         result = ToolResult(
             output=f"Permission denied: {perm_result.reason}",
             error=True,

@@ -371,6 +371,29 @@ PERMISSION_REQUIRED_REASON = (
     "Permission required: interactive approval is not available in this mode."
 )
 
+# Stable prefix for approval-callback failures (used to classify audit events).
+APPROVAL_ERROR_PREFIX = "Permission approval error"
+
+
+def classify_permission_event(
+    raw: "PermissionResult | None", resolved: "PermissionResult | None"
+) -> str | None:
+    """Map (pre-resolve, post-resolve) results to a granular audit event name
+    for observability (Phase 49): permission_approved / permission_denied /
+    permission_required / permission_approval_error. Returns None for a plain
+    rule/mode ALLOW (not worth an event)."""
+    if resolved is None:
+        return None
+    reason = resolved.reason or ""
+    if reason == PERMISSION_REQUIRED_REASON:
+        return "permission_required"
+    if reason.startswith(APPROVAL_ERROR_PREFIX):
+        return "permission_approval_error"
+    was_ask = raw is not None and raw.decision == PermissionDecision.ASK
+    if resolved.decision == PermissionDecision.ALLOW:
+        return "permission_approved" if was_ask else None
+    return "permission_denied"
+
 
 async def resolve_permission_decision(
     request: "PermissionRequest",
