@@ -171,6 +171,9 @@ class HookRegistry:
             except Exception as e:
                 # Hook errors are non-fatal (paper: hooks fail gracefully)
                 merged.error = str(e)
+                from d2c.observability import audit
+                audit("hook_failed", level="WARNING", hook_event=event.value,
+                      hook_type=getattr(hook.hook_type, "value", None), error_class=type(e).__name__)
         return merged
 
     async def _execute_hook(

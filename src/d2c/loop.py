@@ -14,6 +14,7 @@ from typing import Any, AsyncGenerator, Callable
 import anthropic
 
 from d2c.tools import PermissionCategory, Tool, ToolResult, ToolUse
+from d2c.observability import audit, logs_tool_outputs
 from d2c.permissions import (
     PermissionDecision,
     PermissionEngine,
@@ -291,11 +292,17 @@ async def _execute_one_tool(
     """Execute a single tool with permission gating (Phase 3) and hooks (Phase 7)."""
     tool = tools_map.get(tu.name)
     if not tool:
+        audit("tool_call_error", level="ERROR", tool_name=tu.name, tool_call_id=tu.id,
+              status="unknown_tool", error=True)
         return ToolResult(
             output=f"Error: unknown tool '{tu.name}'",
             error=True,
             metadata={"unknown_tool": True},
         )
+
+    _t0 = time.perf_counter()
+    audit("tool_call_start", tool_name=tu.name, tool_call_id=tu.id,
+          category=getattr(tool.category, "value", None))
 
     # Phase 7: PreToolUse hook
     if hooks:
@@ -340,9 +347,15 @@ async def _execute_one_tool(
         # Phase 43: resolve ASK — never falls through to automatic execution.
         from d2c.permissions import resolve_permission_decision
         perm_result = await resolve_permission_decision(perm_request, perm_result, approval_callback)
+        if perm_result is not None:
+            audit("permission_decision", tool_name=tu.name, tool_call_id=tu.id,
+                  category=getattr(tool.category, "value", None),
+                  decision=getattr(perm_result.decision, "value", None), reason=perm_result.reason)
 
     if perm_result is not None and perm_result.decision != PermissionDecision.ALLOW:
         from d2c.permissions import PERMISSION_REQUIRED_REASON
+        audit("permission_denied", level="WARNING", tool_name=tu.name, tool_call_id=tu.id,
+              reason=perm_result.reason)
         result = ToolResult(
             output=f"Permission denied: {perm_result.reason}",
             error=True,
@@ -372,8 +385,16 @@ async def _execute_one_tool(
             if post_result.additional_context:
                 result.output += f"\n[Hook context: {post_result.additional_context}]"
 
+        audit("tool_call_end", tool_name=tu.name, tool_call_id=tu.id,
+              duration_ms=round((time.perf_counter() - _t0) * 1000, 1),
+              status="error" if result.error else "ok", error=result.error,
+              output_len=len(result.output),
+              output=(result.output if logs_tool_outputs() else None))
         return result
     except Exception as e:
+        audit("tool_call_error", level="ERROR", tool_name=tu.name, tool_call_id=tu.id,
+              duration_ms=round((time.perf_counter() - _t0) * 1000, 1),
+              status="exception", error=True, error_class=type(e).__name__)
         error_result = ToolResult(
             output=f"Error executing tool '{tu.name}': {e}",
             error=True,
@@ -564,6 +585,10 @@ async def queryLoop(
 
         stream_executor: StreamingToolExecutor | None = None
 
+        audit("model_call_start", model=loop_config.model, turn_id=state.turn_count,
+              streaming=loop_config.stream, max_tokens=recovery_max_tokens)
+        _model_t0 = time.perf_counter()
+
         try:
             if loop_config.stream:
                 # Streaming: yield TextDelta as chunks arrive.
@@ -651,6 +676,7 @@ async def queryLoop(
                 tool_uses = _extract_tool_uses(response)
                 response_stop_reason = getattr(response, "stop_reason", None)
         except anthropic.AuthenticationError as e:
+            audit("model_call_error", level="ERROR", turn_id=state.turn_count, error_class="AuthenticationError")
             yield TextResponse(text=f"Authentication failed: {e}\nCheck your DEEPSEEK_API_KEY.")
             state.stopped = True
             state.stop_reason = "auth_error"
@@ -658,6 +684,7 @@ async def queryLoop(
                     event="session_stop", stop_reason="auth_error")
             break
         except anthropic.RateLimitError as e:
+            audit("model_call_error", level="ERROR", turn_id=state.turn_count, error_class="RateLimitError")
             yield TextResponse(text=f"Rate limited: {e}\nWait and try again.")
             state.stopped = True
             state.stop_reason = "rate_limited"
@@ -665,6 +692,7 @@ async def queryLoop(
                     event="session_stop", stop_reason="rate_limited")
             break
         except anthropic.BadRequestError as e:
+            audit("model_call_error", level="ERROR", turn_id=state.turn_count, error_class="BadRequestError")
             if "prompt too long" in str(e).lower() or "too many tokens" in str(e).lower():
                 if not state.has_attempted_reactive_compact:
                     # Phase 5: reactive compact
@@ -687,6 +715,7 @@ async def queryLoop(
                     event="session_stop", stop_reason="api_error")
             break
         except Exception as e:
+            audit("model_call_error", level="ERROR", turn_id=state.turn_count, error_class=type(e).__name__)
             yield TextResponse(text=f"Error calling model: {e}")
             state.stopped = True
             state.stop_reason = "api_error"
@@ -694,12 +723,18 @@ async def queryLoop(
                     event="session_stop", stop_reason="api_error")
             break
 
+        audit("model_call_end", turn_id=state.turn_count,
+              duration_ms=round((time.perf_counter() - _model_t0) * 1000, 1),
+              stop_reason=response_stop_reason, tool_uses=len(tool_uses))
+
         # Phase 34: output-token recovery. If the response was truncated at the
         # output cap (and isn't a tool call), retry the turn with a larger
         # budget, up to MAX_OUTPUT_TOKENS_RECOVERY attempts. Reset on success.
         if response_stop_reason == "max_tokens" and not tool_uses:
             if state.output_tokens_recovery_attempts < MAX_OUTPUT_TOKENS_RECOVERY:
                 state.output_tokens_recovery_attempts += 1
+                audit("output_token_recovery_retry", level="WARNING", turn_id=state.turn_count,
+                      attempt=state.output_tokens_recovery_attempts)
                 continue
         else:
             state.output_tokens_recovery_attempts = 0

@@ -181,6 +181,13 @@ class Config:
     websearch_provider: str = ""       # e.g. "tavily"; empty = unconfigured
     websearch_api_key: str | None = None
 
+    # --- Observability (Phase 44) ---
+    log_level: str = "INFO"
+    audit_log_enabled: bool = False    # opt-in via D2C_AUDIT_LOG=1
+    audit_log_path: str = ""           # default computed in load() if empty
+    log_prompts: bool = False          # log full prompts (privacy: off)
+    log_tool_outputs: bool = False     # log full tool outputs (privacy: off)
+
     # --- OS ---
     os: str = field(default="")
 
@@ -225,6 +232,15 @@ class Config:
         websearch_provider = os.environ.get("D2C_WEBSEARCH_PROVIDER", "").strip().lower()
         websearch_api_key = os.environ.get("D2C_WEBSEARCH_API_KEY") or None
 
+        def _flag(name: str) -> bool:
+            return os.environ.get(name, "").lower() in ("1", "true", "yes", "on")
+
+        log_level = os.environ.get("D2C_LOG_LEVEL", "INFO").upper()
+        audit_log_enabled = _flag("D2C_AUDIT_LOG")
+        audit_log_path = os.environ.get("D2C_AUDIT_LOG_PATH", "") or str(
+            Path.home() / ".d2c" / "logs" / "audit.jsonl"
+        )
+
         return cls(
             model=model,
             deepseek_api_key=api_key,
@@ -233,6 +249,11 @@ class Config:
             sandbox_enabled=sandbox_enabled,
             websearch_provider=websearch_provider,
             websearch_api_key=websearch_api_key,
+            log_level=log_level,
+            audit_log_enabled=audit_log_enabled,
+            audit_log_path=audit_log_path,
+            log_prompts=_flag("D2C_LOG_PROMPTS"),
+            log_tool_outputs=_flag("D2C_LOG_TOOL_OUTPUTS"),
         )
 
     def validate(self) -> list[str]:

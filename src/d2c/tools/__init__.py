@@ -113,6 +113,13 @@ async def fire_active_hook(event_name: str, payload: dict) -> None:
     (set at startup). Best-effort — an observability hook must never crash the
     tool path.
     """
+    # Phase 44: mirror file/task lifecycle into the audit log (redacted).
+    try:
+        from d2c.observability import audit
+        audit(event_name.lower(), **{k: v for k, v in payload.items()
+                                     if k in ("path", "tool", "operation")})
+    except Exception:
+        pass
     hooks = get_active_hooks()
     if hooks is None:
         return

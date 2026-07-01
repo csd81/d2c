@@ -238,28 +238,37 @@ class WebSearchTool(Tool):
         if not api_key:
             return ToolResult(output=UNCONFIGURED_MESSAGE, error=True, metadata={"configured": False})
 
+        from d2c.observability import audit
+        audit("websearch_request", provider=provider_name, max_results=max_results,
+              domain_count=len(domains or []), recency_days=recency_days)
         try:
             results = await provider.search(
                 query, max_results=max_results, recency_days=recency_days, domains=domains,
             )
         except WebSearchAuthError:
+            audit("websearch_error", level="ERROR", provider=provider_name, error_class="WebSearchAuthError")
             return ToolResult(
                 output="WebSearch authentication failed (check D2C_WEBSEARCH_API_KEY).",
                 error=True, metadata={"provider": provider_name},
             )
         except WebSearchRateLimitError:
+            audit("websearch_error", level="WARNING", provider=provider_name, error_class="WebSearchRateLimitError")
             return ToolResult(
                 output="WebSearch rate limit exceeded; try again later.",
                 error=True, metadata={"provider": provider_name},
             )
         except WebSearchTimeoutError:
+            audit("websearch_error", level="WARNING", provider=provider_name, error_class="WebSearchTimeoutError")
             return ToolResult(
                 output="WebSearch timed out.", error=True, metadata={"provider": provider_name},
             )
         except WebSearchError as e:
+            audit("websearch_error", level="ERROR", provider=provider_name, error_class=type(e).__name__)
             return ToolResult(
                 output=f"WebSearch failed: {e}", error=True, metadata={"provider": provider_name},
             )
+
+        audit("websearch_result", provider=provider_name, result_count=len(results))
 
         if not results:
             return ToolResult(

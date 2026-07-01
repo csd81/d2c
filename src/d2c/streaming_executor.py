@@ -144,6 +144,12 @@ class StreamingToolExecutor:
                 metadata={"unknown_tool": True},
             )
 
+        import time as _time
+        from d2c.observability import audit, logs_tool_outputs
+        _t0 = _time.perf_counter()
+        audit("tool_call_start", tool_name=tool_use.name, tool_call_id=tool_use.id,
+              category=getattr(tool.category, "value", None), streaming=True)
+
         # PreToolUse hook
         if self._hooks:
             from d2c.hooks import HookEvent
@@ -191,6 +197,8 @@ class StreamingToolExecutor:
             )
 
             if perm_result is not None and perm_result.decision != PermissionDecision.ALLOW:
+                audit("permission_denied", level="WARNING", tool_name=tool_use.name,
+                      tool_call_id=tool_use.id, reason=perm_result.reason)
                 result = ToolResult(
                     output=f"Permission denied: {perm_result.reason}",
                     error=True,
@@ -221,8 +229,16 @@ class StreamingToolExecutor:
                 if post_result.additional_context:
                     result.output += f"\n[Hook context: {post_result.additional_context}]"
 
+            audit("tool_call_end", tool_name=tool_use.name, tool_call_id=tool_use.id, streaming=True,
+                  duration_ms=round((_time.perf_counter() - _t0) * 1000, 1),
+                  status="error" if result.error else "ok", error=result.error,
+                  output_len=len(result.output),
+                  output=(result.output if logs_tool_outputs() else None))
             return result
         except Exception as e:
+            audit("tool_call_error", level="ERROR", tool_name=tool_use.name, tool_call_id=tool_use.id,
+                  streaming=True, duration_ms=round((_time.perf_counter() - _t0) * 1000, 1),
+                  error=True, error_class=type(e).__name__)
             error_result = ToolResult(
                 output=f"Error executing tool '{tool_use.name}': {e}",
                 error=True,

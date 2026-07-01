@@ -650,6 +650,9 @@ async def autoCompact(
     if compact_config is None:
         return messages
 
+    from d2c.observability import audit
+    audit("compaction_start", shaper="auto_compact", pre_message_count=len(messages))
+
     # Phase 7: Fire PreCompact hook
     hooks = getattr(loop_config, 'hooks', None)
     if hooks is not None:
@@ -682,12 +685,15 @@ async def autoCompact(
             messages=[{"role": "user", "content": compact_prompt}],
         )
         summary = _extract_response_text(response)
-    except Exception:
+    except Exception as e:
         # Compaction failure is non-fatal — continue with original messages
+        audit("compaction_error", level="ERROR", shaper="auto_compact", error_class=type(e).__name__)
         return messages
 
     # Build post-compact messages
     post_compact = buildPostCompactMessages(messages, summary)
+    audit("compaction_end", shaper="auto_compact",
+          pre_message_count=len(messages), post_message_count=len(post_compact))
 
     # Record compact boundary for persistence (paper Section 9)
     if loop_config.session_store and messages:

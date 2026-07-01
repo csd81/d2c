@@ -42,6 +42,7 @@ from d2c.history import PromptHistory
 from d2c.tools import set_file_history_tracker, set_active_hooks, set_active_memory_loader
 from d2c.sandbox import SandboxConfig
 from d2c.memory import LazyMemoryLoader
+from d2c.observability import AuditLogger, set_audit_logger, audit
 
 
 def parse_args() -> argparse.Namespace:
@@ -361,6 +362,14 @@ async def _wire_runtime(config: Config, session_store, hook_registry) -> None:
     _install_file_history(config, session_store)
     set_active_hooks(hook_registry)
     set_active_memory_loader(LazyMemoryLoader(config.cwd))
+    # Phase 44: initialize audit logging + correlation context.
+    logger = AuditLogger.from_config(config)
+    set_audit_logger(logger)
+    logger.set_context(
+        session_id=(session_store.session_id if session_store else None),
+        cwd=str(config.cwd), model=config.model, permission_mode=config.permission_mode,
+    )
+    audit("session_start", session_id=(session_store.session_id if session_store else None))
     await hook_registry.fire(HookEvent.SESSION_START, {
         "session_id": session_store.session_id if session_store else None,
         "cwd": str(config.cwd),
@@ -488,6 +497,10 @@ async def _switch_session(state: ReplState, new_store, event_verb: str) -> None:
             pass
     state.session_store = new_store
     _install_file_history(state.config, new_store)
+    from d2c.observability import set_context, audit
+    set_context(session_id=new_id)
+    audit(f"session_{event_verb}" if event_verb in ("resume", "fork") else "session_start",
+          session_id=new_id, from_session_id=old_id)
 
 
 async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
@@ -663,6 +676,7 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
                     print(f"\n[stopped: {event.reason}]")
     finally:
         # Phase 15: Fire SessionEnd hook
+        audit("session_end", session_id=(session_store.session_id if session_store else None))
         await hook_registry.fire(HookEvent.SESSION_END, {
             "session_id": session_store.session_id if session_store else None,
         })
@@ -850,6 +864,7 @@ async def run_interactive(args: argparse.Namespace) -> None:
                 state.conversation.append({"role": "assistant", "content": assistant_text})
     finally:
         # Phase 15: Fire SessionEnd hook
+        audit("session_end", session_id=getattr(state.session_store, "session_id", None))
         await hook_registry.fire(HookEvent.SESSION_END, {
             "session_id": getattr(state.session_store, "session_id", None),
         })

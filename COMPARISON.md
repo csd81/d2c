@@ -181,6 +181,12 @@ shared `resolve_permission_decision` gates both executors and the MCP path. The 
 user (`[y/N]`, default deny); headless / MCP / no-callback contexts return a clear
 permission-required denial. Verified with side-effect tools in `tests/test_phase43_ask_permissions.py`.
 
+**Observability (Phase 44).** Addresses the paper's silent-failure / observability–evaluation gap
+(§11.6, §12.1): opt-in structured JSONL audit logging (`observability.py`) with central redaction and
+`session_id`/`turn_id`/`tool_call_id` correlation across session, model-call, tool-call, permission,
+file-change, compaction, hook-failure, and WebSearch events. Full prompts/tool-outputs are off by
+default. Covered by `tests/test_observability.py`.
+
 ### Still open (intentionally deferred)
 
 1. **KAIROS** background heartbeat mode — un-instantiated (paper flags it as unconfirmed too).

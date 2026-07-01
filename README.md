@@ -27,7 +27,19 @@ export D2C_SANDBOX=1                                          # sandbox Bash (of
 export D2C_WEBSEARCH_PROVIDER=tavily
 export D2C_WEBSEARCH_API_KEY=tvly-...
 export D2C_WEBSEARCH_TIMEOUT=15                               # seconds (default)
+
+# optional — structured audit logging (off by default):
+export D2C_AUDIT_LOG=1                                        # enable JSONL audit log
+export D2C_AUDIT_LOG_PATH=~/.d2c/logs/audit.jsonl            # default
+export D2C_LOG_LEVEL=INFO                                     # DEBUG|INFO|WARNING|ERROR
+export D2C_LOG_PROMPTS=0                                      # log full prompts (privacy: off)
+export D2C_LOG_TOOL_OUTPUTS=0                                # log full tool outputs (privacy: off)
 ```
+
+**Audit logging** (opt-in) writes one redacted JSON object per line correlated by
+`session_id` / `turn_id` / `tool_call_id` — session, model-call, tool-call, permission, file-change,
+compaction, hook-failure, and WebSearch events. Secrets (API keys, `Authorization`, `sk-…`/`tvly-…`
+shapes) are redacted; full prompts and tool outputs are **not** logged unless you opt in.
 
 Without `D2C_WEBSEARCH_PROVIDER`/`D2C_WEBSEARCH_API_KEY`, the `WebSearch` tool returns a clear
 "not configured" error instead of results.
