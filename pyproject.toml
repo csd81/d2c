@@ -95,6 +95,8 @@ files = [
     "src/d2c/path_rules.py",
     "src/d2c/sandbox.py",
     "src/d2c/permissions",
+    "src/d2c/tools/env_info.py",
+    "src/d2c/tools/apply_patch.py",
 ]
 
 [tool.bandit]

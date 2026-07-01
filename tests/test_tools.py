@@ -429,6 +429,8 @@ async def test_assemble_tool_pool():
         "FileInfo",
         "ReplaceMany",
         "JsonEdit",
+        "ApplyPatch",
+        "EnvInfo",
     }
 
 

@@ -15,9 +15,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from d2c.tools.agent_tool import AgentTool
+from d2c.tools.apply_patch import ApplyPatchTool
 from d2c.tools.background_status import BackgroundStatusTool
 from d2c.tools.bash_tool import BashTool
 from d2c.tools.edit_tool import FileEditTool
+from d2c.tools.env_info import EnvInfoTool
 from d2c.tools.fs_tools import FileInfoTool, ListDirTool
 from d2c.tools.git_tools import GitDiffTool, GitStatusTool
 from d2c.tools.glob_tool import GlobTool
@@ -120,6 +122,9 @@ def getAllBaseTools(config: Config) -> list[Tool]:
         FileInfoTool(),
         ReplaceManyTool(),
         JsonEditTool(),
+        # Phase 51: unified-diff patching + env inspection
+        ApplyPatchTool(cwd=config.cwd),
+        EnvInfoTool(cwd=config.cwd),
     ]
 
     # Filter disabled tools before wrapping (Phase 20 compatibility)

@@ -1,16 +1,17 @@
 # Tool inventory & gap table
 
 Snapshot of built-in tools in `d2c` vs. the paper's ~54-tool surface, and what is
-intentionally deferred. Updated in Phase 41.
+intentionally deferred. Updated in Phase 51.
 
-## Current built-ins (23)
+## Current built-ins (25)
 
 | Category | d2c tools | Permission |
 |---|---|---|
 | File read | Read, Glob, Grep, ListDir, FileInfo | READ |
-| File write | Write, Edit, NotebookEdit, ReplaceMany, JsonEdit | WRITE |
+| File write | Write, Edit, NotebookEdit, ReplaceMany, JsonEdit, ApplyPatch | WRITE |
 | Shell | Bash | SHELL |
 | Git | GitStatus, GitDiff | READ |
+| Diagnostics | EnvInfo | READ |
 | Web | WebFetch, WebSearch | READ |
 | Tasks | TaskCreate, TaskUpdate, TaskList | META / READ |
 | Memory | Remember | META |
