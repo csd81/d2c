@@ -98,6 +98,11 @@ def mark_file_read(path: str | Path) -> None:
     _read_files.add(str(path))
 
 
+def is_file_read(path: str | Path) -> bool:
+    """Whether a file has been Read (or written) this session."""
+    return str(path) in _read_files
+
+
 def clear_read_files() -> None:
     """Clear the read-file tracking (for testing)."""
     _read_files.clear()

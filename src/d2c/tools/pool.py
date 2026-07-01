@@ -29,6 +29,9 @@ from d2c.tools.web_search import WebSearchTool
 from d2c.tools.write_tool import FileWriteTool
 from d2c.tools.background_status import BackgroundStatusTool
 from d2c.tools.memory_tool import MemoryTool
+from d2c.tools.git_tools import GitStatusTool, GitDiffTool
+from d2c.tools.fs_tools import ListDirTool, FileInfoTool
+from d2c.tools.structured_edit import ReplaceManyTool, JsonEditTool
 
 if TYPE_CHECKING:
     from d2c.tools import Tool
@@ -107,6 +110,13 @@ def getAllBaseTools(config: Config) -> list[Tool]:
         # Phase 34: background subagent status + auto-memory
         BackgroundStatusTool(),
         MemoryTool(),
+        # Phase 41: git + filesystem inspection + structured edits
+        GitStatusTool(cwd=config.cwd),
+        GitDiffTool(cwd=config.cwd),
+        ListDirTool(),
+        FileInfoTool(),
+        ReplaceManyTool(),
+        JsonEditTool(),
     ]
 
     # Filter disabled tools before wrapping (Phase 20 compatibility)

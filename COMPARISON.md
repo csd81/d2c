@@ -64,7 +64,7 @@ Structure and behavior match the paper closely, often down to function names.
 
 | Subsystem | Paper | `d2c` |
 |---|---|---|
-| **Tool count** (§6.2, App. A) | up to **54** (19 unconditional + 35 gated) | **15–16** built-ins + dynamic MCP |
+| **Tool count** (§6.2, App. A) | up to **54** (19 unconditional + 35 gated) | **23** built-ins + dynamic MCP (Phase 41 added git/fs/structured-edit tools; see `plans/tool-inventory.md`) |
 | **Permission modes** (§5.1) | **7** (plan, default, acceptEdits, auto, dontAsk, bypassPermissions, bubble) | **6** — has AUTO + BYPASS, **no `bubble`** (subagent-escalation mode) |
 | **Hook events** (§6.1) | **27** defined, 5 in permission flow | **27 defined** (matches), but only **12 actually fired** |
 | **Subagent types** (§8) | up to 6 (Explore, Plan, general, Guide, Verification, Statusline) | 3 (Explore, Plan, general-purpose) |
@@ -128,7 +128,10 @@ runtime they do nothing. Two are outright correctness bugs.
    provider-backed tool (`SearchProvider` abstraction + a Tavily provider) reading
    `D2C_WEBSEARCH_PROVIDER`/`D2C_WEBSEARCH_API_KEY` from the environment; returns normalized
    title/URL/snippet results with clean auth/rate-limit/timeout/empty handling and no key leakage.
-   Unconfigured still returns a clear error. Covered by `tests/test_web_search.py` (mocked network).
+   Unconfigured still returns a clear error. Covered by `tests/test_web_search.py` (mocked network)
+   and live-tested end-to-end against Tavily with basic search, domain filtering, structured
+   metadata, and bad-key auth handling. SearXNG remains a future optional provider, not implemented
+   yet.
 10. **REPL slash commands are cosmetic.** ✅ *Fixed in Phases 34/36.* `/help`, `/settings`, `/clear`,
     `/resume`, `/fork` are real (and the REPL is now multi-turn); unknown `/x` is reported locally and
     never sent to the model. Covered by `tests/test_repl_commands.py`.
@@ -166,10 +169,11 @@ client+server, worktree isolation, tiktoken accounting, and append-only persiste
 described designs closely, often down to function names.
 
 Most of the original "last-mile wiring" gaps and both correctness bugs were **closed in Phases
-34–37** (Read-before-Write, file-history/rewind, sandbox, path rules, hook firing, auto-memory,
-background-status, output-token recovery, compaction-flag split, real slash commands) — each now
-covered by tests and the full suite is green. What remains diverging is mostly **breadth** (17 tools
-vs 54; a subset of the 27 hook events firing) and a few **deliberately out-of-scope** items.
+34–40** (Read-before-Write, file-history/rewind, sandbox, path rules, hook firing, auto-memory,
+background-status, output-token recovery, compaction-flag split, real slash commands, shell
+permission hardening, and Tavily-backed WebSearch) — each now covered by tests, with WebSearch also
+live-verified against the real Tavily API. What remains diverging is mostly **breadth** (17 tools vs
+54) and a few **deliberately out-of-scope** items.
 
 ### Still open (intentionally deferred)
 

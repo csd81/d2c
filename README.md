@@ -32,6 +32,9 @@ export D2C_WEBSEARCH_TIMEOUT=15                               # seconds (default
 Without `D2C_WEBSEARCH_PROVIDER`/`D2C_WEBSEARCH_API_KEY`, the `WebSearch` tool returns a clear
 "not configured" error instead of results.
 
+Tavily requires registering for an API key. Its free plan currently includes monthly credits with no
+credit card required, which is enough for basic local WebSearch testing.
+
 `.env` resolution: `~/.d2c/.env` always loads; a project-local `.env` loads **only if the workspace is trusted** (see [Workspace trust](#workspace-trust)). Shell environment variables take precedence over `.env` values.
 
 Default model is `deepseek-v4-pro`. Aliases are accepted: `v3`/`chat` → `deepseek-chat`, `r1`/`reasoner` → `deepseek-reasoner`.
@@ -71,7 +74,12 @@ The loop runs until the model returns a text-only response, hits the turn limit,
 
 Key subsystems (see [`CLAUDE.md`](./CLAUDE.md) for the full map):
 
-- **Tools** (`tools/`) — Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, Task, plus meta-tools (Skill, Agent). Assembled through a single deny-first pool.
+- **Tools** (`tools/`) — 23 built-ins assembled through a single deny-first pool:
+  - *files/search*: Read, Write, Edit, Glob, Grep, NotebookEdit, ListDir, FileInfo, ReplaceMany, JsonEdit
+  - *shell/git*: Bash, GitStatus, GitDiff
+  - *web*: WebFetch, WebSearch
+  - *tasks/memory/meta*: TaskCreate/Update/List, Remember, AgentStatus, ToolSearch, and meta-tools Skill + Agent
+  - plus any tools contributed by connected **MCP** servers.
 - **Permissions** (`permissions/`) — deny-first evaluation with four modes (`plan`, `default`, `acceptEdits`, `dontAsk`); deny rules always win. Includes AST-based shell-command safety analysis.
 - **Context management** (`compact.py`) — graduated compaction: tool-result budgeting → LLM summarization → cache-aligned boundaries, with `tiktoken` token counting and prompt-cache breakpoints.
 - **Persistence** (`persistence.py`) — append-only JSONL session transcripts with resume/fork; file-history snapshots power `--rewind-files`.
