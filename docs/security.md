@@ -11,11 +11,15 @@ is protected, what is not, and what you should not rely on. The invariants below
   win. Under `acceptEdits`, destructive shell (`rm`, `mv`, `sed -i`, `find -delete`, pipe-to-shell,
   interpreter `-c`/`-lc`, `sudo`, `chmod -R`, wrapper-hidden variants like `env bash -c`) is
   **denied**; uncertain commands **ask**. Nothing destructive is silently allowed.
-- **`ASK` never auto-executes.** In the REPL you're prompted (`[y/N]`, default deny; `y`/`yes`
-  approves once); headless / MCP / no-callback contexts return a permission-required denial (MCP has
-  no terminal, so it never blocks on stdin). Permission-evaluation errors **fail closed**. Every
-  decision is audited (`permission_ask`/`approved`/`denied`/`required`/`approval_error`, correlated
-  by tool-call id, no secrets).
+- **`ASK` never auto-executes.** In the REPL you're prompted (`[y/N/a]`, default deny; `y`/`yes`
+  approves once; `a` "always" allows that **exact** action for the session); headless / MCP /
+  no-callback contexts return a permission-required denial (MCP has no terminal, so it never blocks
+  on stdin). Permission-evaluation errors **fail closed**. Every decision is audited
+  (`permission_ask`/`approved`/`approved_cached`/`denied`/`required`/`approval_error`, correlated by
+  tool-call id, no secrets).
+- **Session-scoped approvals only.** The `a` cache is **in-memory**, stores only SHA-256 hashes of
+  the exact action (never raw input), matches exact repeats only (no shell generalization), and is
+  **never persisted** — cleared on `/clear`/`/resume`/`/fork` and on restart.
 - **Read-before-Write.** Write/Edit/ReplaceMany/JsonEdit require the file to have been Read first.
   Paths are **canonicalized** (`..`/`.`/symlinks resolved), so alternate spellings or a symlink alias
   cannot bypass the guard, and you can't read one realpath then mutate a different one.

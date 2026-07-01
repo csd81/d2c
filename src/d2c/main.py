@@ -44,6 +44,7 @@ from d2c.tools.pool import Config as PoolConfig
 from d2c.tools.pool import assembleToolPool
 
 if TYPE_CHECKING:
+    from d2c.approvals import ApprovalCache
     from d2c.trust import WorkSpaceTrustGate
 
 
@@ -484,6 +485,13 @@ class ReplState:
     session_store: object
     conversation: list[dict] = field(default_factory=list)
     stream: bool = True
+    approvals: "ApprovalCache" = field(default_factory=lambda: _new_approval_cache())
+
+
+def _new_approval_cache() -> "ApprovalCache":
+    from d2c.approvals import ApprovalCache
+
+    return ApprovalCache()
 
 
 def parse_slash_command(text: str) -> "SlashCommand | None":
@@ -522,6 +530,41 @@ async def interactive_approval(request, result) -> bool:
         print()
         return False
     return ans in ("y", "yes")
+
+
+def make_interactive_approval(cache: "ApprovalCache"):
+    """Phase 52: build an approval callback backed by a session-scoped cache.
+
+    Prompt options: [y] allow once, [n]/empty deny, [a] always allow this exact
+    action for this session (cached in memory, never persisted). A cache hit
+    executes without prompting and emits ``permission_approved_cached``.
+    """
+
+    async def _cb(request, result) -> bool:
+        if cache.is_approved(request):
+            audit(
+                "permission_approved_cached",
+                tool_name=request.tool_name,
+                category=getattr(request.tool_category, "value", None),
+            )
+            return True
+        reason = getattr(result, "reason", "") or "approval required"
+        print(f"\nAllow {request.tool_name}?")
+        print(f"  Reason: {reason}")
+        print(f"  Input:  {_tool_input_preview(request.tool_input)}")
+        try:
+            ans = (await asyncio.to_thread(input, "  [y/N/a]: ")).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return False
+        if ans in ("y", "yes"):
+            return True
+        if ans in ("a", "always"):
+            cache.approve(request)
+            return True
+        return False
+
+    return _cb
 
 
 def _print_help() -> None:
@@ -582,6 +625,8 @@ async def _switch_session(state: ReplState, new_store, event_verb: str) -> None:
             pass
     state.session_store = new_store
     _install_file_history(state.config, new_store)
+    # Phase 52: session-scoped approvals never survive a session switch.
+    state.approvals.clear()
     from d2c.observability import audit, set_context
 
     set_context(session_id=new_id)
@@ -863,6 +908,9 @@ async def run_interactive(args: argparse.Namespace) -> None:
     active_tasks = 0
     # Phase 36: explicit mutable REPL state that slash commands operate on.
     state = ReplState(config=config, session_store=session_store, conversation=[])
+    # Phase 52: approval callback backed by the session-scoped cache (cleared in
+    # place on /clear/resume/fork, so this closure stays valid).
+    _approval_cb = make_interactive_approval(state.approvals)
 
     try:
         while True:
@@ -927,7 +975,7 @@ async def run_interactive(args: argparse.Namespace) -> None:
                 session_store=state.session_store,
                 compact_config=compact_config,
                 stream=state.stream,  # Phase 10: streaming enabled
-                approval_callback=interactive_approval,  # Phase 43: interactive ASK
+                approval_callback=_approval_cb,  # Phase 43/52: interactive ASK + session cache
             )
 
             # Phase 34: multi-turn — carry running conversation into the loop
