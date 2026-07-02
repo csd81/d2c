@@ -45,6 +45,16 @@ def isolate_approvals_path(monkeypatch, tmp_path):
     monkeypatch.setattr(approvals_mod, "DEFAULT_APPROVALS_PATH", tmp_path / "approvals.json")
 
 
+@pytest.fixture(autouse=True)
+def isolate_user_settings(monkeypatch, tmp_path):
+    """Phase 80: the UI preference (and settings discovery) reads the user
+    settings file. Redirect it for every test so nothing reads/writes the real
+    ~/.d2c/settings.yaml. Individual tests may re-point it as needed."""
+    import d2c.settings as settings_mod
+
+    monkeypatch.setattr(settings_mod, "user_settings_path", lambda: tmp_path / "user_settings.yaml")
+
+
 @pytest.fixture
 def tmp_dir():
     with tempfile.TemporaryDirectory() as d:

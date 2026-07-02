@@ -5,6 +5,15 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 80:** polish for the Textual-by-default transition. A persisted personal UI
+  preference (`ui.default` in `~/.d2c/settings.yaml`) sits between `D2C_TUI` and the project
+  default — precedence is now `--tui` > `D2C_TUI` > user `ui.default` > default (`textual`). Set
+  it from the REPL with `/settings ui classic|textual|auto` (`auto` clears the override; other
+  settings keys are preserved, atomic write). The preference is read from the USER settings file
+  only, so a project/managed file can't force a user's UI. The missing-`[tui]` fallback note is
+  shortened and now lists how to install, use `--tui classic`, or persist classic. Non-interactive
+  paths are unchanged (guarded by a test that `run_headless` references no UI-preference/Textual
+  code). Tests use a temporary settings path (autouse fixture) so the real `~/.d2c` is never touched.
 - **Phase 79:** Textual is now the **default** interactive UI (`DEFAULT_UI = "textual"`), after
   the Phase 78 dogfooding fixes cleared the readiness blockers. `python -m d2c` uses Textual when
   the optional `[tui]` extra is installed and falls back to the classic prompt_toolkit REPL with a

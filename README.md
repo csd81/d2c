@@ -131,10 +131,12 @@ SDK, MCP, and eval output stay plain.
 Interactive sessions use a **Textual UI by default** (as of Phase 79). Install the extra to get
 it — `pip install "d2c[tui]"` — and `python -m d2c` uses it automatically; without the extra it
 falls back to the classic prompt_toolkit REPL with a one-line note. Selection precedence is
-`--tui` > `D2C_TUI` > the project default (now `textual`): `--tui classic` (or `D2C_TUI=classic`)
-always forces prompt_toolkit with no note, and `--tui textual` falls back to classic if the extra
-isn't installed. See [`docs/textual-readiness.md`](./docs/textual-readiness.md) for the
-parity/readiness audit. The Textual UI reuses the same
+`--tui` > `D2C_TUI` > a persisted user preference (`ui.default` in `~/.d2c/settings.yaml`) >
+the project default (now `textual`): `--tui classic` (or `D2C_TUI=classic`) always forces
+prompt_toolkit with no note, and `--tui textual` falls back to classic if the extra isn't
+installed. To make classic (or textual) your standing default without a flag, run
+`/settings ui classic` (or `textual`, or `auto` to clear the override) in the REPL. See
+[`docs/textual-readiness.md`](./docs/textual-readiness.md) for the parity/readiness audit. The Textual UI reuses the same
 slash commands, Markdown rendering (via Rich), and approval scopes as the classic REPL, and adds
 a permission approval modal (`[y]`/`[a]`/`[A]`/`[n]`, deny by default, with redacted input/diff
 previews) and compact tool-progress timeline rows. Session ergonomics: predictable scrollback

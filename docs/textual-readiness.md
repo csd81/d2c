@@ -23,6 +23,14 @@ text selection — which **Phase 78 resolved** (clickable approval buttons + a
 The flip is a one-line `DEFAULT_UI = "textual"` change in `d2c/tui/__init__.py`;
 the selector precedence and fallback (Phase 77) are unchanged.
 
+**Phase 80** adds a personal preference layer so the default flip isn't noisy:
+`/settings ui classic|textual|auto` persists `ui.default` in
+`~/.d2c/settings.yaml` (`auto` clears it). Precedence is now `--tui` > `D2C_TUI`
+> user `ui.default` > project default (`textual`). The preference is read from
+the USER settings file only — a project/managed file cannot force a user's UI.
+The missing-`[tui]` fallback note is shortened and lists how to install, use
+`--tui classic`, or persist classic.
+
 ## Tested Matrix
 
 Legend: ✅ verified (automated/pilot) · 🟡 verified by code review only ·

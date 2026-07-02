@@ -1020,6 +1020,35 @@ def _print_help() -> None:
     print("\n".join(_help_lines()))
 
 
+def _handle_settings_ui(args: list[str]) -> None:
+    """Phase 80: `/settings ui [classic|textual|auto]` — persist (or clear) the
+    personal default UI in ~/.d2c/settings.yaml. With no value, show current."""
+    from d2c.tui import DEFAULT_UI, user_ui_pref
+
+    if not args:
+        pref = user_ui_pref()
+        current = pref if pref is not None else f"auto (project default: {DEFAULT_UI})"
+        print(f"UI preference: {current}\nSet with: /settings ui classic|textual|auto")
+        return
+
+    value = args[0].lower()
+    if value not in ("classic", "textual", "auto"):
+        print(f"Unknown UI preference: {value}\nUsage: /settings ui classic|textual|auto")
+        return
+
+    from d2c.tui import set_user_ui_pref
+
+    try:
+        set_user_ui_pref(value)
+    except Exception as e:  # noqa: BLE001 — surface, don't crash the REPL
+        print(f"Could not save UI preference: {e}")
+        return
+    if value == "auto":
+        print("UI preference cleared (using D2C_TUI / project default). Applies next launch.")
+    else:
+        print(f"UI preference saved: {value}. Applies next launch.")
+
+
 def _print_settings(state: "ReplState") -> None:
     from d2c.trust import get_trust_gate
 
@@ -1281,7 +1310,12 @@ async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
         return True
 
     if name == "/settings":
-        _print_settings(state)
+        # Phase 80: `/settings ui classic|textual|auto` persists a personal UI
+        # preference; bare `/settings` prints current settings.
+        if cmd.args and cmd.args[0].lower() == "ui":
+            _handle_settings_ui(cmd.args[1:])
+        else:
+            _print_settings(state)
         return True
 
     if name == "/usage":
@@ -1646,10 +1680,11 @@ async def run_interactive(args: argparse.Namespace) -> None:
                 )
                 return  # the enclosing `finally` still flushes usage + SessionEnd
             print(
-                "The Textual UI (now the default) isn't installed — falling back to "
-                'the classic prompt_toolkit REPL. Install it with `pip install "d2c[tui]"`, '
-                "or pass --tui classic (or set D2C_TUI=classic) to use classic without "
-                "this note.\n"
+                "Textual UI is the default but the optional [tui] extra is not installed.\n"
+                "Using classic UI for this session.\n"
+                '  Install:         pip install "d2c[tui]"\n'
+                "  Use classic:     --tui classic  (or D2C_TUI=classic)\n"
+                "  Persist classic: /settings ui classic\n"
             )
 
         while True:
