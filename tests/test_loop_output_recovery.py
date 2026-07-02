@@ -158,8 +158,9 @@ async def test_retries_capped_then_returns_latest_text():
 
     events = await _drive(make_config(), make, budgets)
 
-    # 1 initial + 3 retries = 4 model calls; budget escalates then caps at 32768.
-    assert budgets == [8192, 16384, 32768, MAX_MAX_TOKENS]
+    # 1 initial + 3 retries = 4 model calls; budget escalates then caps at the
+    # model's documented max output (Phase 83: 32K for first-class v4 models).
+    assert budgets == [8192, 16384, MAX_MAX_TOKENS, MAX_MAX_TOKENS]
     assert calls[0] == MAX_OUTPUT_TOKENS_RECOVERY + 1
     assert isinstance(events[-1], TextResponse)
     assert events[-1].text == "partial-4"  # latest partial flows through

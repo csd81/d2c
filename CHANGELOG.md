@@ -5,6 +5,14 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 83:** align DeepSeek model metadata with official serverless docs. First-class models
+  now carry a **32K max output** (was 8192) and 128K context; the loop's output-token recovery
+  caps at the resolved model's documented max (via `get_model_defaults`) instead of a stale global
+  `32768`/`8192`. Pricing is now official rather than an estimate: `deepseek-v4-flash` is **free**
+  ($0 input/cache/output) and `deepseek-v4-pro` is the **paid v4 tier** ($0.28/M in, $0.42/M out,
+  $0.028/M cache-read), still overridable via `D2C_PRICING_*`. `--list-models` reports the 32K
+  limit. Model-ID decision: `deepseek-v4-pro` stays the intentional canonical for `pro`/`v4`/`v4-pro`
+  (its pricing set to the official paid v4 tier); raw/custom model IDs still pass through unchanged.
 - **Phase 82:** opt-in DeepSeek thinking control. A `thinking` preset (`off` default / `low` /
   `medium` / `high`) maps to a reasoning token budget (4096 / 8192 / 16384) and, when not `off`,
   sends `extra_body={"thinking": {"type": "enabled", "budget_tokens": N}}` on the model call —

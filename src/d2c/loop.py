@@ -88,10 +88,22 @@ class LoopState:
     stop_reason: str | None = None
 
 
-# Phase 34: max escalating retries when the model truncates at the output cap
+# Phase 34: max escalating retries when the model truncates at the output cap.
+# Phase 83: the escalation starts at BASE_MAX_TOKENS and is capped by the
+# resolved model's documented max output (DEEPSEEK_MODEL_DEFAULTS), falling back
+# to MAX_MAX_TOKENS for unknown/custom models — no more stale global 32K/8192
+# assumptions for first-class v4 models.
 MAX_OUTPUT_TOKENS_RECOVERY = 3
 BASE_MAX_TOKENS = 8192
-MAX_MAX_TOKENS = 32768
+MAX_MAX_TOKENS = 32_000
+
+
+def _model_output_cap(model: str) -> int:
+    """The max-output budget for a model, from its documented default (bounded
+    by MAX_MAX_TOKENS as an absolute safety ceiling)."""
+    from d2c.config import get_model_defaults
+
+    return min(int(get_model_defaults(model).get("max_tokens", BASE_MAX_TOKENS)), MAX_MAX_TOKENS)
 
 
 # ── Loop config ──────────────────────────────────────────────────────
@@ -685,7 +697,7 @@ async def queryLoop(
         # Phase 34: escalate the output budget on each recovery attempt.
         recovery_max_tokens = min(
             BASE_MAX_TOKENS * (2**state.output_tokens_recovery_attempts),
-            MAX_MAX_TOKENS,
+            _model_output_cap(loop_config.model),
         )
 
         stream_executor: StreamingToolExecutor | None = None

@@ -32,13 +32,14 @@ DEEPSEEK_MODEL_ALIASES: dict[str, str] = {
 }
 
 # Model-specific parameter defaults. deepseek-v4-flash first (the default).
+# Limits track DeepSeek's official serverless docs: 128K context, 32K max output.
 DEEPSEEK_MODEL_DEFAULTS: dict[str, dict] = {
     "deepseek-v4-flash": {
-        "max_tokens": 8192,
+        "max_tokens": 32_000,
         "context_window": 128_000,
     },
     "deepseek-v4-pro": {
-        "max_tokens": 8192,
+        "max_tokens": 32_000,
         "context_window": 128_000,
     },
 }

@@ -155,9 +155,11 @@ Non-interactive paths (headless, `--json`, SDK, MCP, eval, server) are unaffecte
 Textual.
 `/usage` shows session token totals (input/output/cache) and an estimated cost; the
 status bar shows a compact `133.4k in / 9.2k out | ~$0.42` summary once the model has been called.
-Token counts fall back to local estimation when the provider omits usage fields, and costs use a
-built-in DeepSeek pricing snapshot — treat them as estimates and override via `D2C_PRICING_*` when
-pricing changes.
+Token counts fall back to local estimation when the provider omits usage fields, and costs use
+DeepSeek's official serverless pricing: `deepseek-v4-flash` is free ($0 in/cache/out) and
+`deepseek-v4-pro` is the paid v4 tier ($0.28/M in, $0.42/M out, $0.028/M cache-read). Both
+first-class models carry a 128K context window and 32K max output. Override any of it via
+`D2C_PRICING_*` when pricing changes.
 
 ## Programmatic use (SDK / local server)
 

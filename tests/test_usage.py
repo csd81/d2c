@@ -83,9 +83,10 @@ def test_extraction_never_raises_on_weird_response():
 
 
 def test_cost_calculation_uses_decimal():
-    # deepseek-v4-flash: in 0.56/M, out 1.68/M, cache read 0.07/M, write 0.56/M
+    # deepseek-v4-pro (paid v4 tier): in 0.28/M, out 0.42/M, cache read 0.028/M,
+    # write 0.28/M.
     cost, known = compute_cost(
-        "deepseek-v4-flash",
+        "deepseek-v4-pro",
         input_tokens=1_000_000,
         output_tokens=1_000_000,
         cache_read_tokens=1_000_000,
@@ -93,7 +94,7 @@ def test_cost_calculation_uses_decimal():
     )
     assert known is True
     assert isinstance(cost, Decimal)
-    assert cost == Decimal("0.56") + Decimal("1.68") + Decimal("0.07") + Decimal("0.56")
+    assert cost == Decimal("0.28") + Decimal("0.42") + Decimal("0.028") + Decimal("0.28")
 
 
 def test_unknown_model_tracks_tokens_but_no_cost():
@@ -127,9 +128,10 @@ def test_disable_cost_estimates(monkeypatch):
 
 
 def test_session_totals_accumulate():
+    # Use the paid tier so the accumulated cost is non-zero (flash is free).
     t = UsageTracker()
-    t.record(extract_usage(_response(1000, 100), model="deepseek-v4-flash"))
-    t.record(extract_usage(_response(2000, 200, cache_read=500), model="deepseek-v4-flash"))
+    t.record(extract_usage(_response(1000, 100), model="deepseek-v4-pro"))
+    t.record(extract_usage(_response(2000, 200, cache_read=500), model="deepseek-v4-pro"))
     s = t.session
     assert s.calls == 2
     assert s.input_tokens == 3000

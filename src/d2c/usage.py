@@ -42,16 +42,15 @@ class ModelPricing:
     cache_write_per_million: Decimal
 
 
-# Snapshot estimates (USD/M tokens); DeepSeek revises pricing — treat as
-# defaults to be overridden via D2C_PRICING_*, never as invoice truth.
-# NOTE: deepseek-v4-flash pricing is an ESTIMATE (the cheap/fast tier) pending
-# confirmed official numbers — override with D2C_PRICING_* for accuracy.
+# Official DeepSeek serverless pricing (USD/M tokens); still overridable via
+# D2C_PRICING_* and never invoice truth. Fields: input, output, cache_read,
+# cache_write.
+#   deepseek-v4-flash: free serverless tier ($0 across the board).
+#   deepseek-v4-pro:   the paid v4 serverless tier (in 0.28, out 0.42, cache 0.028).
 MODEL_PRICING: dict[str, ModelPricing] = {
-    "deepseek-v4-flash": ModelPricing(
-        Decimal("0.56"), Decimal("1.68"), Decimal("0.07"), Decimal("0.56")
-    ),
+    "deepseek-v4-flash": ModelPricing(Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0")),
     "deepseek-v4-pro": ModelPricing(
-        Decimal("1.20"), Decimal("3.60"), Decimal("0.12"), Decimal("1.20")
+        Decimal("0.28"), Decimal("0.42"), Decimal("0.028"), Decimal("0.28")
     ),
 }
 
