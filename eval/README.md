@@ -49,6 +49,25 @@ Run from the repository root so the corpus's relative `repo` paths
 resolve correctly. `eval-results/` is gitignored — it's regenerated
 output, not something to commit.
 
+## Batch mode (model-call only, Phase 85)
+
+`--batch` runs *batchable* tasks through DeepSeek's Batch API (cheaper, less
+traffic-control sensitive) instead of the live agent loop:
+
+```bash
+python -m d2c eval eval/corpus.yaml --batch --dry-run --out-dir eval-results/batch  # generate JSONL only
+python -m d2c eval eval/corpus.yaml --batch --out-dir eval-results/batch            # submit + poll (needs key)
+```
+
+Batch is **not** equivalent to the live agent eval: provider batch jobs run a
+single prompt→response call and cannot execute local tools (Bash/Edit/ApplyPatch)
+or mutate fixtures. Only tasks marked `batchable: true` in the corpus are
+submitted; every other task is recorded as `{"status": "skipped", "reason":
+"task requires local tool execution"}`. Add `batch_prompt:` to override the
+prompt used for the batch call. Results (`summary.json` with `mode: batch`, plus
+`batch-input.jsonl`, `batch-output.jsonl`, and per-task JSON) land under
+`--out-dir`. The default `d2c eval` (no `--batch`) remains the live agent runner.
+
 Per-task reports land at `eval-results/<task-id>.json` (turns, tool
 counts, tool sequence, tokens, cost estimate, compaction count, success,
 divergences). `eval-results/summary.json` aggregates across the whole

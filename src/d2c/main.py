@@ -1969,6 +1969,17 @@ def _build_eval_parser() -> argparse.ArgumentParser:
         help="Permission mode for eval tasks (default: bypass — deny rules still apply)",
     )
     parser.add_argument("--max-turns", type=int, default=25, help="Maximum agent turns per task")
+    parser.add_argument(
+        "--batch",
+        action="store_true",
+        help="Phase 85: run batchable tasks through DeepSeek's Batch API "
+        "(model-call only; tool-using tasks are skipped). Default is the live agent runner.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="With --batch: generate the JSONL request file only; do not upload/submit.",
+    )
     trust_group = parser.add_mutually_exclusive_group()
     trust_group.add_argument(
         "--trust", action="store_true", help="Trust each task's repo (required for edits/bash)"
@@ -1997,6 +2008,10 @@ def _run_eval_cli(argv: list[str]) -> int:
         print(f"Corpus {args.corpus} has no tasks.", file=sys.stderr)
         return 1
 
+    # Phase 85: optional DeepSeek Batch API mode (model-call evals only).
+    if getattr(args, "batch", False):
+        return _run_batch_eval_cli(corpus, args)
+
     trust = True if args.trust else False if args.no_trust else None
     print(f"Running {len(corpus.tasks)} eval task(s) -> {args.out_dir}")
     summary = asyncio.run(
@@ -2013,6 +2028,51 @@ def _run_eval_cli(argv: list[str]) -> int:
         f"Done: {summary.success_count}/{summary.task_count} succeeded, "
         f"mean {summary.mean_turns} turns, ${summary.total_cost_estimate:.4f} estimated cost"
     )
+    return 0
+
+
+def _run_batch_eval_cli(corpus, args: argparse.Namespace) -> int:
+    """Phase 85: `d2c eval <corpus> --batch [--dry-run]` — DeepSeek Batch mode."""
+    import os
+
+    from d2c.eval_batch import run_batch_eval
+
+    api_key = None if args.dry_run else os.environ.get("DEEPSEEK_API_KEY")
+    if not args.dry_run and not api_key:
+        print(
+            "Error: DEEPSEEK_API_KEY is required for a batch eval run "
+            "(or pass --dry-run to only generate the JSONL).",
+            file=sys.stderr,
+        )
+        return 1
+
+    batchable = sum(1 for t in corpus.tasks if t.batchable)
+    mode = "dry-run" if args.dry_run else "batch"
+    print(
+        f"Batch eval ({mode}): {batchable}/{len(corpus.tasks)} batchable task(s) -> {args.out_dir}"
+    )
+    try:
+        summary = run_batch_eval(
+            corpus,
+            args.out_dir,
+            model=args.model,
+            dry_run=args.dry_run,
+            api_key=api_key,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface a clean CLI error
+        print(f"Batch eval failed: {exc}", file=sys.stderr)
+        return 1
+
+    if args.dry_run:
+        print(
+            f"Done (dry-run): wrote {summary.submitted_count} request(s), "
+            f"{summary.skipped_count} skipped -> {args.out_dir}/batch-input.jsonl"
+        )
+    else:
+        print(
+            f"Done: {summary.succeeded_count} succeeded, {summary.failed_count} failed, "
+            f"{summary.skipped_count} skipped (batch {summary.batch_id})"
+        )
     return 0
 
 

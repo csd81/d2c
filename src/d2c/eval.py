@@ -59,6 +59,12 @@ class EvalTask(BaseModel):
     prompt: str
     repo: str | None = None
     expect: EvalExpectation | None = None
+    # Phase 85: opt a task into the DeepSeek Batch API model-call eval. Batch
+    # jobs run a single prompt→response measurement and cannot execute local
+    # tools, so only tasks explicitly marked batchable are submitted; the rest
+    # are skipped in batch mode. batch_prompt overrides prompt for the batch call.
+    batchable: bool = False
+    batch_prompt: str | None = None
 
 
 class EvalCorpus(BaseModel):

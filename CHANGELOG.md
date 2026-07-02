@@ -5,6 +5,17 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 85:** optional DeepSeek Batch API eval mode (`d2c eval <corpus> --batch [--dry-run]`),
+  for cheaper model-call experiments that don't need local tools. A new `eval_batch.py` generates
+  deterministic OpenAI-compatible JSONL (stable `custom_id` = task id), uploads/creates/polls/
+  downloads via an injectable `DeepSeekBatchClient` (tested with `httpx.MockTransport`, no network),
+  and writes per-task results + a `summary.json` (`mode: batch`, submitted/skipped/succeeded/failed
+  counts) under `--out-dir`. Corpus tasks gain optional `batchable`/`batch_prompt` fields; only
+  `batchable: true` tasks are submitted, the rest are explicitly skipped (batch can't run
+  Bash/Edit/ApplyPatch), and batch results are **not** treated as equivalent to live agent runs.
+  Missing `DEEPSEEK_API_KEY` fails clearly before upload; `--dry-run` writes the JSONL only. Cost is
+  reported as unknown (never fabricated) and error detail is redacted. The default `d2c eval` is
+  unchanged (live agent runner).
 - **Phase 84:** DeepSeek-aware provider error messages. A new `provider_errors.py`
   (`classify_provider_error`/`format_provider_error` + `ProviderErrorInfo`) maps the documented
   HTTP failures — 400/401/402/403/404/422/429/500/503/504 — and connection/timeout errors into one
