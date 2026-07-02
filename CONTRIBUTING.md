@@ -1,7 +1,12 @@
 # Contributing to d2c
 
-Thanks for contributing! d2c uses automated quality gates (CI: `.github/workflows/ci.yml`).
-Run them locally before pushing.
+Thanks for contributing! There is no automatic GitHub CI — the quality gate runs
+locally, in two tiers:
+
+```bash
+./scripts/check_fast.sh [tests/...]   # inner loop: lint + format + types (+ targeted tests)
+./scripts/check_release.sh            # before push / release / phase: the full suite
+```
 
 ## Setup
 
@@ -9,16 +14,33 @@ Run them locally before pushing.
 pip install -e ".[dev]"
 ```
 
-## Local checks (same as CI)
+## Local quality gate
+
+Two scripts, matched to how often you run them:
+
+- **`./scripts/check_fast.sh`** — the inner-loop check for normal work: `ruff
+  check`, `ruff format --check`, `mypy`, and (if you pass paths) the targeted
+  tests for what you touched, e.g. `./scripts/check_fast.sh tests/test_eval.py`.
+- **`./scripts/check_release.sh`** — run before pushing, releasing, or completing
+  a phase. A superset of the fast checks plus the heavy ones: the full test
+  suite, `bandit`, advisory `pip-audit`, a clean `dist/` build, and `twine
+  check`.
+
+Both use `python -m pytest` (not bare `pytest`) for stable import behavior, exit
+non-zero on the first failure, and need no API credentials. `check_release.sh`
+clears `dist/` before building so `twine check` isn't fooled by stale artifacts.
+
+To run steps individually:
 
 ```bash
-ruff check .                          # lint
-ruff format --check .                 # formatting (use `ruff format .` to fix)
-mypy                                  # types — staged clean modules (pyproject [tool.mypy].files)
-bandit -c pyproject.toml -r src/d2c   # security lint
-pip-audit                             # dependency CVE scan (advisory; non-blocking in CI)
-pytest                                # tests
-python -m build                       # package build
+python -m ruff check .                          # lint
+python -m ruff format --check .                 # formatting (use `ruff format .` to fix)
+python -m mypy                                  # types — staged clean modules (pyproject [tool.mypy].files)
+python -m bandit -c pyproject.toml -r src/d2c   # security lint
+python -m pip_audit                             # dependency CVE scan (advisory; non-blocking)
+python -m pytest                                # tests
+python -m build                                 # package build
+python -m twine check dist/*                    # artifact validation
 ```
 
 Quick auto-fix pass:

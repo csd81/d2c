@@ -262,16 +262,28 @@ Tests are async and use explicit `@pytest.mark.asyncio` markers — mark new asy
 
 ### Quality gates
 
-CI (`.github/workflows/ci.yml`, Python 3.11 & 3.13) runs the same checks you can run locally:
+There is no automatic GitHub CI. The gate runs locally in two tiers:
 
 ```bash
-ruff check .            # lint
-ruff format --check .   # formatting
-mypy                    # types (all of src/d2c; lenient baseline)
-bandit -c pyproject.toml -r src/d2c   # security lint (justified skips in pyproject)
-pip-audit               # dependency vulnerability scan (advisory)
-pytest                  # tests
-python -m build         # wheel/sdist build (includes bundled d2c/skills/*.md)
+./scripts/check_fast.sh [tests/...]   # inner loop: lint + format + types (+ targeted tests)
+./scripts/check_release.sh            # before push / release / phase: the full suite
+```
+
+`check_fast.sh` is the quick pre-commit check (ruff, format, mypy, and targeted
+tests if you pass paths). `check_release.sh` is the comprehensive gate — a
+superset that adds the full test suite, bandit, advisory pip-audit, a clean
+`dist/` build, and twine check. Both use `python -m pytest` (stable import
+behavior). The individual steps, if you want to run them one at a time:
+
+```bash
+python -m ruff check .            # lint
+python -m ruff format --check .   # formatting
+python -m mypy                    # types (all of src/d2c; lenient baseline)
+python -m bandit -c pyproject.toml -r src/d2c   # security lint (justified skips in pyproject)
+python -m pip_audit               # dependency vulnerability scan (advisory)
+python -m pytest                  # tests
+python -m build                   # wheel/sdist build (includes bundled d2c/skills/*.md)
+python -m twine check dist/*      # artifact validation
 ```
 
 `ruff format .` and `ruff check --fix .` apply fixes. Typing is adopted in stages — `[tool.mypy].files`

@@ -5,6 +5,15 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 69:** a two-tier local quality gate replacing the removed GitHub Actions
+  `ci` workflow. `scripts/check_fast.sh` is the inner-loop check (ruff lint +
+  format check, mypy, and targeted tests when you pass paths); `scripts/check_release.sh`
+  is the full gate to run before push/release/phase completion — a superset that
+  adds the whole test suite, bandit, advisory pip-audit, a clean `dist/` build, and
+  twine check. Both use `python -m pytest` (not bare `pytest`) to keep import
+  behavior stable, and the release gate clears `dist/` before building so `twine
+  check` isn't fooled by stale artifacts. README and CONTRIBUTING updated to point
+  at them.
 - **Phase 68:** first eval-guided tool-tuning pass, using the Phase 67 corpus as
   the measurement loop. Adds an advisory `expect.tolerate_verification_failure`
   flag so a task whose only failure is a trailing verification tool error (e.g.

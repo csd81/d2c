@@ -390,11 +390,3 @@ def test_injected_text_cannot_alter_permission_decisions():
     assert after == before
     assert engine.mode == PermissionMode.DEFAULT
     assert engine.rules == []
-
-
-def test_ci_workflow_has_macos_leg():
-    from pathlib import Path
-
-    ci = (Path(__file__).parent.parent / ".github" / "workflows" / "ci.yml").read_text()
-    assert "macos-latest" in ci
-    assert "ubuntu-latest" in ci
