@@ -1,5 +1,8 @@
 {
   "app_name": "sample-service",
   "port": 8080,
-  "retries": 3
+  "retries": 3,
+  "logging": {
+    "level": "info"
+  }
 }

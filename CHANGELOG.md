@@ -5,6 +5,16 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 87:** eval corpus v2 — broadens the live corpus from 13 to 24 tasks (11 new `v2-*`
+  tasks) so tool-description tuning is measured against more than one rename. New coverage:
+  cross-file rename, import-move, repeated-literal update, docs+code paired change (all with
+  `preferred_tool: ApplyPatch` — now 4 distinct tasks vs one), a targeted line fix in a larger doc
+  (`ReadRange`), a nested-JSON edit (`JsonEdit`), a YAML add (recording the no-YAML-tool gap),
+  search-before-edit (`Grep`), a no-op inspection, and a batchable explanation task. Adds a small
+  `refactor-mini` fixture plus a nested `logging` block, `settings.yaml`, a CLI `README.md`, and a
+  `reference.md`. Expectations stay advisory. New `eval/phase87-corpus-v2.md` documents the
+  expansion (no live run performed); `tests/test_phase87_eval_corpus_v2.py` adds CI-safe hygiene
+  checks (no model calls). The Phase 67 baseline is unchanged.
 - **Phase 86:** `/settings` becomes a small preference surface for the day-to-day DeepSeek/UI
   choices. Alongside `/settings ui classic|textual|auto`, it now takes `/settings model flash|pro|
   auto` and `/settings thinking off|low|medium|high|auto`, persisting to `~/.d2c/settings.yaml`

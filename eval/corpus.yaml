@@ -126,3 +126,115 @@ tasks:
       max_turns: 4
       preferred_tool: "Grep"
       avoids: ["Bash"]
+
+  # ── Phase 87: corpus v2 — broader multi-file/refactor coverage ──────────
+
+  - id: "v2-cross-file-rename-subtract"
+    repo: "eval/fixtures/python-package"
+    prompt: >
+      Rename the function `subtract` to `sub` everywhere it is defined and
+      referenced across greeter/util.py and greeter/__init__.py (definition,
+      import, and __all__), keeping behavior identical.
+    expect:
+      max_turns: 10
+      preferred_tool: "ApplyPatch"
+
+  - id: "v2-import-move-multiply"
+    repo: "eval/fixtures/python-package"
+    prompt: >
+      Move the `multiply` function out of greeter/util.py into a new module
+      greeter/mathops.py, and update greeter/__init__.py so `multiply` is still
+      importable from the package. Keep behavior identical.
+    expect:
+      max_turns: 12
+      preferred_tool: "ApplyPatch"
+
+  - id: "v2-repeated-literal-update"
+    repo: "eval/fixtures/refactor-mini"
+    prompt: >
+      Change the request timeout from 30 to 60. Update it consistently in
+      config.py, README.md, and tests/test_config.py.
+    expect:
+      max_turns: 10
+      preferred_tool: "ApplyPatch"
+
+  - id: "v2-targeted-line-fix-noise"
+    repo: "eval/fixtures/docs-site"
+    prompt: >
+      There's a typo on line 15 of docs/reference.md: "termiate" should be
+      "terminate". Fix just that line.
+    expect:
+      max_turns: 6
+      preferred_tool: "ReadRange"
+      tools_used: ["Edit"]
+
+  - id: "v2-add-edge-case-test"
+    repo: "eval/fixtures/python-package"
+    prompt: >
+      Add a focused test to tests/test_util.py checking that add(-2, 2) == 0.
+      Do not change any other test or fix unrelated failures.
+    expect:
+      max_turns: 8
+      tools_used: ["Read", "Edit"]
+      # The fixture's test_multiply is intentionally broken (multiply has a bug);
+      # verifying by running the whole suite trips it. See eval/README.md.
+      tolerate_verification_failure: true
+
+  - id: "v2-json-nested-edit"
+    repo: "eval/fixtures/json-config"
+    prompt: 'Change logging.level to "debug" in config/app.json, keeping valid JSON.'
+    expect:
+      max_turns: 6
+      preferred_tool: "JsonEdit"
+      avoids: ["Bash"]
+
+  - id: "v2-yaml-add-field"
+    repo: "eval/fixtures/json-config"
+    prompt: >
+      Add a top-level `debug: false` field to config/settings.yaml, keeping the
+      existing keys and valid YAML.
+    expect:
+      max_turns: 6
+      tools_used: ["Edit"]
+
+  - id: "v2-docs-code-paired-change"
+    repo: "eval/fixtures/simple-cli"
+    prompt: >
+      Add an `--upper` flag to cli.py that uppercases the greeting when set, and
+      document the new flag in README.md.
+    expect:
+      max_turns: 10
+      preferred_tool: "ApplyPatch"
+
+  - id: "v2-search-before-edit"
+    repo: "eval/fixtures/python-package"
+    prompt: >
+      Find every file that references the `multiply` function first, then add a
+      one-line docstring to the `multiply` definition explaining what it should
+      do. Do not change its behavior.
+    expect:
+      max_turns: 8
+      preferred_tool: "Grep"
+
+  - id: "v2-noop-inspection"
+    repo: "eval/fixtures/python-package"
+    prompt: >
+      Is the `subtract` function already exported in greeter/__init__.py's
+      __all__? If it already is, just report that and make no changes.
+    expect:
+      max_turns: 4
+      avoids: ["Edit", "Write", "ApplyPatch", "Bash"]
+
+  - id: "v2-explain-add-function"
+    repo: "eval/fixtures/python-package"
+    batchable: true
+    batch_prompt: >
+      Explain in one sentence what this Python function does:
+
+      def add(a, b):
+          return a + b
+    prompt: >
+      In one sentence, explain what the `add` function in greeter/util.py does.
+    expect:
+      max_turns: 4
+      avoids: ["Bash"]

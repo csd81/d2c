@@ -22,11 +22,19 @@ line fix instead of a full `Read`?) with data instead of guesswork — see
   - `python-package/` — a package with a docstring-free function, an
     unused-but-correct helper, a renamed-function target, and a failing
     test (intentional — see `failing-test-fix` in `corpus.yaml`).
-  - `json-config/` — a JSON config file missing a `timeout` key.
-  - `docs-site/` — markdown docs with a known typo on a known line.
-  - `simple-cli/` — a small argparse CLI missing a flag.
+  - `json-config/` — a JSON config (`app.json`, with a nested `logging`
+    block) and a `settings.yaml` (YAML-edit target).
+  - `docs-site/` — markdown docs with known typos on known lines
+    (`guide.md`, and `reference.md` for the v2 targeted-line-fix task).
+  - `simple-cli/` — a small argparse CLI (+ `README.md` for the paired
+    docs/code change).
+  - `refactor-mini/` — a literal (`TIMEOUT = 30`) repeated across
+    `config.py`, `README.md`, and `tests/test_config.py` (its own tests
+    pass) for the repeated-literal update task.
 - `baseline.md` — the Phase 67 baseline report (the "before" snapshot at
   commit `41131a2`).
+- `phase87-corpus-v2.md` — the corpus v2 expansion (Phase 87): 13 → 24
+  tasks with broader multi-file/refactor coverage; no live run performed.
 - `phase68-results.md` — the Phase 68 before/after report (eval-guided
   tool tuning: success semantics + `ApplyPatch` discoverability).
 

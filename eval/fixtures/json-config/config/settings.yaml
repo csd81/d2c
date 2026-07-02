@@ -1,0 +1,4 @@
+# Service settings used by the d2c eval corpus (YAML edit task).
+service:
+  name: sample-service
+  workers: 4
