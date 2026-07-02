@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `d2c` is a Python re-implementation of the Claude Code agent architecture, built subsystem-by-subsystem from the paper *"Dive into Claude Code"* (2604.14228v1.pdf). It reproduces the core agent loop, tool system, permission gating, context/compaction management, session persistence, subagents, hooks, MCP, and skills — scoped to demonstrate the architectural principles rather than clone the full product.
 
-**Backend is DeepSeek, not Anthropic.** Despite the `anthropic` SDK dependency and "Claude Code" framing, the agent talks to DeepSeek's Anthropic-compatible API (`base_url=https://api.deepseek.com/anthropic`). You need `DEEPSEEK_API_KEY` set (env var or `.env`), *not* an Anthropic key. Default model is `deepseek-v4-flash`; the stronger `deepseek-v4-pro` is available via `--model pro` (aliases `flash`/`v4-flash` and `pro`/`v4`/`v4-pro` are mapped in `config.py`).
+**Backend is DeepSeek, not Anthropic.** Despite the `anthropic` SDK dependency and "Claude Code" framing, the agent talks to DeepSeek's Anthropic-compatible API (`base_url=https://api.deepseek.com/anthropic`). You need `DEEPSEEK_API_KEY` set (env var or `.env`), *not* an Anthropic key. Default model is `deepseek-v4-flash`; the stronger `deepseek-v4-pro` is available via `--model pro` (aliases `flash`/`v4-flash` and `pro`/`v4`/`v4-pro` are mapped in `config.py`). DeepSeek's thinking budget is opt-in (`--thinking low|medium|high` / `D2C_THINKING`, default off); when enabled, `loop.py` sends `extra_body={"thinking": {"type": "enabled", "budget_tokens": N}}` on the model call.
 
 ## Commands
 

@@ -67,6 +67,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="DeepSeek model to use (flash/v4-flash [default], pro/v4/v4-pro)",
     )
+    parser.add_argument(
+        "--thinking",
+        choices=("off", "low", "medium", "high"),
+        default=None,
+        help=(
+            "DeepSeek thinking preset (opt-in; default off). low/medium/high add "
+            "a reasoning token budget — may increase latency and cost. "
+            "Overrides D2C_THINKING."
+        ),
+    )
     parser.add_argument("--max-turns", type=int, default=25, help="Maximum agent turns")
     parser.add_argument("--cwd", type=Path, default=None, help="Working directory")
     parser.add_argument("--session", default=None, help="Session ID to use")
@@ -1082,6 +1092,7 @@ def _print_settings(state: "ReplState") -> None:
     print(
         f"Settings:\n"
         f"  model:       {config.model}\n"
+        f"  thinking:    {config.thinking}\n"
         f"  permission:  {config.permission_mode}\n"
         f"  cwd:         {config.cwd}\n"
         f"  session:     {sid}\n"
@@ -1389,6 +1400,8 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
     # Override from CLI args
     if args.model:
         config.model = args.model
+    if getattr(args, "thinking", None):
+        config.thinking = args.thinking  # CLI > env > default (Phase 82)
     config.max_turns = args.max_turns
 
     # Validate config (Phase 10)
@@ -1510,6 +1523,8 @@ async def run_interactive(args: argparse.Namespace) -> None:
     """
     config = Config.load(args.cwd)
     config.model = args.model or config.model
+    if getattr(args, "thinking", None):
+        config.thinking = args.thinking  # CLI > env > default (Phase 82)
     config.max_turns = args.max_turns
 
     # Validate config (Phase 10)

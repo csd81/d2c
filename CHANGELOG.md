@@ -5,6 +5,15 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 82:** opt-in DeepSeek thinking control. A `thinking` preset (`off` default / `low` /
+  `medium` / `high`) maps to a reasoning token budget (4096 / 8192 / 16384) and, when not `off`,
+  sends `extra_body={"thinking": {"type": "enabled", "budget_tokens": N}}` on the model call —
+  the default request shape is otherwise unchanged. Set it with `--thinking` or `D2C_THINKING`
+  (precedence `--thinking` > `D2C_THINKING` > default `off`; persist via `~/.d2c/.env`); invalid
+  values fail (CLI) or warn (env). The active mode shows in `/settings` and the config/env info
+  tools. All paths read it from the shared `Config` (the loop resolves it from `loop_config.config`),
+  so REPL/Textual/headless/SDK/MCP/eval/server inherit one default. Hidden reasoning is not rendered
+  into transcripts.
 - **Phase 81:** the default model is now `deepseek-v4-flash` (faster/cheaper); `deepseek-v4-pro`
   stays available via `--model pro`. The first-class model surface is narrowed to Flash + Pro with
   aliases `flash`/`v4-flash` → flash and `pro`/`v4`/`v4-pro` → pro. The old `deepseek-chat` /

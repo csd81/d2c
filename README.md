@@ -21,6 +21,7 @@ export DEEPSEEK_API_KEY=sk-...
 # optional:
 export DEEPSEEK_BASE_URL=https://api.deepseek.com/anthropic   # default
 export D2C_MODEL=deepseek-v4-flash                            # default (pro also available)
+export D2C_THINKING=medium                                   # off (default) | low | medium | high
 export D2C_SANDBOX=1                                          # sandbox Bash (off by default)
 export D2C_SANDBOX_BACKEND=bubblewrap                         # process (default) | bubblewrap | docker
 export D2C_SANDBOX_NETWORK=0                                  # allow network inside the sandbox (off)
@@ -83,6 +84,12 @@ D2C_WEBSEARCH_PROVIDER=searxng D2C_WEBSEARCH_BASE_URL=http://localhost:8080 pyth
 `.env` resolution: `~/.d2c/.env` always loads; a project-local `.env` loads **only if the workspace is trusted** (see [Workspace trust](#workspace-trust)). Shell environment variables take precedence over `.env` values.
 
 Default model is `deepseek-v4-flash` (faster/cheaper). The stronger `deepseek-v4-pro` is available on demand: `--model pro`. Aliases: `flash`/`v4-flash` → `deepseek-v4-flash`, `pro`/`v4`/`v4-pro` → `deepseek-v4-pro`.
+
+**Thinking (opt-in).** DeepSeek's reasoning budget is off by default. Enable it per run with
+`--thinking low|medium|high` (or `D2C_THINKING=…`); precedence is `--thinking` > `D2C_THINKING` >
+default `off`. Higher presets add a larger reasoning token budget (`low` 4096 → `high` 16384) and
+may increase latency and cost — hidden reasoning is never dumped into the transcript. The active
+mode shows in `/settings`.
 
 ## Usage
 

@@ -690,12 +690,25 @@ async def queryLoop(
 
         stream_executor: StreamingToolExecutor | None = None
 
+        # Phase 82: DeepSeek thinking control. Only send the payload when a
+        # preset other than "off" is configured, so the default request shape is
+        # unchanged. The preset lives on the shared Config (loop_config.config).
+        from d2c.config import thinking_budget
+
+        _budget = thinking_budget(getattr(getattr(loop_config, "config", None), "thinking", "off"))
+        thinking_kwargs: dict[str, Any] = (
+            {"extra_body": {"thinking": {"type": "enabled", "budget_tokens": _budget}}}
+            if _budget
+            else {}
+        )
+
         audit(
             "model_call_start",
             model=loop_config.model,
             turn_id=state.turn_count,
             streaming=loop_config.stream,
             max_tokens=recovery_max_tokens,
+            thinking=getattr(getattr(loop_config, "config", None), "thinking", "off"),
         )
         _model_t0 = time.perf_counter()
 
@@ -713,6 +726,7 @@ async def queryLoop(
                     system=cast(Any, system_param),
                     messages=cast(Any, anthropic_messages),
                     tools=cast(Any, api_tools),
+                    **thinking_kwargs,
                 ) as stream:
                     # Lazy-init executor on first tool_use start
                     async for event in stream:
@@ -786,6 +800,7 @@ async def queryLoop(
                     system=cast(Any, system_param),
                     messages=cast(Any, anthropic_messages),
                     tools=cast(Any, api_tools),
+                    **thinking_kwargs,
                 )
                 raw_response = response
                 text = _response_text(response)

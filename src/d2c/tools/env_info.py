@@ -48,6 +48,7 @@ class EnvInfoTool(Tool):
             "cwd": str(self._cwd),
             "git_available": bool(shutil.which("git")),
             "model": os.environ.get("D2C_MODEL", "deepseek-v4-flash"),
+            "thinking": os.environ.get("D2C_THINKING", "off").strip().lower(),
             "websearch_provider": os.environ.get("D2C_WEBSEARCH_PROVIDER", "").strip().lower()
             or None,
             "sandbox_enabled": _truthy("D2C_SANDBOX"),

@@ -52,6 +52,26 @@ def resolve_model(model: str) -> str:
     return DEEPSEEK_MODEL_ALIASES.get(model.lower(), model)
 
 
+# ── DeepSeek thinking control (Phase 82) ────────────────────────────────
+
+# Preset → thinking token budget. "off" sends no thinking payload at all.
+# Budgets follow the plan's conservative defaults; override the whole feature
+# per-call by picking a different preset (D2C_THINKING / --thinking).
+THINKING_BUDGETS: dict[str, int | None] = {
+    "off": None,
+    "low": 4096,
+    "medium": 8192,
+    "high": 16384,
+}
+VALID_THINKING_MODES = tuple(THINKING_BUDGETS.keys())
+
+
+def thinking_budget(mode: str | None) -> int | None:
+    """The budget_tokens for a thinking preset, or None for 'off'/unknown
+    (unknown falls back to off — validation surfaces the bad value separately)."""
+    return THINKING_BUDGETS.get((mode or "off").strip().lower())
+
+
 def get_model_defaults(model: str) -> dict:
     """Get default parameters for a resolved model."""
     resolved = resolve_model(model)
@@ -143,6 +163,8 @@ class Config:
     model: str = "deepseek-v4-flash"
     deepseek_api_key: str | None = None
     deepseek_base_url: str = "https://api.deepseek.com/anthropic"
+    # Phase 82: DeepSeek thinking preset — off (default) | low | medium | high.
+    thinking: str = "off"
 
     # --- Session ---
     cwd: Path = field(default_factory=Path.cwd)
@@ -204,6 +226,9 @@ class Config:
         # Resolve model alias to canonical name
         self.model = resolve_model(self.model)
 
+        # Phase 82: normalize the thinking preset (validated in validate()).
+        self.thinking = (self.thinking or "off").strip().lower()
+
         # Apply model-specific defaults for context window
         defaults = get_model_defaults(self.model)
         if self.context_window_tokens == 128_000:
@@ -239,6 +264,7 @@ class Config:
         api_key = os.environ.get("DEEPSEEK_API_KEY")
         base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic")
         model = os.environ.get("D2C_MODEL", "deepseek-v4-flash")
+        thinking = os.environ.get("D2C_THINKING", "off")
         sandbox_enabled = os.environ.get("D2C_SANDBOX", "").lower() in ("1", "true", "yes", "on")
         sandbox_backend = (
             os.environ.get("D2C_SANDBOX_BACKEND", "process").strip().lower() or "process"
@@ -271,6 +297,7 @@ class Config:
 
         return cls(
             model=model,
+            thinking=thinking,
             deepseek_api_key=api_key,
             deepseek_base_url=base_url,
             cwd=project_dir,
@@ -307,6 +334,12 @@ class Config:
             issues.append(
                 f"Model '{self.model}' is not a recognized DeepSeek model. "
                 f"Known models: {', '.join(DEEPSEEK_MODEL_DEFAULTS.keys())}"
+            )
+
+        if self.thinking not in VALID_THINKING_MODES:
+            issues.append(
+                f"Thinking mode '{self.thinking}' is invalid; "
+                f"expected one of {', '.join(VALID_THINKING_MODES)}. Treating as 'off'."
             )
 
         # Phase 60: malformed settings files / blocked managed-lock override
