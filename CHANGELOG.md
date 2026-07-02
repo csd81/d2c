@@ -5,6 +5,14 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 79:** Textual is now the **default** interactive UI (`DEFAULT_UI = "textual"`), after
+  the Phase 78 dogfooding fixes cleared the readiness blockers. `python -m d2c` uses Textual when
+  the optional `[tui]` extra is installed and falls back to the classic prompt_toolkit REPL with a
+  clear note when it isn't. Classic stays first-class: `--tui classic` and `D2C_TUI=classic` force
+  it (with no note), and selection precedence (`--tui` > `D2C_TUI` > default) and the fallback
+  logic are unchanged from Phase 77. Non-interactive paths (headless, `--json`, SDK, MCP, eval,
+  server) are untouched and never start Textual. `docs/textual-readiness.md` records the revised
+  GO decision.
 - **Phase 78:** clears two Textual default-readiness blockers found in live dogfooding. The
   approval modal now has **clickable** `Deny / Once / Session / Always` buttons (mouse), mapping
   to the exact same Phase 52/64/65 scopes as the keyboard shortcuts — which are unchanged, with

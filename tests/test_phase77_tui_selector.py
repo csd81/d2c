@@ -29,13 +29,16 @@ def test_resolve_ui_cli_overrides_env(monkeypatch):
 
 
 def test_resolve_ui_auto_honors_env_then_default(monkeypatch):
+    # Phase 79: the project default is now "textual".
     monkeypatch.delenv("D2C_TUI", raising=False)
-    assert resolve_ui("auto") == "classic"  # project default
-    assert resolve_ui(None) == "classic"
+    assert resolve_ui("auto") == "textual"  # project default
+    assert resolve_ui(None) == "textual"
+    monkeypatch.setenv("D2C_TUI", "classic")
+    assert resolve_ui("auto") == "classic"  # env can still force classic
     monkeypatch.setenv("D2C_TUI", "textual")
     assert resolve_ui("auto") == "textual"
     monkeypatch.setenv("D2C_TUI", "garbage")
-    assert resolve_ui("auto") == "classic"  # unrecognized env → default
+    assert resolve_ui("auto") == "textual"  # unrecognized env → default (textual)
 
 
 # ── ui_decision: launch vs fallback ─────────────────────────────────
@@ -49,13 +52,26 @@ def test_ui_decision_textual_available(monkeypatch):
 def test_ui_decision_textual_unavailable_falls_back(monkeypatch):
     monkeypatch.delenv("D2C_TUI", raising=False)
     assert ui_decision("textual", available=False) == "classic-fallback"
+    # Phase 79: default (auto) is textual, so it also falls back when unavailable.
+    assert ui_decision("auto", available=False) == "classic-fallback"
+    assert ui_decision(None, available=False) == "classic-fallback"
     monkeypatch.setenv("D2C_TUI", "textual")
     assert ui_decision("auto", available=False) == "classic-fallback"
+
+
+def test_ui_decision_auto_is_textual_by_default(monkeypatch):
+    # Phase 79: default flipped to textual.
+    monkeypatch.delenv("D2C_TUI", raising=False)
+    assert ui_decision("auto", available=True) == "textual"
+    assert ui_decision(None, available=True) == "textual"
 
 
 def test_ui_decision_classic(monkeypatch):
     monkeypatch.delenv("D2C_TUI", raising=False)
     assert ui_decision("classic", available=True) == "classic"
+    # --tui classic and D2C_TUI=classic still force classic over the new default.
+    assert ui_decision("classic", available=True) == "classic"
+    monkeypatch.setenv("D2C_TUI", "classic")
     assert ui_decision("auto", available=True) == "classic"
 
 

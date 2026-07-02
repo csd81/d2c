@@ -1646,9 +1646,10 @@ async def run_interactive(args: argparse.Namespace) -> None:
                 )
                 return  # the enclosing `finally` still flushes usage + SessionEnd
             print(
-                "Textual UI requested (--tui textual / D2C_TUI=textual) but Textual "
-                'isn\'t installed; install it with `pip install "d2c[tui]"`. '
-                "Falling back to the classic prompt_toolkit REPL.\n"
+                "The Textual UI (now the default) isn't installed — falling back to "
+                'the classic prompt_toolkit REPL. Install it with `pip install "d2c[tui]"`, '
+                "or pass --tui classic (or set D2C_TUI=classic) to use classic without "
+                "this note.\n"
             )
 
         while True:

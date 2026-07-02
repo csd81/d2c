@@ -5,19 +5,23 @@ REPL, to decide whether Textual should become the default interactive UI.
 
 ## Summary
 
-**Decision: NO-GO (keep Textual opt-in).**
+**Decision (Phase 77): NO-GO. Revised (Phase 79): GO — Textual is now the default,
+with classic as the fallback.**
 
-The Textual UI has functional parity for the core surfaces and no code-level
-safety or isolation regressions — every criterion that can be verified with
-automated/pilot tests passes. The single blocking gap is **breadth of real-world
-dogfooding**: the app has not been exercised against a live model backend in a
-real terminal across the full manual smoke matrix (this environment can only
-drive it headlessly via Textual's `run_test` pilot). Until that manual matrix is
-run and signed off, the default stays `classic`.
+The Phase 77 audit found functional parity and no safety/isolation regressions;
+the one blocking gap was real-world dogfooding. Dogfooding then surfaced two
+practical blockers — keyboard-only approvals and mouse-capture interfering with
+text selection — which **Phase 78 resolved** (clickable approval buttons + a
+`Ctrl+S` selection mode). With those cleared, **Phase 79 flips the default**:
 
-Phase 77 ships the mechanism to flip safely later — a `--tui classic|textual|auto`
-selector with documented precedence and a tested fallback — without flipping the
-default.
+- `python -m d2c` uses Textual when the optional `[tui]` extra is installed, and
+  falls back to classic with a clear note when it isn't.
+- `--tui classic` and `D2C_TUI=classic` always force classic (and print no note).
+- Non-interactive paths (headless / `--json` / SDK / MCP / eval / server) are
+  unchanged and never start Textual.
+
+The flip is a one-line `DEFAULT_UI = "textual"` change in `d2c/tui/__init__.py`;
+the selector precedence and fallback (Phase 77) are unchanged.
 
 ## Tested Matrix
 
@@ -104,8 +108,9 @@ and precedence via `resolve_ui`. No default flip occurred.
 
 ## Recommendation
 
-Keep Textual **opt-in** (`--tui textual` / `D2C_TUI=textual`). Before a future
-default flip, complete the manual live-terminal smoke matrix and record results
-here. When that passes, flipping is a one-line change (`DEFAULT_UI` in
-`d2c/tui/__init__.py`) plus a docs update — the selector and fallback are already
-in place.
+**Done (Phase 79): Textual is the default**, with classic as a first-class
+fallback via `--tui classic` / `D2C_TUI=classic` and automatically when the
+`[tui]` extra is absent. prompt_toolkit is not removed and stays fully
+supported. If further live use surfaces regressions, `--tui classic` is the
+immediate escape hatch and reverting the default is again a one-line
+`DEFAULT_UI` change.

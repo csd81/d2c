@@ -54,9 +54,11 @@ class InteractiveUI(Protocol):
     def render_status(self, state: Any) -> None: ...
 
 
-# The project default interactive UI. prompt_toolkit ("classic") until the
-# Textual readiness audit (docs/textual-readiness.md) says otherwise.
-DEFAULT_UI = "classic"
+# The project default interactive UI. Textual as of Phase 79 (the readiness
+# audit in docs/textual-readiness.md passed after the Phase 78 dogfooding fixes);
+# classic prompt_toolkit remains the fallback (--tui classic / D2C_TUI=classic,
+# or automatically when the optional [tui] extra isn't installed).
+DEFAULT_UI = "textual"
 
 
 def _env_ui() -> str | None:

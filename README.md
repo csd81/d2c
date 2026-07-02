@@ -128,22 +128,22 @@ Assistant responses in the REPL are rendered as Markdown (headings, lists, fence
 links, blockquotes) via a small dependency-free renderer that fails open to plain text; headless,
 SDK, MCP, and eval output stay plain.
 
-An **experimental Textual UI** is available behind an opt-in: install the extra
-(`pip install "d2c[tui]"`) and select it with `python -m d2c --tui textual` (or
-`D2C_TUI=textual python -m d2c`). Selection precedence is `--tui` > `D2C_TUI` > the project
-default (`classic`); `--tui classic` forces prompt_toolkit and `--tui textual` falls back to
-classic with a note if the extra isn't installed. The default stays classic — see
-[`docs/textual-readiness.md`](./docs/textual-readiness.md) for the parity/readiness audit. It
-reuses the same
-slash commands, Markdown rendering (via Rich), and approval scopes as the default REPL, and adds
+Interactive sessions use a **Textual UI by default** (as of Phase 79). Install the extra to get
+it — `pip install "d2c[tui]"` — and `python -m d2c` uses it automatically; without the extra it
+falls back to the classic prompt_toolkit REPL with a one-line note. Selection precedence is
+`--tui` > `D2C_TUI` > the project default (now `textual`): `--tui classic` (or `D2C_TUI=classic`)
+always forces prompt_toolkit with no note, and `--tui textual` falls back to classic if the extra
+isn't installed. See [`docs/textual-readiness.md`](./docs/textual-readiness.md) for the
+parity/readiness audit. The Textual UI reuses the same
+slash commands, Markdown rendering (via Rich), and approval scopes as the classic REPL, and adds
 a permission approval modal (`[y]`/`[a]`/`[A]`/`[n]`, deny by default, with redacted input/diff
 previews) and compact tool-progress timeline rows. Session ergonomics: predictable scrollback
 (`PageUp`/`PageDown`/`Home`/`End`, no viewport-yank when scrolled up), `Up`/`Down` prompt history,
 `Ctrl+L` to clear the view (not the session), and role-distinct transcript blocks. Approval choices
 are clickable (Deny/Once/Session/Always) as well as keyboard; press `Ctrl+S` for selection mode to
-drag-select/copy transcript text (many terminals also support `Shift+drag` without it). The default
-interactive UI remains prompt_toolkit; without the flag (or without Textual installed) nothing
-changes.
+drag-select/copy transcript text (many terminals also support `Shift+drag` without it).
+Non-interactive paths (headless, `--json`, SDK, MCP, eval, server) are unaffected and never start
+Textual.
 `/usage` shows session token totals (input/output/cache) and an estimated cost; the
 status bar shows a compact `133.4k in / 9.2k out | ~$0.42` summary once the model has been called.
 Token counts fall back to local estimation when the provider omits usage fields, and costs use a
