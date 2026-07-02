@@ -5,6 +5,16 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 70:** approval-management UX. A new `/approvals` REPL command reports the
+  session-approval count, persistent-approval count, and storage path (counts and
+  path only — never the stored SHA-256 hashes or any original tool input);
+  `/approvals clear-session` drops in-memory (`[a]`) approvals while leaving
+  persisted (`[A]`) ones on disk, and `/approvals reset` is the in-app "forget
+  everything" that empties the runtime set and deletes `~/.d2c/approvals.json` —
+  no more manual file deletion. `ApprovalCache` gains `path()`, `runtime_count()`,
+  `session_count()`, `persistent_count()`, and `clear_session()` (session =
+  in-memory approvals not on disk; persistent = what survives a restart). Status is
+  the non-destructive default; destructive actions require an explicit subcommand.
 - **Phase 69:** a two-tier local quality gate replacing the removed GitHub Actions
   `ci` workflow. `scripts/check_fast.sh` is the inner-loop check (ruff lint +
   format check, mypy, and targeted tests when you pass paths); `scripts/check_release.sh`

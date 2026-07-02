@@ -93,6 +93,20 @@ class ApprovalCache:
         """Empty the in-memory (runtime) approval set. Never touches disk."""
         self._keys.clear()
 
+    def clear_session(self) -> int:
+        """Drop in-memory approvals that are NOT persisted to disk (the "a" /
+        session scope). Persistent approvals stay active for this session and
+        untouched on disk. Returns the number of session approvals removed.
+
+        With no disk path, every in-memory approval is session-scoped, so this
+        behaves like :meth:`clear` and returns the count cleared.
+        """
+        persisted = self._persisted_keys()
+        session_keys = [k for k in self._keys if k not in persisted]
+        for k in session_keys:
+            del self._keys[k]
+        return len(session_keys)
+
     def reset(self) -> None:
         """Empty the runtime set AND delete the persisted file, if any."""
         self._keys.clear()
@@ -104,6 +118,38 @@ class ApprovalCache:
 
     def __len__(self) -> int:
         return len(self._keys)
+
+    # ── Introspection (Phase 70) ────────────────────────────────────
+
+    def path(self) -> Path | None:
+        """The persistence file path, or None for an in-memory-only cache."""
+        return self._path
+
+    def runtime_count(self) -> int:
+        """Total in-memory approvals (session-only plus persisted-and-loaded)."""
+        return len(self._keys)
+
+    def _persisted_keys(self) -> set[str]:
+        """Hashes currently on disk. Best-effort and never raises: a missing,
+        unreadable, or corrupted file counts as no persisted approvals."""
+        if self._path is None or not self._path.exists():
+            return set()
+        try:
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return set()
+        if not isinstance(data, dict):
+            return set()
+        return {k for k in data if isinstance(k, str) and len(k) == 64}
+
+    def persistent_count(self) -> int:
+        """Number of approvals persisted on disk (i.e. surviving a restart)."""
+        return len(self._persisted_keys())
+
+    def session_count(self) -> int:
+        """In-memory approvals that are not persisted to disk (the "a" scope)."""
+        persisted = self._persisted_keys()
+        return sum(1 for k in self._keys if k not in persisted)
 
     # ── Persistence (Phase 64) ──────────────────────────────────────
 

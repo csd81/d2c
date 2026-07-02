@@ -26,7 +26,13 @@ is protected, what is not, and what you should not rely on. The invariants below
   only the **in-memory** view for that session either way; a persisted `[A]` entry survives, so a
   fresh session or a restarted process reloads it — that's the point (approve a repeated action once,
   not every session). A corrupted or unreadable file is logged and treated as empty, never crashes
-  startup. To forget everything, delete the file (there's no in-app "forget all" command).
+  startup.
+- **Managing approvals from the REPL (Phase 70).** `/approvals` reports the session-approval count,
+  the persistent-approval count, and the storage path — counts and path only, never the stored
+  hashes or any original tool input. `/approvals clear-session` drops the in-memory (`[a]`) approvals
+  while leaving persisted (`[A]`) ones on disk and active; `/approvals reset` is the in-app "forget
+  everything" — it empties the runtime set and deletes `~/.d2c/approvals.json`. Status is the default
+  (non-destructive); destructive actions require the explicit subcommand.
 - **Permission dialog rendering (Phase 65).** The styled dialog only ever displays what's already in
   the tool's `tool_input` — Edit/Write/ApplyPatch diff previews are computed from the stored
   old/new/patch text, never by reading the file from disk. Every interpolated value (command, URL,

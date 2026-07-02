@@ -302,6 +302,7 @@ class D2CCompleter(Completer):
             "/fork",
             "/settings",
             "/usage",
+            "/approvals",
             "/help",
         ]
 
@@ -942,6 +943,7 @@ def _print_help() -> None:
         "  /help                 Show commands\n"
         "  /settings             Show current model, mode, cwd, session\n"
         "  /usage                Show session token usage and estimated cost\n"
+        "  /approvals            Show approval cache status (add clear-session | reset)\n"
         "  /clear                Start a fresh session\n"
         "  /resume <session_id>  Resume an existing session\n"
         "  /fork <session_id>    Fork an existing session into a new session\n"
@@ -989,6 +991,50 @@ def _print_settings(state: "ReplState") -> None:
         f"  bg tasks:    {bg_active}\n"
         f"{usage_line}"
     )
+
+
+def _approvals_display_path(cache: "ApprovalCache") -> str:
+    """Human-friendly persistence path (~ collapsed), or a not-persisted note."""
+    p = cache.path()
+    if p is None:
+        return "(in-memory only, not persisted)"
+    try:
+        return "~/" + str(p.relative_to(Path.home()))
+    except ValueError:
+        return str(p)
+
+
+def _handle_approvals(cmd: "SlashCommand", state: "ReplState") -> None:
+    """Phase 70: inspect/clear/reset the approval cache. Reports counts and the
+    storage path only — never the stored hashes or any original tool input."""
+    cache = state.approvals
+    sub = cmd.args[0].lower() if cmd.args else ""
+
+    if sub == "":
+        print(
+            "Approvals:\n"
+            f"  session approvals:    {cache.session_count()}\n"
+            f"  persistent approvals: {cache.persistent_count()}\n"
+            f"  path:                 {_approvals_display_path(cache)}"
+        )
+        return
+
+    if sub == "clear-session":
+        n = cache.clear_session()
+        print(f"Cleared {n} session approval(s).")
+        return
+
+    if sub == "reset":
+        path_str = _approvals_display_path(cache)
+        had = cache.persistent_count()
+        cache.reset()
+        if cache.path() is None:
+            print("Reset approval cache (in-memory only).")
+        else:
+            print(f"Reset persistent approval cache ({had} approval(s)) at {path_str}.")
+        return
+
+    print("Usage: /approvals [clear-session | reset]")
 
 
 async def _switch_session(state: ReplState, new_store, event_verb: str) -> None:
@@ -1057,6 +1103,10 @@ async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
 
         sid = getattr(state.session_store, "session_id", None)
         print(format_session_usage(state.usage.session, session_id=sid))
+        return True
+
+    if name == "/approvals":
+        _handle_approvals(cmd, state)
         return True
 
     if name == "/clear":
