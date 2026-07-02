@@ -987,11 +987,10 @@ def make_interactive_approval(cache: "ApprovalCache"):
     return _cb
 
 
-def _print_help() -> None:
-    """Phase 72: help grouped by workflow, rendered from the shared registry.
-
-    The usage column is aligned to the widest usage string so summaries line up
-    across every group."""
+def _help_lines() -> list[str]:
+    """Phase 72/74: grouped help lines from the shared registry, with the usage
+    column aligned to the widest entry. Shared by the prompt_toolkit REPL and the
+    Textual UI so they never diverge."""
     width = max(len(s.usage) for s in _COMMAND_SPECS) + 2
     lines: list[str] = []
     for group in _GROUP_ORDER:
@@ -1003,7 +1002,12 @@ def _print_help() -> None:
         lines.append(group)
         for spec in specs:
             lines.append(f"  {spec.usage.ljust(width)}{spec.summary}")
-    print("\n".join(lines))
+    return lines
+
+
+def _print_help() -> None:
+    """Print the grouped, workflow-organized command help."""
+    print("\n".join(_help_lines()))
 
 
 def _print_settings(state: "ReplState") -> None:
@@ -1547,7 +1551,87 @@ async def run_interactive(args: argparse.Namespace) -> None:
         except Exception:
             return 0
 
+    def _build_loop_config() -> LoopConfig:
+        return LoopConfig(
+            system_prompt=system_prompt,
+            user_context=getUserContext(config),
+            model=config.model,
+            max_turns=config.max_turns,
+            tools=tools,
+            permission_engine=PermissionEngine.from_config(config),
+            hooks=hook_registry,
+            config=config,
+            deepseek_api_key=config.deepseek_api_key,
+            deepseek_base_url=config.deepseek_base_url,
+            session_store=state.session_store,
+            compact_config=compact_config,
+            stream=state.stream,
+            approval_callback=_approval_cb,
+        )
+
     try:
+        # Phase 74: opt-in experimental Textual UI (default stays prompt_toolkit).
+        from d2c.tui import is_textual_available, run_textual_app, use_textual_ui
+
+        if use_textual_ui():
+            if is_textual_available():
+
+                async def _textual_run_turn(prompt_text: str):  # type: ignore[no-untyped-def]
+                    PromptHistory().append(prompt_text)
+                    ups_t = await hook_registry.fire(
+                        HookEvent.USER_PROMPT_SUBMIT,
+                        {
+                            "prompt": prompt_text,
+                            "session_id": getattr(state.session_store, "session_id", None),
+                        },
+                    )
+                    if getattr(ups_t, "decision", None) == "deny" or getattr(ups_t, "veto", False):
+                        yield LoopTextResponse(text="[prompt blocked by UserPromptSubmit hook]")
+                        return
+                    loop_config = _build_loop_config()
+                    if getattr(ups_t, "additional_context", None):
+                        state.conversation.append(
+                            {"role": "user", "content": ups_t.additional_context}
+                        )
+                    state.conversation.append({"role": "user", "content": prompt_text})
+                    full_prompt, messages = assembleMessages(
+                        loop_config.system_prompt,
+                        system_context,
+                        loop_config.user_context,
+                        list(state.conversation),
+                    )
+                    loop_config.system_prompt = full_prompt
+                    if state.session_store:
+                        state.session_store.append(
+                            SessionEntry(
+                                role="user",
+                                content=prompt_text,
+                                timestamp=_utc_now(),
+                                entry_type="message",
+                            )
+                        )
+                    assistant_text = ""
+                    async for event in queryLoop(loop_config, messages):
+                        if isinstance(event, LoopTextResponse):
+                            assistant_text = event.text
+                        elif isinstance(event, TextDelta):
+                            assistant_text += event.text
+                        yield event
+                    if assistant_text:
+                        state.conversation.append({"role": "assistant", "content": assistant_text})
+
+                await run_textual_app(
+                    state=state,
+                    run_turn=_textual_run_turn,
+                    active_bg_tasks=_active_bg_tasks,
+                )
+                return  # the enclosing `finally` still flushes usage + SessionEnd
+            print(
+                "D2C_TUI=textual is set but Textual isn't installed; "
+                'install it with `pip install "d2c[tui]"`. '
+                "Falling back to the standard REPL.\n"
+            )
+
         while True:
             try:
                 prompt_text = await session.prompt_async(

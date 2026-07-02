@@ -40,6 +40,12 @@ Repository = "https://github.com/csd81/d2c"
 d2c = "d2c.main:main"
 
 [project.optional-dependencies]
+# Phase 74: experimental Textual TUI (opt in with D2C_TUI=textual). Kept
+# optional so the default prompt_toolkit REPL install stays lean; Textual
+# pulls Rich.
+tui = [
+    "textual>=0.80",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",

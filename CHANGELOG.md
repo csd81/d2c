@@ -5,6 +5,17 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 74:** experimental Textual TUI (opt-in), the first stage of a staged migration
+  off the organically-grown prompt_toolkit REPL. Set `D2C_TUI=textual` (with the new
+  optional extra: `pip install "d2c[tui]"`) to launch a Textual app shell — transcript +
+  status footer + input — that reuses the Phase 72 command registry, renders assistant
+  Markdown via Rich, and preserves the exact Phase 52/64/65 approval scopes. The default
+  interactive UI stays prompt_toolkit; if `D2C_TUI=textual` is set without Textual
+  installed, it prints a note and falls back. All `textual` imports are lazy, so importing
+  `d2c.tui` (and the default REPL, headless, SDK, MCP, eval paths) never pulls Textual in.
+  New `d2c/tui/` package with Textual-free, unit-tested helpers (command reuse,
+  approval-choice mapping, Markdown fallback, status line) behind an `InteractiveUI`
+  boundary; the Textual app itself is validated where Textual is installed.
 - **Phase 73:** the interactive REPL now renders a pragmatic Markdown subset in assistant
   responses — headings, bullet/numbered lists, fenced and inline code, links (as
   `text (url)`), and blockquotes — via a small dependency-free renderer
