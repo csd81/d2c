@@ -52,7 +52,7 @@ def _clear_pricing_env(monkeypatch):
 def test_extracts_anthropic_style_usage_fields():
     mu = extract_usage(
         _response(input_tokens=1234, output_tokens=56, cache_read=1000, cache_write=200),
-        model="deepseek-chat",
+        model="deepseek-v4-flash",
     )
     assert mu.input_tokens == 1234
     assert mu.output_tokens == 56
@@ -63,7 +63,9 @@ def test_extracts_anthropic_style_usage_fields():
 
 def test_fallback_estimation_when_usage_absent():
     messages = [{"role": "user", "content": "hello " * 100}]
-    mu = extract_usage(None, model="deepseek-chat", fallback_messages=messages, fallback_text="hi")
+    mu = extract_usage(
+        None, model="deepseek-v4-flash", fallback_messages=messages, fallback_text="hi"
+    )
     assert mu.estimated is True
     assert mu.input_tokens > 0
     assert mu.output_tokens > 0
@@ -73,7 +75,7 @@ def test_extraction_never_raises_on_weird_response():
     class Weird:
         usage = object()  # attributes missing entirely
 
-    mu = extract_usage(Weird(), model="deepseek-chat", fallback_text="x")
+    mu = extract_usage(Weird(), model="deepseek-v4-flash", fallback_text="x")
     assert mu.estimated is True  # missing fields -> estimation path
 
 
@@ -81,9 +83,9 @@ def test_extraction_never_raises_on_weird_response():
 
 
 def test_cost_calculation_uses_decimal():
-    # deepseek-chat: in 0.56/M, out 1.68/M, cache read 0.07/M, write 0.56/M
+    # deepseek-v4-flash: in 0.56/M, out 1.68/M, cache read 0.07/M, write 0.56/M
     cost, known = compute_cost(
-        "deepseek-chat",
+        "deepseek-v4-flash",
         input_tokens=1_000_000,
         output_tokens=1_000_000,
         cache_read_tokens=1_000_000,
@@ -104,7 +106,7 @@ def test_unknown_model_tracks_tokens_but_no_cost():
 def test_pricing_env_overrides(monkeypatch):
     monkeypatch.setenv("D2C_PRICING_INPUT_PER_MILLION", "2.00")
     monkeypatch.setenv("D2C_PRICING_OUTPUT_PER_MILLION", "10.00")
-    cost, known = compute_cost("deepseek-chat", 1_000_000, 500_000)
+    cost, known = compute_cost("deepseek-v4-flash", 1_000_000, 500_000)
     assert known is True
     assert cost == Decimal("2.00") + Decimal("5.00")
     # Overrides alone also price an unknown model.
@@ -114,9 +116,9 @@ def test_pricing_env_overrides(monkeypatch):
 
 def test_disable_cost_estimates(monkeypatch):
     monkeypatch.setenv("D2C_DISABLE_COST_ESTIMATES", "1")
-    cost, known = compute_cost("deepseek-chat", 1_000_000, 1_000_000)
+    cost, known = compute_cost("deepseek-v4-flash", 1_000_000, 1_000_000)
     assert known is False and cost == Decimal("0")
-    mu = extract_usage(_response(), model="deepseek-chat")
+    mu = extract_usage(_response(), model="deepseek-v4-flash")
     assert mu.input_tokens == 1000  # tokens still tracked
     assert "disabled" in format_session_usage(SessionUsage())
 
@@ -126,8 +128,8 @@ def test_disable_cost_estimates(monkeypatch):
 
 def test_session_totals_accumulate():
     t = UsageTracker()
-    t.record(extract_usage(_response(1000, 100), model="deepseek-chat"))
-    t.record(extract_usage(_response(2000, 200, cache_read=500), model="deepseek-chat"))
+    t.record(extract_usage(_response(1000, 100), model="deepseek-v4-flash"))
+    t.record(extract_usage(_response(2000, 200, cache_read=500), model="deepseek-v4-flash"))
     s = t.session
     assert s.calls == 2
     assert s.input_tokens == 3000
@@ -142,8 +144,8 @@ def test_record_model_usage_feeds_active_tracker():
     t = UsageTracker()
     set_usage_tracker(t)
     assert get_usage_tracker() is t
-    record_model_usage("deepseek-chat", _response(100, 10), turn_id=0)
-    record_model_usage("deepseek-chat", _response(100, 10), turn_id=0)  # recovery retry
+    record_model_usage("deepseek-v4-flash", _response(100, 10), turn_id=0)
+    record_model_usage("deepseek-v4-flash", _response(100, 10), turn_id=0)  # recovery retry
     # Each model call (including output-token recovery retries) counts.
     assert t.session.calls == 2
     assert t.session.input_tokens == 200
@@ -151,7 +153,7 @@ def test_record_model_usage_feeds_active_tracker():
 
 def test_record_model_usage_never_raises_without_tracker():
     assert get_usage_tracker() is None
-    mu = record_model_usage("deepseek-chat", _response(1, 1))
+    mu = record_model_usage("deepseek-v4-flash", _response(1, 1))
     assert mu is not None and mu.input_tokens == 1
 
 
@@ -195,7 +197,7 @@ def test_model_usage_audit_has_tokens_but_no_prompt(tmp_dir):
     set_audit_logger(AuditLogger(path=path, enabled=True))
     secret_prompt = "please refactor my SUPER-SECRET-PROJECT-NAME module"
     record_model_usage(
-        "deepseek-chat",
+        "deepseek-v4-flash",
         None,
         fallback_messages=[{"role": "user", "content": secret_prompt}],
         fallback_text="ok",

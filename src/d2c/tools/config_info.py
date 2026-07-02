@@ -48,7 +48,7 @@ class ConfigInfoTool(Tool):
 
         info: dict[str, Any] = {
             "cwd": str(self._cwd),
-            "model": os.environ.get("D2C_MODEL", "deepseek-v4-pro"),
+            "model": os.environ.get("D2C_MODEL", "deepseek-v4-flash"),
             "permission_mode": self._permission_mode,
             "trusted": trusted,
             "sandbox_enabled": _truthy("D2C_SANDBOX"),

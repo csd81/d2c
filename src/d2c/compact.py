@@ -280,7 +280,7 @@ async def _summarize_segment_content(
         if getattr(loop_config, "compact_config", None)
         else None
     )
-    model: str = compact_model or getattr(loop_config, "model", None) or "deepseek-chat"
+    model: str = compact_model or getattr(loop_config, "model", None) or "deepseek-v4-flash"
 
     if summary_type == "tools":
         prompt = (

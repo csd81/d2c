@@ -707,7 +707,7 @@ class AutoClassifier:
         self,
         api_key: str | None = None,
         base_url: str = "https://api.deepseek.com/anthropic",
-        model: str = "deepseek-chat",  # Fast/cheap model for CoT
+        model: str = "deepseek-v4-flash",  # Fast/cheap model for CoT
         timeout_ms: int = 10_000,
     ) -> None:
         self._api_key = api_key

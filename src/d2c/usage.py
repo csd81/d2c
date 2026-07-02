@@ -44,11 +44,10 @@ class ModelPricing:
 
 # Snapshot estimates (USD/M tokens); DeepSeek revises pricing — treat as
 # defaults to be overridden via D2C_PRICING_*, never as invoice truth.
+# NOTE: deepseek-v4-flash pricing is an ESTIMATE (the cheap/fast tier) pending
+# confirmed official numbers — override with D2C_PRICING_* for accuracy.
 MODEL_PRICING: dict[str, ModelPricing] = {
-    "deepseek-chat": ModelPricing(
-        Decimal("0.56"), Decimal("1.68"), Decimal("0.07"), Decimal("0.56")
-    ),
-    "deepseek-reasoner": ModelPricing(
+    "deepseek-v4-flash": ModelPricing(
         Decimal("0.56"), Decimal("1.68"), Decimal("0.07"), Decimal("0.56")
     ),
     "deepseek-v4-pro": ModelPricing(

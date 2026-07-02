@@ -20,7 +20,7 @@ Set your DeepSeek API key via environment variable or a `.env` file:
 export DEEPSEEK_API_KEY=sk-...
 # optional:
 export DEEPSEEK_BASE_URL=https://api.deepseek.com/anthropic   # default
-export D2C_MODEL=deepseek-v4-pro                              # default
+export D2C_MODEL=deepseek-v4-flash                            # default (pro also available)
 export D2C_SANDBOX=1                                          # sandbox Bash (off by default)
 export D2C_SANDBOX_BACKEND=bubblewrap                         # process (default) | bubblewrap | docker
 export D2C_SANDBOX_NETWORK=0                                  # allow network inside the sandbox (off)
@@ -82,7 +82,7 @@ D2C_WEBSEARCH_PROVIDER=searxng D2C_WEBSEARCH_BASE_URL=http://localhost:8080 pyth
 
 `.env` resolution: `~/.d2c/.env` always loads; a project-local `.env` loads **only if the workspace is trusted** (see [Workspace trust](#workspace-trust)). Shell environment variables take precedence over `.env` values.
 
-Default model is `deepseek-v4-pro`. Aliases are accepted: `v3`/`chat` → `deepseek-chat`, `r1`/`reasoner` → `deepseek-reasoner`.
+Default model is `deepseek-v4-flash` (faster/cheaper). The stronger `deepseek-v4-pro` is available on demand: `--model pro`. Aliases: `flash`/`v4-flash` → `deepseek-v4-flash`, `pro`/`v4`/`v4-pro` → `deepseek-v4-pro`.
 
 ## Usage
 
@@ -254,7 +254,7 @@ isolation, and instructions (system prompt):
 ```yaml
 # .d2c/agents/security-reviewer.yaml
 name: security-reviewer
-model: deepseek-reasoner
+model: deepseek-v4-pro
 permission_mode: plan
 tools:
   allow: [Read, Grep, Glob, GitDiff]

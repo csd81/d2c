@@ -654,9 +654,12 @@ class TestCLIEntryPoints:
                 pass
 
         captured = capsys.readouterr()
+        assert "deepseek-v4-flash" in captured.out
         assert "deepseek-v4-pro" in captured.out
-        assert "deepseek-chat" in captured.out
-        assert "deepseek-reasoner" in captured.out
+        assert "[default]" in captured.out  # flash marked default
+        # Phase 81: old chat/reasoner models are no longer advertised.
+        assert "deepseek-chat" not in captured.out
+        assert "deepseek-reasoner" not in captured.out
 
     @pytest.mark.asyncio
     async def test_run_headless_basic(self):

@@ -5,6 +5,14 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 81:** the default model is now `deepseek-v4-flash` (faster/cheaper); `deepseek-v4-pro`
+  stays available via `--model pro`. The first-class model surface is narrowed to Flash + Pro with
+  aliases `flash`/`v4-flash` → flash and `pro`/`v4`/`v4-pro` → pro. The old `deepseek-chat` /
+  `deepseek-reasoner` aliases (`chat`/`v3`/`reasoner`/`r1`) are removed from all help/`--list-models`
+  output and docs; unknown/raw model IDs still pass through unchanged, so advanced users aren't
+  broken. `--list-models` marks the default, and pricing defaults cover Flash (an estimate — the
+  cheap tier — pending confirmed numbers; override via `D2C_PRICING_*`) and Pro. All paths (REPL,
+  headless, SDK, eval, server) pick up the new default through shared `Config`.
 - **Phase 80:** polish for the Textual-by-default transition. A persisted personal UI
   preference (`ui.default` in `~/.d2c/settings.yaml`) sits between `D2C_TUI` and the project
   default — precedence is now `--tui` > `D2C_TUI` > user `ui.default` > default (`textual`). Set

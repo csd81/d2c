@@ -63,7 +63,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("prompt", nargs="?", help="Single-shot prompt (omit for interactive REPL)")
     parser.add_argument(
-        "--model", default=None, help="DeepSeek model to use (v4-pro, chat/v3, reasoner/r1)"
+        "--model",
+        default=None,
+        help="DeepSeek model to use (flash/v4-flash [default], pro/v4/v4-pro)",
     )
     parser.add_argument("--max-turns", type=int, default=25, help="Maximum agent turns")
     parser.add_argument("--cwd", type=Path, default=None, help="Working directory")
@@ -2039,15 +2041,17 @@ def main() -> None:
         return
 
     if args.list_models:
-        from d2c.config import DEEPSEEK_MODEL_ALIASES, DEEPSEEK_MODEL_DEFAULTS
+        from d2c.config import DEEPSEEK_MODEL_ALIASES, DEEPSEEK_MODEL_DEFAULTS, Config
 
+        default_model = Config().model
         print("Available DeepSeek models (via Anthropic-compatible API):")
         for model_id, defaults in DEEPSEEK_MODEL_DEFAULTS.items():
             aliases = [
                 k for k, v in DEEPSEEK_MODEL_ALIASES.items() if v == model_id and k != model_id
             ]
             alias_str = f" (aliases: {', '.join(aliases)})" if aliases else ""
-            print(f"  {model_id}{alias_str}")
+            default_str = "  [default]" if model_id == default_model else ""
+            print(f"  {model_id}{alias_str}{default_str}")
             print(
                 f"    context: {defaults['context_window']:,} tokens, max_tokens: {defaults['max_tokens']}"
             )

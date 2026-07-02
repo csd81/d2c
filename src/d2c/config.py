@@ -21,29 +21,23 @@ from d2c.tools.pool import Rule
 # Short aliases are mapped to full model IDs for user convenience.
 DEEPSEEK_MODEL_ALIASES: dict[str, str] = {
     # Short aliases → canonical IDs
+    "flash": "deepseek-v4-flash",
+    "v4-flash": "deepseek-v4-flash",
+    "pro": "deepseek-v4-pro",
     "v4": "deepseek-v4-pro",
     "v4-pro": "deepseek-v4-pro",
-    "v3": "deepseek-chat",
-    "chat": "deepseek-chat",
-    "r1": "deepseek-reasoner",
-    "reasoner": "deepseek-reasoner",
     # Canonical IDs pass through
+    "deepseek-v4-flash": "deepseek-v4-flash",
     "deepseek-v4-pro": "deepseek-v4-pro",
-    "deepseek-chat": "deepseek-chat",
-    "deepseek-reasoner": "deepseek-reasoner",
 }
 
-# Model-specific parameter defaults
+# Model-specific parameter defaults. deepseek-v4-flash first (the default).
 DEEPSEEK_MODEL_DEFAULTS: dict[str, dict] = {
+    "deepseek-v4-flash": {
+        "max_tokens": 8192,
+        "context_window": 128_000,
+    },
     "deepseek-v4-pro": {
-        "max_tokens": 8192,
-        "context_window": 128_000,
-    },
-    "deepseek-chat": {
-        "max_tokens": 8192,
-        "context_window": 128_000,
-    },
-    "deepseek-reasoner": {
         "max_tokens": 8192,
         "context_window": 128_000,
     },
@@ -146,7 +140,7 @@ class Config:
     """Central configuration. Loaded once at session start and treated as immutable."""
 
     # --- Model ---
-    model: str = "deepseek-v4-pro"
+    model: str = "deepseek-v4-flash"
     deepseek_api_key: str | None = None
     deepseek_base_url: str = "https://api.deepseek.com/anthropic"
 
@@ -244,7 +238,7 @@ class Config:
         # Read from environment
         api_key = os.environ.get("DEEPSEEK_API_KEY")
         base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic")
-        model = os.environ.get("D2C_MODEL", "deepseek-v4-pro")
+        model = os.environ.get("D2C_MODEL", "deepseek-v4-flash")
         sandbox_enabled = os.environ.get("D2C_SANDBOX", "").lower() in ("1", "true", "yes", "on")
         sandbox_backend = (
             os.environ.get("D2C_SANDBOX_BACKEND", "process").strip().lower() or "process"

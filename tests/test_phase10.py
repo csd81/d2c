@@ -120,25 +120,33 @@ class TestModelMapping:
         assert resolve_model("v4") == "deepseek-v4-pro"
         assert resolve_model("deepseek-v4-pro") == "deepseek-v4-pro"
 
-    def test_resolve_chat(self):
+    def test_resolve_flash(self):
         from d2c.config import resolve_model
 
-        assert resolve_model("chat") == "deepseek-chat"
-        assert resolve_model("v3") == "deepseek-chat"
-        assert resolve_model("deepseek-chat") == "deepseek-chat"
+        assert resolve_model("flash") == "deepseek-v4-flash"
+        assert resolve_model("v4-flash") == "deepseek-v4-flash"
+        assert resolve_model("deepseek-v4-flash") == "deepseek-v4-flash"
 
-    def test_resolve_reasoner(self):
+    def test_resolve_pro(self):
         from d2c.config import resolve_model
 
-        assert resolve_model("r1") == "deepseek-reasoner"
-        assert resolve_model("reasoner") == "deepseek-reasoner"
-        assert resolve_model("deepseek-reasoner") == "deepseek-reasoner"
+        assert resolve_model("pro") == "deepseek-v4-pro"
+        assert resolve_model("v4") == "deepseek-v4-pro"
 
     def test_resolve_case_insensitive(self):
         from d2c.config import resolve_model
 
         assert resolve_model("V4-PRO") == "deepseek-v4-pro"
-        assert resolve_model("Chat") == "deepseek-chat"
+        assert resolve_model("Flash") == "deepseek-v4-flash"
+
+    def test_removed_aliases_pass_through_as_custom(self):
+        # Phase 81: chat/reasoner aliases removed; unknown strings pass through
+        # unchanged (advanced users can still pass a raw model ID).
+        from d2c.config import resolve_model
+
+        assert resolve_model("chat") == "chat"
+        assert resolve_model("reasoner") == "reasoner"
+        assert resolve_model("deepseek-chat") == "deepseek-chat"
 
     def test_resolve_unknown_passthrough(self):
         from d2c.config import resolve_model
@@ -182,7 +190,7 @@ class TestConfigValidate:
     def test_validates_known_model_no_warning(self):
         from d2c.config import Config
 
-        config = Config(model="deepseek-chat", deepseek_api_key="sk-test")
+        config = Config(model="deepseek-v4-flash", deepseek_api_key="sk-test")
         issues = config.validate()
         model_warnings = [i for i in issues if "not a recognized" in i]
         assert len(model_warnings) == 0
@@ -232,7 +240,7 @@ class TestConfigLoad:
         from d2c.config import Config
 
         config = Config.load()
-        assert config.model == "deepseek-v4-pro"
+        assert config.model == "deepseek-v4-flash"
         assert config.deepseek_base_url == "https://api.deepseek.com/anthropic"
 
     def test_load_from_dotenv(self, tmp_path, monkeypatch):

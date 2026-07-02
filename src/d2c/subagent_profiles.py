@@ -14,7 +14,7 @@ agents (scalar-only) continue to load via ``subagent.load_subagent_definition``.
 Example (``.d2c/agents/security-reviewer.yaml``):
 
     name: security-reviewer
-    model: deepseek-reasoner
+    model: deepseek-v4-pro
     permission_mode: plan
     tools:
       allow: [Read, Grep, Glob, GitDiff]
