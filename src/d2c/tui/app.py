@@ -11,20 +11,29 @@ from __future__ import annotations
 
 import contextlib
 import io
-from typing import Any
+from typing import Any, cast
 
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Input, RichLog, Static
+from textual.widgets import Button, Input, RichLog, Static
 
 from d2c.loop import StopEvent, TextDelta, ToolExecutionEvent
 from d2c.loop import TextResponse as LoopTextResponse
-from d2c.tui.approvals import ApprovalChoice, apply_choice, approval_view, choice_from_key
+from d2c.tui.approvals import (
+    APPROVAL_BUTTONS,
+    ApprovalChoice,
+    apply_choice,
+    approval_view,
+    choice_from_button,
+    choice_from_key,
+)
 from d2c.tui.markdown import to_renderable
 from d2c.tui.widgets import InputHistory, status_line, tool_row_from_event, tool_row_status
+
+_APPROVAL_KEYS = ("y", "a", "A", "n")  # keyboard shortcuts recognized by the modal
 
 _MODAL_DIFF_MAX_LINES = 8  # short inline diff preview in the approval modal
 
@@ -44,6 +53,8 @@ class ApprovalModal(ModalScreen):
     CSS = """
     ApprovalModal { align: center middle; }
     #approval-box { width: 80%; max-width: 100; padding: 1 2; border: thick $warning; background: $surface; }
+    #approval-buttons { height: auto; align: center middle; }
+    #approval-buttons Button { margin: 1 1 0 1; }
     """
 
     def __init__(self, view: dict[str, Any]) -> None:
@@ -65,14 +76,34 @@ class ApprovalModal(ModalScreen):
             for dl in list(v.get("diff_lines") or [])[:_MODAL_DIFF_MAX_LINES]:
                 lines.append(f"  {dl}")
         lines.append("")
-        lines.append("[y] once    [a] session    [A] always    [n] deny")
-        yield Vertical(Static("\n".join(lines)), id="approval-box")
+        lines.append("Click a choice, or press [y] once  [a] session  [A] always  [n]/Esc deny")
+        # Phase 78: clickable choices. Buttons are not keyboard-focusable so
+        # Enter/Space never activate one — the keyboard path (on_key) stays the
+        # single authority for key input (Enter = deny), and mouse clicks route
+        # through on_button_pressed. Both funnel into the same dismiss(choice).
+        buttons = []
+        for label, button_id, variant in APPROVAL_BUTTONS:
+            btn = Button(label, id=button_id, variant=cast(Any, variant))
+            btn.can_focus = False
+            buttons.append(btn)
+        yield Vertical(
+            Static("\n".join(lines)),
+            Horizontal(*buttons, id="approval-buttons"),
+            id="approval-box",
+        )
+
+    def on_button_pressed(self, event: Any) -> None:
+        self.dismiss(choice_from_button(event.button.id))
 
     def on_key(self, event: Any) -> None:
-        if event.key == "escape":
+        # Keyboard behavior unchanged from Phase 75: Esc/Enter deny; y/a/A/n map
+        # to their scopes; any other key is ignored (safe no-op).
+        if event.key in ("escape", "enter"):
             self.dismiss(ApprovalChoice.DENY)
             return
-        self.dismiss(choice_from_key(event.character or event.key))
+        candidate = event.character or event.key
+        if candidate in _APPROVAL_KEYS:
+            self.dismiss(choice_from_key(candidate))
 
 
 class D2CApp(App):
@@ -90,6 +121,7 @@ class D2CApp(App):
     BINDINGS = [
         Binding("ctrl+c", "cancel", "Cancel/Quit", show=False, priority=True),
         Binding("ctrl+l", "clear_transcript", "Clear view", show=False),
+        Binding("ctrl+s", "toggle_selection", "Select mode", show=False),
         Binding("pageup", "scroll_up", "Scroll up", show=False),
         Binding("pagedown", "scroll_down", "Scroll down", show=False),
         Binding("end", "scroll_end", "To latest", show=False),
@@ -110,6 +142,7 @@ class D2CApp(App):
         self._active_bg_tasks = active_bg_tasks
         self._approval_holder = approval_holder
         self._history = InputHistory()
+        self._selection_mode = False
 
     def on_mount(self) -> None:
         # Phase 75: route the agent loop's approval requests to the Textual
@@ -166,6 +199,27 @@ class D2CApp(App):
     def action_clear_transcript(self) -> None:
         # Visual only — never touches session/conversation/history state.
         self._transcript().clear()
+
+    def _set_mouse_tracking(self, enabled: bool) -> None:
+        """Best-effort pause/resume of Textual's terminal mouse reporting so the
+        terminal's native selection works. Not all drivers expose this; if not,
+        selection mode still guides the user to Shift+drag (see status bar)."""
+        driver = getattr(self, "_driver", None)
+        if driver is None:
+            return
+        name = "_enable_mouse_support" if enabled else "_disable_mouse_support"
+        fn = getattr(driver, name, None)
+        if callable(fn):
+            with contextlib.suppress(Exception):
+                fn()
+
+    def action_toggle_selection(self) -> None:
+        # Phase 78: toggle a selection mode that pauses mouse capture (where the
+        # driver allows) so users can drag-select/copy transcript text. Terminals
+        # that keep mouse reporting on still support Shift+drag.
+        self._selection_mode = not self._selection_mode
+        self._set_mouse_tracking(not self._selection_mode)
+        self._refresh_status()
 
     def action_cancel(self) -> None:
         # Conservative Ctrl+C: clear a non-empty input; otherwise exit. Never
@@ -229,7 +283,7 @@ class D2CApp(App):
             from d2c.usage import usage_status_fragment
 
             usage = usage_status_fragment(session)
-        return status_line(
+        line = status_line(
             model=cfg.model,
             mode=cfg.permission_mode,
             trust=trust,
@@ -237,6 +291,9 @@ class D2CApp(App):
             usage=usage,
             bg_tasks=self._active_bg_tasks(),
         )
+        if self._selection_mode:
+            line += "  |  SELECT (shift+drag to copy, ctrl+s to exit)"
+        return line
 
     def _refresh_status(self) -> None:
         with contextlib.suppress(Exception):

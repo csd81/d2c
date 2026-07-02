@@ -32,7 +32,8 @@ Legend: ✅ verified (automated/pilot) · 🟡 verified by code review only ·
 | Slash commands | ✅ | ✅ | Same registry; handlers' stdout is captured into the transcript. `/help` capture verified via pilot. |
 | Unknown-command suggestion | ✅ | ✅ | Shared `parse_slash_command`/`handle_slash_command` (Phase 72). |
 | Tool rows (ok/error/denied) | ✅ | ✅ | `tool_row_from_event`/`tool_row_status` unit-tested; distinct styling. |
-| Approvals (y/a/A/n, deny default) | ✅ | ✅ | Modal maps to the exact Phase 52/64/65 scopes; pilot confirms `[A]` persists and `Esc` denies. |
+| Approvals (y/a/A/n, deny default) | ✅ | ✅ | Modal maps to the exact Phase 52/64/65 scopes; pilot confirms `[A]` persists and `Esc` denies. Phase 78: also clickable buttons. |
+| Mouse / copy | ✅ (native) | ✅ | Phase 78: clickable approval buttons; `Ctrl+S` selection mode + Shift+drag guidance. |
 | Redaction / no speculative read | ✅ | ✅ | `approval_view` reuses `_diff_preview`/`_tool_input_preview` + `observability.redact`. |
 | Status footer | ✅ | ✅ | model/mode/trust/cwd/usage/tasks via `status_line`; truncates on small terminals. |
 | Keyboard (history/scroll/Ctrl+L/Ctrl+C/Esc) | ✅ | ✅ | Pilot: Up/Down history, scroll-follow, End-to-latest, Ctrl+L view-only clear, Esc-closes-modal. |
@@ -44,6 +45,13 @@ Legend: ✅ verified (automated/pilot) · 🟡 verified by code review only ·
 - **Live-terminal dogfooding (blocking).** All Textual verification here is via
   `run_test` pilot, not a human using it against a real model over a real TTY.
   The manual smoke matrix in `plans/phase77-*.md` must be run before a flip.
+- **Mouse approval + text selection (found in dogfooding; RESOLVED in Phase 78).**
+  Live use surfaced two practical blockers: approval choices were keyboard-only,
+  and Textual's mouse capture made drag-selecting/copying transcript text hard.
+  Phase 78 added clickable `Deny / Once / Session / Always` buttons to the modal
+  (same scopes, keyboard unchanged, deny still default) and a `Ctrl+S` selection
+  mode that pauses mouse capture (best-effort) and tells the user to Shift+drag.
+  No longer blocking.
 - **Streaming feel (minor).** The Textual path buffers each assistant segment and
   renders once (same trade-off as the Phase 73 classic renderer); no live
   token-by-token streaming. Acceptable, not a blocker.

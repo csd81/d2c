@@ -139,7 +139,9 @@ slash commands, Markdown rendering (via Rich), and approval scopes as the defaul
 a permission approval modal (`[y]`/`[a]`/`[A]`/`[n]`, deny by default, with redacted input/diff
 previews) and compact tool-progress timeline rows. Session ergonomics: predictable scrollback
 (`PageUp`/`PageDown`/`Home`/`End`, no viewport-yank when scrolled up), `Up`/`Down` prompt history,
-`Ctrl+L` to clear the view (not the session), and role-distinct transcript blocks. The default
+`Ctrl+L` to clear the view (not the session), and role-distinct transcript blocks. Approval choices
+are clickable (Deny/Once/Session/Always) as well as keyboard; press `Ctrl+S` for selection mode to
+drag-select/copy transcript text (many terminals also support `Shift+drag` without it). The default
 interactive UI remains prompt_toolkit; without the flag (or without Textual installed) nothing
 changes.
 `/usage` shows session token totals (input/output/cache) and an estimated cost; the

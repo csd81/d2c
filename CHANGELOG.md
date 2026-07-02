@@ -5,6 +5,15 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 78:** clears two Textual default-readiness blockers found in live dogfooding. The
+  approval modal now has **clickable** `Deny / Once / Session / Always` buttons (mouse), mapping
+  to the exact same Phase 52/64/65 scopes as the keyboard shortcuts — which are unchanged, with
+  deny still the default (Esc/Enter/unknown) and non-approval keys a safe no-op. Both mouse and
+  keyboard funnel through the one `apply_choice` path. Adds a `Ctrl+S` **selection mode** that
+  pauses Textual's mouse capture (best-effort, where the driver allows) so transcript text can be
+  drag-selected/copied, with a status-bar hint to use `Shift+drag` on terminals that keep mouse
+  reporting on. `docs/textual-readiness.md` records the finding and resolution. Textual stays
+  opt-in; the prompt_toolkit REPL is unchanged.
 - **Phase 77:** Textual default-readiness audit + a `--tui classic|textual|auto` selector.
   Precedence is `--tui` > `D2C_TUI` > project default (still `classic`); `--tui textual`
   falls back to classic with a clear message when the `[tui]` extra isn't installed, and an

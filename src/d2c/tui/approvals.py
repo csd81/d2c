@@ -17,6 +17,28 @@ class ApprovalChoice(Enum):
     DENY = "deny"  # [n] deny (default)
 
 
+_BUTTON_CHOICES = {
+    "deny": ApprovalChoice.DENY,
+    "once": ApprovalChoice.ONCE,
+    "session": ApprovalChoice.SESSION,
+    "always": ApprovalChoice.ALWAYS,
+}
+
+# Button label + id + variant for the modal, in display order (Deny first so it
+# is the visual default). Kept here so app.py doesn't re-encode the mapping.
+APPROVAL_BUTTONS = (
+    ("Deny", "deny", "error"),
+    ("Once", "once", "default"),
+    ("Session", "session", "primary"),
+    ("Always", "always", "warning"),
+)
+
+
+def choice_from_button(button_id: str | None) -> ApprovalChoice:
+    """Map a modal button id to a choice. Anything unknown denies."""
+    return _BUTTON_CHOICES.get(button_id or "", ApprovalChoice.DENY)
+
+
 def choice_from_key(key: str) -> ApprovalChoice:
     """Map a keypress/word to a choice. Case-sensitive for a/A (Phase 65):
     lowercase 'a' is session, uppercase 'A' is persistent. Anything
