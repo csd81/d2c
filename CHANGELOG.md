@@ -5,6 +5,14 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 84:** DeepSeek-aware provider error messages. A new `provider_errors.py`
+  (`classify_provider_error`/`format_provider_error` + `ProviderErrorInfo`) maps the documented
+  HTTP failures — 400/401/402/403/404/422/429/500/503/504 — and connection/timeout errors into one
+  concise, actionable message (e.g. `402` → insufficient balance, `422` → check model/thinking/
+  max_tokens/tool params, `429`/`503` → retry shortly, `504` → smaller request), with a status
+  code and a short **redacted** provider snippet for unknown codes. The loop's streaming and
+  non-streaming paths share the formatter, and connection failures are kept distinct from HTTP
+  status errors. Output never includes API keys, prompts, request bodies, or raw response objects.
 - **Phase 83:** align DeepSeek model metadata with official serverless docs. First-class models
   now carry a **32K max output** (was 8192) and 128K context; the loop's output-token recovery
   caps at the resolved model's documented max (via `get_model_defaults`) instead of a stale global

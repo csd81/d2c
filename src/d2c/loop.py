@@ -29,6 +29,7 @@ from d2c.permissions import (
     PermissionRequest,
 )
 from d2c.persistence import SessionEntry, _utc_now
+from d2c.provider_errors import classify_provider_error, format_provider_error
 from d2c.streaming_executor import StreamingToolExecutor, StreamToolParser
 from d2c.tools import Tool, ToolResult, ToolUse
 from d2c.usage import record_model_usage
@@ -825,7 +826,7 @@ async def queryLoop(
                 turn_id=state.turn_count,
                 error_class="AuthenticationError",
             )
-            yield TextResponse(text=f"Authentication failed: {e}\nCheck your DEEPSEEK_API_KEY.")
+            yield TextResponse(text=format_provider_error(e))
             state.stopped = True
             state.stop_reason = "auth_error"
             _record(
@@ -843,7 +844,7 @@ async def queryLoop(
                 turn_id=state.turn_count,
                 error_class="RateLimitError",
             )
-            yield TextResponse(text=f"Rate limited: {e}\nWait and try again.")
+            yield TextResponse(text=format_provider_error(e))
             state.stopped = True
             state.stop_reason = "rate_limited"
             _record(
@@ -888,7 +889,7 @@ async def queryLoop(
                 )
                 yield StopEvent(reason="prompt_too_long")
                 break
-            yield TextResponse(text=f"API error: {e}")
+            yield TextResponse(text=format_provider_error(e))
             state.stopped = True
             state.stop_reason = "api_error"
             _record(
@@ -899,6 +900,47 @@ async def queryLoop(
                 stop_reason="api_error",
             )
             break
+        except anthropic.APIConnectionError as e:
+            # Phase 84: network/connection failure — distinct from HTTP status.
+            audit(
+                "model_call_error",
+                level="ERROR",
+                turn_id=state.turn_count,
+                error_class="APIConnectionError",
+            )
+            yield TextResponse(text=format_provider_error(e))
+            state.stopped = True
+            state.stop_reason = "connection_error"
+            _record(
+                loop_config.session_store,
+                "system",
+                "",
+                event="session_stop",
+                stop_reason="connection_error",
+            )
+            break
+        except anthropic.APIStatusError as e:
+            # Phase 84: remaining documented HTTP failures (402/403/404/422/500/
+            # 503/504/...) mapped to actionable messages by provider_errors.
+            audit(
+                "model_call_error",
+                level="ERROR",
+                turn_id=state.turn_count,
+                error_class="APIStatusError",
+                status_code=getattr(e, "status_code", None),
+            )
+            info = classify_provider_error(e)
+            yield TextResponse(text=info.message)
+            state.stopped = True
+            state.stop_reason = "rate_limited" if info.kind == "rate_limit" else "api_error"
+            _record(
+                loop_config.session_store,
+                "system",
+                "",
+                event="session_stop",
+                stop_reason=state.stop_reason,
+            )
+            break
         except Exception as e:
             audit(
                 "model_call_error",
@@ -906,7 +948,7 @@ async def queryLoop(
                 turn_id=state.turn_count,
                 error_class=type(e).__name__,
             )
-            yield TextResponse(text=f"Error calling model: {e}")
+            yield TextResponse(text=format_provider_error(e))
             state.stopped = True
             state.stop_reason = "api_error"
             _record(

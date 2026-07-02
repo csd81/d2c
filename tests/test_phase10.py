@@ -450,7 +450,8 @@ class TestStreaming:
 
         text_events = [e for e in events if isinstance(e, TextResponse)]
         assert len(text_events) >= 1
-        assert "Authentication failed" in text_events[0].text
+        assert "authentication failed" in text_events[0].text.lower()
+        assert "401" in text_events[0].text
         assert "DEEPSEEK_API_KEY" in text_events[0].text
 
     @pytest.mark.asyncio
@@ -499,4 +500,5 @@ class TestStreaming:
 
         text_events = [e for e in events if isinstance(e, TextResponse)]
         assert len(text_events) >= 1
-        assert "Rate limited" in text_events[0].text
+        assert "rate-limiting" in text_events[0].text.lower()
+        assert "429" in text_events[0].text

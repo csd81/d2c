@@ -161,6 +161,12 @@ DeepSeek's official serverless pricing: `deepseek-v4-flash` is free ($0 in/cache
 first-class models carry a 128K context window and 32K max output. Override any of it via
 `D2C_PRICING_*` when pricing changes.
 
+**Provider errors.** When DeepSeek returns a failure, d2c shows one concise, actionable message
+instead of a raw SDK exception (never leaking keys, prompts, or request bodies): `401` → check
+`DEEPSEEK_API_KEY`; `402` → insufficient balance (add credits); `422` → check model/thinking/
+max_tokens/tool parameters; `429`/`500`/`503` → rate-limited or provider-side, retry shortly;
+`504` → timed out (retry or send a smaller request); connection errors are reported separately.
+
 ## Programmatic use (SDK / local server)
 
 `d2c.sdk.D2CClient` is a small, stable Python wrapper around the agent loop for scripts, IDE
