@@ -1,0 +1,5 @@
+{
+  "app_name": "sample-service",
+  "port": 8080,
+  "retries": 3
+}

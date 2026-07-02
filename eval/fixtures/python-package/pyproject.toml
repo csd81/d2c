@@ -1,0 +1,8 @@
+[project]
+name = "greeter"
+version = "0.1.0"
+description = "Tiny fixture package used by the d2c eval corpus."
+dependencies = []
+
+[project.scripts]
+greet = "greeter:main"

@@ -5,6 +5,14 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 67:** a checked-in eval corpus (`eval/corpus.yaml`, 13 deterministic tasks) and tiny
+  fixture repos (`eval/fixtures/`) make the Phase 66 harness actionable — `eval/README.md`
+  documents how to run it and `eval/baseline.md` records a measured baseline (tool-use
+  distribution, turns, cost) to guide Phase 68's tool-description tuning. `tests/test_eval_corpus.py`
+  validates corpus hygiene (unique IDs, fixture paths, advisory-key shape) without live model calls.
+  Also scopes pytest's default collection to `tests/` (`[tool.pytest.ini_options] testpaths`) so the
+  fixtures' own throwaway `test_*.py` (including one intentionally-failing test used as an eval
+  target) isn't picked up by the real suite.
 - **Phase 66:** a headless eval harness (`python -m d2c eval corpus.yaml --out-dir
   ./eval-results`) runs a YAML corpus of task prompts through `d2c.sdk.D2CClient`
   sequentially and reports, per task, turn count, tool-call distribution, token/cost

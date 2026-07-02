@@ -1,91 +1,97 @@
-# Backlog Reconciliation (Phase 50)
+# Backlog Reconciliation (updated after Phase 66)
 
 ## Summary
 
-54 phase plans exist under `plans/`. Phases 1–33 built the architecture; Phases 34–49 closed the
-"last-mile wiring", safety, ops, and packaging gaps surfaced by `COMPARISON.md`. This document
-reconciles the deferred / out-of-scope / optional items from those plans against the **actual source
-and tests** (verified, not assumed) and produces a ranked backlog.
+71 plan documents now exist under `plans/`. `plans/master_plan.md` remains historical intent; the
+current truth is the source, tests, `COMPARISON.md`, `CHANGELOG.md`, and this updated reconciliation.
 
-**State of the project:** full CI gate suite green — ruff, ruff-format, mypy (staged), bandit,
-pytest (1138 passed / 1 skipped), build, twine check. 23 built-in tools + MCP. Versioned/releasable.
+Phases 51-66 implemented the entire Phase 50 "recommended next phases" list and several follow-on
+items: more tools, session and persistent approvals, prompt-injection hardening, full-src mypy,
+usage accounting, TUI permission polish, WebSearch provider expansion, SDK/server surfaces, scoped
+settings, subagent profiles, bubblewrap sandboxing, context-economy ReadRange, and the eval harness.
+
+**Verified pre-update HEAD state:** worktree was clean before this documentation refresh; last 20
+commits cover Phases 48-66 plus one multi-tool request bug fix. Local gates are green: `pytest`
+1463 passed / 1 skipped, `ruff check .`, `ruff format --check .`, and `mypy`. Tool pool assembles
+29 built-in tools + dynamic MCP.
 
 ## Method
 
-- Extracted "Out of scope / Deferred / Optional / Known limitation" items from every plan file.
-- Verified each candidate against `src/d2c/` and `tests/` with grep/imports (evidence cited).
-- Classified: implemented · deferred · obsolete · candidate. Scored candidates
-  `priority = user_value + safety_impact + paper_fidelity + testability − effort − risk` (1–5 each),
-  then applied judgement.
-- No runtime code changed in this phase (markdown only).
+- Re-read the old Phase 50 backlog, newer phase plans, commit history, tool pool, CLI surface, and
+  package config.
+- Verified candidates against `src/d2c/`, `tests/`, `.github/workflows/ci.yml`, and runtime checks.
+- Classified old open items as implemented, deferred, obsolete, or still candidate.
+- No runtime code changed in this update; this is a documentation/backlog refresh.
 
-## Implemented / resolved (Phases 34–49)
+## Implemented / resolved
 
 | Area | Evidence |
 |---|---|
-| Read-before-Write gate (+ canonicalization/symlink) | `tools/read_tool.py`, `write_tool.py`; `tests/test_phase34.py`, `test_security_regressions.py` |
-| File-history checkpoints / `--rewind-files` | `file_history.py`, `main.py`; `tests/test_phase34.py`, `test_phase37.py` |
-| Output-token recovery | `loop.py`; `tests/test_loop_output_recovery.py` |
-| Compaction flag split | `loop.py` (`has_attempted_proactive_compact`) |
-| Sandbox wired to BashTool (`D2C_SANDBOX`) | `tools/pool.py`, `config.py`; `tests/test_phase37.py` |
-| Hook events (19/27 fired) + FILE_CHANGED/INSTRUCTIONS_LOADED | `tools/__init__.py`, `main.py`; `tests/test_phase40_hooks.py` |
-| Path-scoped rules enforced | `permissions/__init__.py`; `tests/test_phase37.py` |
-| Auto-memory (`Remember`), background status (`AgentStatus`) | `tools/memory_tool.py`, `background_status.py`; `tests/test_phase34.py` |
-| Real slash commands + multi-turn REPL | `main.py`; `tests/test_repl_commands.py` |
-| Shell permission hardening (structural acceptEdits) | `permissions/classifier.py`; `tests/test_phase38.py` |
-| Fail-closed permission gate + interactive ASK + granular audit | `loop.py`, `streaming_executor.py`, `mcp/server.py`; `tests/test_phase43_ask_permissions.py`, `test_phase49_ask_permissions.py` |
-| Real WebSearch (Tavily) | `tools/web_search.py`; `tests/test_web_search.py` (live-verified) |
-| Tool breadth 17→23 (git/fs/structured-edit) | `tools/git_tools.py`, `fs_tools.py`, `structured_edit.py`; `tests/test_phase41_tools.py` |
-| Observability / audit logging (redacted) | `observability.py`; `tests/test_observability.py` |
-| Security regression suite + `docs/security.md` | `tests/test_security_regressions.py` |
-| CI quality gates | `.github/workflows/ci.yml`, `pyproject.toml` |
-| Doctor diagnostics (`--doctor`) | `doctor.py`; `tests/test_doctor.py` |
-| Versioning + packaging + release checklist | `__init__.py`, `pyproject.toml`, `CHANGELOG.md`, `docs/release.md`, `.github/workflows/release.yml`; `tests/test_version.py` |
+| Phase 50 recommended backlog completed | commits `eb7d9f2` through `b5bded7`; tests below |
+| Tool breadth batch 2: `ApplyPatch`, `EnvInfo` | `src/d2c/tools/apply_patch.py`, `env_info.py`; `tests/test_phase51_tools.py` |
+| Session-scoped approvals | `src/d2c/approvals.py`, `main.py`; `tests/test_phase52_approvals.py` |
+| Prompt-injection hardening | `src/d2c/untrusted.py`, `context.py`, `web_fetch.py`, `web_search.py`; `tests/test_security_regressions.py` |
+| Full-src mypy coverage | `pyproject.toml` has `files = ["src/d2c"]`; `mypy` passes |
+| Cost/token accounting UI | `src/d2c/usage.py`, `/usage` in `main.py`; `tests/test_usage.py` |
+| Tool breadth batch 3: `ConfigInfo`, `PackageInfo`, `CodeSymbols` | `src/d2c/tools/config_info.py`, `package_info.py`, `code_symbols.py`; `tests/test_phase56_tools.py` |
+| TUI/statusline/permission prompt polish | `src/d2c/main.py`; `tests/test_phase57_ui_polish.py`, `test_repl_ux.py` |
+| WebSearch provider expansion | `src/d2c/tools/web_search.py`; `tests/test_phase58_websearch_providers.py` |
+| Python SDK and local HTTP server | `src/d2c/sdk.py`, `server.py`; `tests/test_phase59_sdk.py`, `test_phase59_server.py` |
+| Scoped settings and managed policy | `src/d2c/settings.py`, `config.py`, `doctor.py`; `tests/test_phase60_settings.py` |
+| Subagent capability profiles | `src/d2c/subagent_profiles.py`, `subagent.py`, `tools/agent_tool.py`; `tests/test_phase61_profiles.py` |
+| Linux bubblewrap sandbox backend | `src/d2c/sandbox.py`, `doctor.py`; `tests/test_phase62_sandbox.py` |
+| Context economy / `ReadRange` | `src/d2c/tools/read_range_tool.py`, `context.py`; `tests/test_phase63_readrange.py` |
+| Persistent cross-session approvals | `src/d2c/approvals.py`, `main.py`; `tests/test_phase64_approvals.py` |
+| Interactive TUI permission dialog | `src/d2c/main.py`; `tests/test_phase65_ui_dialog.py` |
+| Headless eval harness | `src/d2c/eval.py`, `main.py`; `tests/test_eval.py` |
+| Multi-tool malformed follow-up request fix | commit `8196a17`; `src/d2c/loop.py`, `main.py`; `tests/test_loop.py` |
+| macOS CI leg and full gate workflow | `.github/workflows/ci.yml` |
 
-## Still open — candidates (verified)
+## Still open - candidates
 
-| Item | Status | ROI (UV/SI/PF/T/E/R → score) | Recommendation | Evidence |
+| Item | Current status | ROI (UV/SI/PF/T/E/R -> score) | Recommendation | Evidence |
 |---|---|---|---|---|
-| More built-in tools toward paper's ~54 (e.g. MultiEdit/ApplyPatch, EnvInfo) | 23 built-ins | 4/2/4/4/3/2 → **9** | **Keep — next** | `plans/tool-inventory.md`; pool has 23 |
-| Persistent "always allow" approvals (session-scoped) | Phase 49 is one-shot only | 4/3/3/4/3/3 → **8** | **Keep** | `main.py interactive_approval`; Phase 49 out-of-scope |
-| Secondary WebSearch providers (Brave/SerpAPI/SearXNG) | Tavily only | 4/1/2/4/2/1 → **8** | **Keep** | `web_search.py: _PROVIDERS={"tavily"}` |
-| Prompt-injection hardening (delimit tool/web content as untrusted in context) | carried-as-data, no active delimiting | 3/4/3/3/3/3 → **7** | **Research → Keep** | `tests/test_security_regressions.py` (data-not-action) |
-| Multi-platform CI matrix (macOS/Windows) | ubuntu + 3.11/3.13 only | 3/2/1/5/2/2 → **7** | **Keep (small)** | `ci.yml: runs-on ubuntu-latest` |
-| Expand mypy to full `src/d2c` | 7 module-entries staged | 2/2/1/5/3/2 → **5** | **Keep (incremental)** | `pyproject [tool.mypy].files` (7) |
+| Eval harness v2: model comparison and optional assertions | Phase 66 v1 is sequential and descriptive | 4/1/2/5/3/2 -> **7** | **Keep - next measurement work** | `plans/phase66-eval-harness.md`; `src/d2c/eval.py` |
+| Build an actual eval corpus and run baseline reports | Harness exists, corpus/results are not part of repo | 5/1/2/5/2/2 -> **9** | **Keep - highest value next step** | `python -m d2c eval ...`; no checked-in corpus |
+| Use eval data to tune `ApplyPatch`/edit tool descriptions | Measurement apparatus exists; prompt/schema tuning not yet data-driven | 4/1/3/4/2/2 -> **8** | **Keep after baseline corpus** | Phase 66 rationale |
+| Remaining tool breadth toward paper's ~54 | 29 built-ins; gap mostly browser/platform/product tools | 2/1/3/3/4/3 -> **2** | **Defer unless eval shows need** | `plans/tool-inventory.md`; runtime pool count 29 |
+| KAIROS background heartbeat mode | Module/config exist but not instantiated | 2/1/2/2/5/4 -> **-2** | **Defer** | `src/d2c/kairos.py`; no loop/main wiring |
+| Windows-native OS sandbox backend | Process fallback + Linux bubblewrap exist | 2/3/1/3/5/4 -> **0** | **Research only if Windows support becomes a goal** | `src/d2c/sandbox.py`; Phase 62 scope |
+| Lifecycle hooks with no runtime source | 27 defined, 19 fired, 8 intentionally inactive | 1/1/2/2/4/3 -> **-1** | **Defer** | `tests/test_phase40_hooks.py`; `COMPARISON.md` |
+| Browser/screenshot/computer-use tools | Not built-in | 2/1/2/2/5/4 -> **-2** | **Prefer MCP integration** | `plans/tool-inventory.md`; `COMPARISON.md` |
+| Approval management UX | Persistent approvals exist, but no `/approvals` list/reset command | 3/2/1/4/2/2 -> **6** | **Keep small** | `src/d2c/approvals.py`; Phase 64 out-of-scope |
 
 ## Deferred intentionally
 
 | Item | Reason |
 |---|---|
-| KAIROS background heartbeat mode | Dead code (`kairos.py` never instantiated); paper flags it unconfirmed — low value, high effort/risk (score 0) |
-| `bubble` permission mode | Subagent-escalation niche; 6 modes cover the spectrum (score 4, low value) |
-| Native Windows sandbox backend | Stub → process fallback; high effort, low reach (score −1) |
-| OpenTelemetry / exporter | Local JSONL audit covers the need; external telemetry out of scope |
-| Docker image / binary distribution | Out of scope; `pip install` + wheel suffice |
-| PyPI publishing automation | Deliberately manual (`release.yml` uploads artifacts only) |
-| Config setup wizard | `--doctor` diagnoses (not auto-fixes) by design |
-| Richer plugin/skill ecosystem (bundled content) | Mechanism exists (`plugins/`, `skills/`); shipping content is out of scope for an educational port |
+| `bubble` permission mode | Subagent escalation is handled through capability profiles; adding `bubble` would increase risk without much product value. |
+| KAIROS heartbeat | Paper flags it as feature-gated / uncertain; implementation exists as scaffolding but not active. |
+| Native Windows sandbox | High effort and hard to validate in this repo; process fallback and Linux bubblewrap cover current scope. |
+| OpenTelemetry/exporter | Local JSONL audit logging covers current observability needs. |
+| Docker image / binary distribution | `pip install` + wheel build remain the intended distribution path. |
+| PyPI publishing automation | Release workflow builds artifacts; upload remains manual by design. |
+| Bundled plugin ecosystem | Loader exists; shipping first-party plugins is content/product work, not architecture work. |
+| Browser/computer-use tools | Better delivered through MCP where a browser runtime can be managed independently. |
 
 ## Obsolete / dropped
 
 | Item | Reason |
 |---|---|
-| Browser / computer-use tools | Better delivered via an MCP server than a built-in (needs a browser runtime); score −2 |
-| `plans/master_plan.md` as current truth | Historical intent; superseded by actual code + `COMPARISON.md` (already noted in `CLAUDE.md`) |
-| Coarse `permission_decision` audit event | Replaced by granular Phase 49 events (`permission_ask/approved/denied/required/approval_error`) |
+| Phase 50 recommendations for Phases 51-53 | Implemented in Phases 51-53 and extended by Phases 54-66. |
+| "Tavily only" WebSearch gap | Closed by Brave and SearXNG providers in Phase 58. |
+| "Session-only approvals" as the final approval model | Superseded by Phase 64 persistent exact-match approvals and Phase 65 UX. |
+| `plans/master_plan.md` as current truth | Historical blueprint only; current source and tests supersede it. |
+| Coarse `permission_decision` audit event | Replaced by granular permission ask/approval/denial events. |
 
 ## Recommended next phases
 
-1. **Phase 51 — Tool breadth, batch 2.** Add a small high-value set (e.g. `ApplyPatch`/`MultiEdit`
-   unified-diff editing, `EnvInfo`) with permissions, Read-before-Write/checkpoint compliance, and
-   tests. Highest paper fidelity + user value, deterministic to test. (score 9)
-2. **Phase 52 — Persistent (session-scoped) approvals.** Extend the Phase 49 approval flow with an
-   in-session "always allow this tool / this exact command" cache (never persisted to disk),
-   surfaced in the `[y/N/a]` prompt, with audit + tests. Safety-relevant, closes the explicit Phase
-   49 follow-up. (score 8)
-3. **Phase 53 — Prompt-injection hardening + CI matrix.** Structurally delimit tool-result and
-   web/memory content as untrusted in the model context (system-prompt guidance + wrapping),
-   regression tests; plus add a macOS CI leg. Safety impact with modest effort. (scores 7 + 7)
+1. **Phase 67 - Eval corpus and baseline report.** Add a small checked-in corpus of deterministic
+   fixture tasks, run the Phase 66 harness, and document baseline tool-use/cost/turn metrics.
+2. **Phase 68 - Eval-guided tool prompt/schema tuning.** Use the baseline to improve `ApplyPatch`,
+   `ReplaceMany`, `ReadRange`, and inspection-tool descriptions, then compare results.
+3. **Phase 69 - Approval management command.** Add a small `/approvals` or CLI command to list count,
+   show storage path, and reset persistent approvals without asking users to edit files manually.
 
-Lower-priority follow-ons: incremental mypy expansion (Phase 54), secondary WebSearch providers
-(fold into a tools phase).
+Lower-priority follow-ons: eval model comparison mode, optional pass/fail assertions for corpora,
+Windows sandbox research, and any tool breadth that eval data shows is genuinely missing.

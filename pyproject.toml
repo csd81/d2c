@@ -61,6 +61,12 @@ where = ["src"]
 # Bundled skill markdown must ship in the wheel (loaded via glob at runtime).
 "d2c.skills" = ["*.md"]
 
+[tool.pytest.ini_options]
+# Phase 67: eval/fixtures/ ships its own throwaway test_*.py files (used as
+# live eval-harness targets, including an intentionally failing test) that
+# must not be collected by the real suite.
+testpaths = ["tests"]
+
 # ── Quality gates (Phase 45) ──────────────────────────────────────────
 
 [tool.ruff]

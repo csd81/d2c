@@ -36,6 +36,9 @@ htmlcov/
 # Sessions (local only)
 .d2c/sessions/
 
+# Eval harness raw output (regenerated; see eval/baseline.md for the summary)
+eval-results/
+
 # Python
 pip-wheel-metadata/
 2604.14228v1.pdf

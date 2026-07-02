@@ -1,0 +1,124 @@
+# Phase 67 eval corpus: small, deterministic tasks against tiny fixture
+# repos, run through the Phase 66 harness (`python -m d2c eval`).
+#
+# `expect` is advisory only — see plans/phase66-eval-harness.md and
+# eval/README.md. It never fails a task, it only flags a divergence in
+# the per-task JSON report.
+
+tasks:
+  - id: "single-file-edit-add-docstring"
+    repo: "eval/fixtures/python-package"
+    prompt: >
+      Add a one-line docstring to the `add` function in greeter/util.py
+      explaining what it does. Don't change its behavior.
+    expect:
+      max_turns: 6
+      tools_used: ["Read", "Edit"]
+      avoids: ["Bash"]
+
+  - id: "multi-file-edit-rename-function"
+    repo: "eval/fixtures/python-package"
+    prompt: >
+      Rename the function `add` to `add_numbers` everywhere it is defined
+      and used across greeter/util.py and greeter/__init__.py, keeping
+      behavior identical.
+    expect:
+      max_turns: 10
+      preferred_tool: "ApplyPatch"
+
+  - id: "targeted-line-edit-fix-typo"
+    repo: "eval/fixtures/docs-site"
+    prompt: >
+      There's a typo on line 12 of docs/guide.md: "recieve" should be
+      "receive". Fix just that line.
+    expect:
+      max_turns: 6
+      preferred_tool: "ReadRange"
+      tools_used: ["Edit"]
+
+  - id: "json-config-add-timeout"
+    repo: "eval/fixtures/json-config"
+    prompt: "Add a 30 second request timeout to config/app.json."
+    expect:
+      max_turns: 6
+      tools_used: ["Read", "JsonEdit"]
+      avoids: ["Bash"]
+
+  - id: "failing-test-fix"
+    repo: "eval/fixtures/python-package"
+    prompt: >
+      The test suite in tests/test_util.py has a failing test. Find out
+      why and fix the underlying bug in greeter/util.py (not the test).
+    expect:
+      max_turns: 10
+      tools_used: ["Bash"]
+
+  - id: "add-test-coverage"
+    repo: "eval/fixtures/python-package"
+    prompt: >
+      The `subtract` function in greeter/util.py has no test. Add one to
+      tests/test_util.py.
+    expect:
+      max_turns: 8
+      tools_used: ["Read", "Edit"]
+
+  - id: "package-metadata-lookup"
+    repo: "eval/fixtures/python-package"
+    prompt: >
+      What is this package's name, version, and how many dependencies
+      does it declare?
+    expect:
+      max_turns: 4
+      preferred_tool: "PackageInfo"
+      avoids: ["Bash"]
+
+  - id: "symbol-lookup"
+    repo: "eval/fixtures/python-package"
+    prompt: "List all the top-level functions defined in greeter/util.py."
+    expect:
+      max_turns: 4
+      preferred_tool: "CodeSymbols"
+
+  - id: "docs-update-add-section"
+    repo: "eval/fixtures/docs-site"
+    prompt: >
+      Add a new "Troubleshooting" section with one FAQ entry to
+      docs/index.md.
+    expect:
+      max_turns: 6
+      tools_used: ["Read", "Edit"]
+
+  - id: "git-inspection-status"
+    repo: "."
+    prompt: >
+      What does the current git status of this repository look like?
+      Summarize any uncommitted changes.
+    expect:
+      max_turns: 4
+      preferred_tool: "GitStatus"
+      avoids: ["Bash"]
+
+  - id: "shell-avoidance-list-fixtures"
+    repo: "eval/fixtures"
+    prompt: "List the files and subdirectories directly inside this directory."
+    expect:
+      max_turns: 3
+      preferred_tool: "ListDir"
+      avoids: ["Bash"]
+
+  - id: "simple-cli-add-flag"
+    repo: "eval/fixtures/simple-cli"
+    prompt: >
+      Add a `--verbose` flag to cli.py that prints "Verbose mode enabled"
+      when set.
+    expect:
+      max_turns: 8
+      tools_used: ["Read", "Edit"]
+
+  - id: "symbol-search-grep"
+    repo: "eval/fixtures/python-package"
+    prompt: "Find every file that references the `subtract` function."
+    expect:
+      max_turns: 4
+      preferred_tool: "Grep"
+      avoids: ["Bash"]
