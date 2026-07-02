@@ -305,7 +305,13 @@ _COMMAND_SPECS: tuple[SlashCommandSpec, ...] = (
     SlashCommandSpec("/resume", "/resume <id>", "Resume a saved session", "Session"),
     SlashCommandSpec("/fork", "/fork <id>", "Fork a saved session", "Session"),
     SlashCommandSpec("/exit", "/exit", "Exit the REPL (alias: /quit)", "Session"),
-    SlashCommandSpec("/settings", "/settings", "Show model, mode, cwd, trust, usage", "State"),
+    SlashCommandSpec(
+        "/settings",
+        "/settings [ui|model|thinking <value>]",
+        "Show settings; persist ui/model/thinking preference",
+        "State",
+        ("ui", "model", "thinking"),
+    ),
     SlashCommandSpec("/usage", "/usage", "Show token and cost totals", "State"),
     SlashCommandSpec(
         "/approvals",
@@ -700,6 +706,9 @@ class ReplState:
     stream: bool = True
     approvals: "ApprovalCache" = field(default_factory=lambda: _new_approval_cache())
     usage: "UsageTracker" = field(default_factory=lambda: _new_usage_tracker())
+    # Phase 86: raw CLI overrides (model / thinking / tui), so /settings can
+    # report when a saved preference is shadowed by a flag this session.
+    cli_overrides: dict[str, str] = field(default_factory=dict)
 
 
 def _new_approval_cache() -> "ApprovalCache":
@@ -1032,33 +1041,87 @@ def _print_help() -> None:
     print("\n".join(_help_lines()))
 
 
-def _handle_settings_ui(args: list[str]) -> None:
-    """Phase 80: `/settings ui [classic|textual|auto]` — persist (or clear) the
-    personal default UI in ~/.d2c/settings.yaml. With no value, show current."""
-    from d2c.tui import DEFAULT_UI, user_ui_pref
+# Phase 86: /settings <section> preference specs. `choices` are the accepted
+# inputs; `store` maps a choice to what is persisted (model aliases → canonical).
+_SETTINGS_PREFS: dict[str, dict] = {
+    "ui": {
+        "section": "ui",
+        "choices": ("classic", "textual", "auto"),
+        "store": {},  # identity
+        "env": "D2C_TUI",
+    },
+    "model": {
+        "section": "model",
+        "choices": ("flash", "pro", "auto"),
+        "store": {"flash": "deepseek-v4-flash", "pro": "deepseek-v4-pro"},
+        "env": "D2C_MODEL",
+    },
+    "thinking": {
+        "section": "thinking",
+        "choices": ("off", "low", "medium", "high", "auto"),
+        "store": {},  # identity
+        "env": "D2C_THINKING",
+    },
+}
+
+
+def _handle_settings_pref(name: str, args: list[str]) -> None:
+    """Phase 80/86: `/settings <ui|model|thinking> [value|auto]` — persist (or
+    clear) a personal preference in ~/.d2c/settings.yaml. With no value, show
+    the current saved preference."""
+    from d2c.user_prefs import get_user_pref, set_user_pref
+
+    spec = _SETTINGS_PREFS[name]
+    section = spec["section"]
 
     if not args:
-        pref = user_ui_pref()
-        current = pref if pref is not None else f"auto (project default: {DEFAULT_UI})"
-        print(f"UI preference: {current}\nSet with: /settings ui classic|textual|auto")
+        pref = get_user_pref(section)
+        current = pref if pref is not None else "auto (env / default)"
+        choices = "|".join(spec["choices"])
+        print(f"{name} preference: {current}\nSet with: /settings {name} {choices}")
         return
 
     value = args[0].lower()
-    if value not in ("classic", "textual", "auto"):
-        print(f"Unknown UI preference: {value}\nUsage: /settings ui classic|textual|auto")
+    if value not in spec["choices"]:
+        choices = "|".join(spec["choices"])
+        print(f"Unknown {name} preference: {value}\nUsage: /settings {name} {choices}")
         return
 
-    from d2c.tui import set_user_ui_pref
-
+    stored = None if value == "auto" else spec["store"].get(value, value)
     try:
-        set_user_ui_pref(value)
+        set_user_pref(section, stored)
     except Exception as e:  # noqa: BLE001 — surface, don't crash the REPL
-        print(f"Could not save UI preference: {e}")
+        print(f"Could not save {name} preference: {e}")
         return
     if value == "auto":
-        print("UI preference cleared (using D2C_TUI / project default). Applies next launch.")
+        print(f"{name} preference cleared (using {spec['env']} / default). Applies next session.")
     else:
-        print(f"UI preference saved: {value}. Applies next launch.")
+        print(f"{name} preference saved: {stored}. Applies next session.")
+
+
+def _pref_source(effective: str, *, env_name: str, section: str, cli_value: str | None) -> str:
+    """Phase 86: '<effective> (<source>)' where source is CLI/env/saved
+    preference/default, noting when a saved preference is shadowed."""
+    import os
+
+    from d2c.user_prefs import get_user_pref
+
+    env_val = os.environ.get(env_name) or None
+    saved = get_user_pref(section)
+
+    if cli_value:
+        src = "CLI"
+    elif env_val:
+        src = f"env: {env_name}"
+    elif saved:
+        src = "saved preference"
+    else:
+        src = "default"
+
+    note = ""
+    if saved and (cli_value or env_val):
+        note = f", saved '{saved}' shadowed"
+    return f"{effective} ({src}{note})"
 
 
 def _print_settings(state: "ReplState") -> None:
@@ -1089,10 +1152,23 @@ def _print_settings(state: "ReplState") -> None:
             f"  usage:       {session_usage.calls} call(s), {usage_status_fragment(session_usage)}"
         )
 
+    cli = state.cli_overrides
+    from d2c.tui import resolve_ui
+
+    ui_effective = resolve_ui(cli.get("tui"))
+    model_line = _pref_source(
+        config.model, env_name="D2C_MODEL", section="model", cli_value=cli.get("model")
+    )
+    thinking_line = _pref_source(
+        config.thinking, env_name="D2C_THINKING", section="thinking", cli_value=cli.get("thinking")
+    )
+    ui_line = _pref_source(ui_effective, env_name="D2C_TUI", section="ui", cli_value=cli.get("tui"))
+
     print(
         f"Settings:\n"
-        f"  model:       {config.model}\n"
-        f"  thinking:    {config.thinking}\n"
+        f"  model:       {model_line}\n"
+        f"  thinking:    {thinking_line}\n"
+        f"  ui:          {ui_line}\n"
         f"  permission:  {config.permission_mode}\n"
         f"  cwd:         {config.cwd}\n"
         f"  session:     {sid}\n"
@@ -1323,10 +1399,11 @@ async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
         return True
 
     if name == "/settings":
-        # Phase 80: `/settings ui classic|textual|auto` persists a personal UI
-        # preference; bare `/settings` prints current settings.
-        if cmd.args and cmd.args[0].lower() == "ui":
-            _handle_settings_ui(cmd.args[1:])
+        # Phase 80/86: `/settings <ui|model|thinking> [value]` persists a personal
+        # preference; bare `/settings` prints current settings with sources.
+        sub = cmd.args[0].lower() if cmd.args else ""
+        if sub in _SETTINGS_PREFS:
+            _handle_settings_pref(sub, cmd.args[1:])
         else:
             _print_settings(state)
         return True
@@ -1593,7 +1670,22 @@ async def run_interactive(args: argparse.Namespace) -> None:
     )
 
     # Phase 36: explicit mutable REPL state that slash commands operate on.
-    state = ReplState(config=config, session_store=session_store, conversation=[])
+    # Phase 86: record the raw CLI overrides so /settings can report shadowing.
+    _cli_overrides = {
+        k: v
+        for k, v in (
+            ("model", args.model),
+            ("thinking", getattr(args, "thinking", None)),
+            ("tui", getattr(args, "tui", None) if getattr(args, "tui", "auto") != "auto" else None),
+        )
+        if v
+    }
+    state = ReplState(
+        config=config,
+        session_store=session_store,
+        conversation=[],
+        cli_overrides=_cli_overrides,
+    )
 
     # Phase 55: session usage accounting (read by /usage and the status bar).
     from d2c.usage import audit_session_usage, set_usage_tracker

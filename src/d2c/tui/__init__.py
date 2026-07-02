@@ -77,73 +77,23 @@ def use_textual_ui() -> bool:
 
 
 def user_ui_pref() -> str | None:
-    """The persisted personal UI preference from ``~/.d2c/settings.yaml``
-    (``ui.default``), as ``"classic"``/``"textual"``, or None if unset/invalid.
+    """The persisted personal UI preference (``ui.default`` in the USER settings
+    file), as ``"classic"``/``"textual"``, or None if unset/invalid. Personal
+    only — a project/managed settings file cannot force it (Phase 80)."""
+    from d2c.user_prefs import get_user_pref
 
-    Read from the USER settings file ONLY — the UI preference is personal, so a
-    project or managed settings file cannot force it (Phase 80). Never raises: a
-    missing/unreadable/invalid file just means no preference.
-    """
-    import yaml
-
-    from d2c.settings import user_settings_path
-
-    path = user_settings_path()
-    try:
-        if not path.exists():
-            return None
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    ui = data.get("ui") if isinstance(data, dict) else None
-    value = ui.get("default") if isinstance(ui, dict) else None
-    if isinstance(value, str) and value.strip().lower() in ("classic", "textual"):
-        return value.strip().lower()
-    return None
+    value = get_user_pref("ui")
+    return value.lower() if value and value.lower() in ("classic", "textual") else None
 
 
 def set_user_ui_pref(value: str) -> None:
-    """Persist the personal UI preference to ``~/.d2c/settings.yaml``.
-
-    ``classic``/``textual`` set ``ui.default``; ``auto`` removes the override
-    (falling back to env/project default). Other keys in the file are preserved;
-    the write is atomic. Raises ValueError on an unknown value.
-    """
-    import os
-
-    import yaml
-
-    from d2c.settings import user_settings_path
+    """Persist the personal UI preference: ``classic``/``textual`` set
+    ``ui.default``; ``auto`` removes it. Raises ValueError on an unknown value."""
+    from d2c.user_prefs import set_user_pref
 
     if value not in ("classic", "textual", "auto"):
         raise ValueError(f"invalid ui preference {value!r}; expected classic|textual|auto")
-
-    path = user_settings_path()
-    data: Any = {}
-    if path.exists():
-        try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        except Exception:
-            data = {}
-    if not isinstance(data, dict):
-        data = {}
-
-    ui = data.get("ui")
-    if not isinstance(ui, dict):
-        ui = {}
-    if value == "auto":
-        ui.pop("default", None)
-    else:
-        ui["default"] = value
-    if ui:
-        data["ui"] = ui
-    else:
-        data.pop("ui", None)
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    os.replace(tmp, path)
+    set_user_pref("ui", None if value == "auto" else value)
 
 
 def resolve_ui(cli_choice: str | None = None) -> str:

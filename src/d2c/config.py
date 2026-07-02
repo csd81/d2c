@@ -264,8 +264,12 @@ class Config:
         # Read from environment
         api_key = os.environ.get("DEEPSEEK_API_KEY")
         base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/anthropic")
-        model = os.environ.get("D2C_MODEL", "deepseek-v4-flash")
-        thinking = os.environ.get("D2C_THINKING", "off")
+        # Phase 86: env > persisted user preference > default (CLI --model /
+        # --thinking override later, in main). Preferences are user-scope only.
+        from d2c.user_prefs import get_user_pref
+
+        model = os.environ.get("D2C_MODEL") or get_user_pref("model") or "deepseek-v4-flash"
+        thinking = os.environ.get("D2C_THINKING") or get_user_pref("thinking") or "off"
         sandbox_enabled = os.environ.get("D2C_SANDBOX", "").lower() in ("1", "true", "yes", "on")
         sandbox_backend = (
             os.environ.get("D2C_SANDBOX_BACKEND", "process").strip().lower() or "process"

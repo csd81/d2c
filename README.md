@@ -142,8 +142,13 @@ falls back to the classic prompt_toolkit REPL with a one-line note. Selection pr
 the project default (now `textual`): `--tui classic` (or `D2C_TUI=classic`) always forces
 prompt_toolkit with no note, and `--tui textual` falls back to classic if the extra isn't
 installed. To make classic (or textual) your standing default without a flag, run
-`/settings ui classic` (or `textual`, or `auto` to clear the override) in the REPL. See
-[`docs/textual-readiness.md`](./docs/textual-readiness.md) for the parity/readiness audit. The Textual UI reuses the same
+`/settings ui classic` (or `textual`, or `auto` to clear the override) in the REPL — likewise
+`/settings model flash|pro|auto` and `/settings thinking off|low|medium|high|auto` persist the
+model/thinking preference to `~/.d2c/settings.yaml` (user-scope only). Bare `/settings` shows each
+value with its source (CLI / env / saved preference / default) and flags a saved preference that a
+flag or env var is shadowing this session. Precedence is `--flag` > env var > saved preference >
+default. See [`docs/textual-readiness.md`](./docs/textual-readiness.md) for the parity/readiness
+audit. The Textual UI reuses the same
 slash commands, Markdown rendering (via Rich), and approval scopes as the classic REPL, and adds
 a permission approval modal (`[y]`/`[a]`/`[A]`/`[n]`, deny by default, with redacted input/diff
 previews) and compact tool-progress timeline rows. Session ergonomics: predictable scrollback

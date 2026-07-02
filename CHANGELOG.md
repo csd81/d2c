@@ -5,6 +5,16 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 86:** `/settings` becomes a small preference surface for the day-to-day DeepSeek/UI
+  choices. Alongside `/settings ui classic|textual|auto`, it now takes `/settings model flash|pro|
+  auto` and `/settings thinking off|low|medium|high|auto`, persisting to `~/.d2c/settings.yaml`
+  (user-scope only; a project/managed file can't force them; `auto` clears the override, unrelated
+  keys preserved, atomic write). Bare `/settings` shows model/thinking/ui with their **source**
+  (CLI / env / saved preference / default) and notes when a saved preference is shadowed by a flag
+  or env var this session. `Config.load` now consumes the saved model/thinking preferences with
+  precedence `--flag` > env > saved preference > default. Preferences go through a shared
+  `user_prefs.py` (the Phase 80 UI-pref helpers now delegate to it); `/settings` gains the
+  ui/model/thinking subcommands in help + autocomplete. Invalid values are non-mutating.
 - **Phase 85:** optional DeepSeek Batch API eval mode (`d2c eval <corpus> --batch [--dry-run]`),
   for cheaper model-call experiments that don't need local tools. A new `eval_batch.py` generates
   deterministic OpenAI-compatible JSONL (stable `custom_id` = task id), uploads/creates/polls/

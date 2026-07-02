@@ -139,7 +139,7 @@ async def test_settings_ui_invalid_value(tmp_dir, capsys):
     await handle_slash_command(
         SlashCommand(name="/settings", args=["ui", "bogus"]), _state(tmp_dir)
     )
-    assert "Unknown UI preference" in capsys.readouterr().out
+    assert "Unknown ui preference" in capsys.readouterr().out
     assert user_ui_pref() is None  # nothing persisted
 
 
@@ -148,7 +148,7 @@ async def test_settings_ui_no_value_shows_current(tmp_dir, capsys):
     set_user_ui_pref("textual")
     await handle_slash_command(SlashCommand(name="/settings", args=["ui"]), _state(tmp_dir))
     out = capsys.readouterr().out
-    assert "UI preference: textual" in out
+    assert "ui preference: textual" in out
 
 
 @pytest.mark.asyncio
