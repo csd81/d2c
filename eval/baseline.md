@@ -4,6 +4,10 @@ A measured baseline of how the default d2c agent handles the `corpus.yaml`
 tasks. Use it as the "before" picture when tuning tool descriptions in a
 later phase — regenerate and diff after changes.
 
+> **Phase 68 update:** this doc is the Phase 67 "before" snapshot (commit
+> `41131a2`). The first tuning pass and its before/after measurements live in
+> `phase68-results.md`.
+
 ## Run metadata
 
 | Field | Value |

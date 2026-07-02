@@ -136,6 +136,90 @@ async def test_run_task_fails_when_last_tool_result_errors(tmp_dir):
     assert result.success is False
 
 
+def test_expectation_parses_tolerate_verification_failure(tmp_dir):
+    corpus_path = tmp_dir / "corpus.yaml"
+    corpus_path.write_text(
+        yaml.dump(
+            {
+                "tasks": [
+                    {
+                        "id": "t",
+                        "prompt": "p",
+                        "expect": {"tolerate_verification_failure": True},
+                    }
+                ]
+            }
+        )
+    )
+    corpus = EvalCorpus.load(corpus_path)
+    assert corpus.tasks[0].expect.tolerate_verification_failure is True
+
+
+def test_expectation_defaults_tolerate_verification_failure_false():
+    from d2c.eval import EvalExpectation
+
+    assert EvalExpectation().tolerate_verification_failure is False
+
+
+@pytest.mark.asyncio
+async def test_run_task_tolerates_trailing_verification_failure(tmp_dir):
+    # A trailing tool error, with tolerate_verification_failure set, flips the
+    # run back to success while surfacing the swallowed error as a note.
+    task = EvalTask(
+        id="tolerant",
+        prompt="read missing.txt",
+        repo=str(tmp_dir),
+        expect={"tolerate_verification_failure": True},
+    )
+    responses = [
+        _tool_use_response("tu1", "Read", {"file_path": str(tmp_dir / "missing.txt")}),
+        _text_response("couldn't find it"),
+    ]
+
+    with patch("d2c.loop.anthropic.AsyncAnthropic") as mock_cls:
+        mock_cls.return_value = _mock_stream_client(responses)
+        result = await run_task(task, trust=True)
+
+    assert result.success is True
+    assert result.notes  # the failure is surfaced, not hidden
+    assert any("Read" in n for n in result.notes)
+    assert result.divergences == []  # a note, not a divergence
+
+
+@pytest.mark.asyncio
+async def test_run_task_without_tolerance_still_fails_and_no_note(tmp_dir):
+    task = EvalTask(id="strict", prompt="read missing.txt", repo=str(tmp_dir))
+    responses = [
+        _tool_use_response("tu1", "Read", {"file_path": str(tmp_dir / "missing.txt")}),
+        _text_response("couldn't find it"),
+    ]
+
+    with patch("d2c.loop.anthropic.AsyncAnthropic") as mock_cls:
+        mock_cls.return_value = _mock_stream_client(responses)
+        result = await run_task(task, trust=True)
+
+    assert result.success is False
+    assert result.notes == []
+
+
+@pytest.mark.asyncio
+async def test_tolerance_does_not_rescue_no_model_call(tmp_dir, monkeypatch):
+    # Tolerance is narrow: it only forgives a *trailing tool* error, never a
+    # run that never called the model (turns == 0).
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    task = EvalTask(
+        id="nokey",
+        prompt="hi",
+        repo=str(tmp_dir),
+        expect={"tolerate_verification_failure": True},
+    )
+
+    result = await run_task(task, trust=True)
+
+    assert result.success is False
+    assert result.notes == []
+
+
 @pytest.mark.asyncio
 async def test_run_task_flags_max_turns_divergence(tmp_dir):
     task = EvalTask(

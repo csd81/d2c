@@ -61,6 +61,10 @@ tasks:
     expect:
       max_turns: 8
       tools_used: ["Read", "Edit"]
+      # Verifying by running the whole suite trips the fixture's intentional
+      # test_multiply bug (the failing-test-fix target) — an unrelated
+      # failure that shouldn't mark this task failed. See eval/baseline.md.
+      tolerate_verification_failure: true
 
   - id: "package-metadata-lookup"
     repo: "eval/fixtures/python-package"

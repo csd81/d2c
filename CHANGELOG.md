@@ -5,6 +5,17 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 68:** first eval-guided tool-tuning pass, using the Phase 67 corpus as
+  the measurement loop. Adds an advisory `expect.tolerate_verification_failure`
+  flag so a task whose only failure is a trailing verification tool error (e.g.
+  running a whole suite that trips an unrelated known-failing fixture test) is
+  scored successful, surfacing the swallowed error as a `note` (new
+  `EvalTaskResult.notes`) rather than hiding it — this fixes the Phase 67
+  `add-test-coverage` false negative (12/13 → 13/13). Sharpens the `ApplyPatch`
+  description to steer coordinated multi-file edits/renames toward it and single
+  edits toward `Edit`; a focused 6×-per-description A/B on the cross-file rename
+  task moved `ApplyPatch` adoption from 0/6 to 3/6 with no success/turn/cost
+  regression. Results in `eval/phase68-results.md`.
 - **Phase 67:** a checked-in eval corpus (`eval/corpus.yaml`, 13 deterministic tasks) and tiny
   fixture repos (`eval/fixtures/`) make the Phase 66 harness actionable — `eval/README.md`
   documents how to run it and `eval/baseline.md` records a measured baseline (tool-use

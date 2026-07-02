@@ -130,6 +130,11 @@ class ApplyPatchTool(Tool):
     name: ClassVar[str] = "ApplyPatch"
     description: ClassVar[str] = (
         "Apply a unified diff (git/plain `diff -u` format) to one or more files. "
+        "Prefer ApplyPatch for coordinated edits that span multiple files, "
+        "renames that touch several files at once, or a set of related changes "
+        "naturally expressed as one patch — a single ApplyPatch is atomic and "
+        "avoids the repeated context of several separate Edit calls. Prefer Edit "
+        "for a single exact replacement in one file. "
         "Paths are relative to the working directory (absolute and '..' rejected). "
         "You must Read an existing file before modifying/deleting it. The patch is "
         "applied atomically: if any hunk fails, no file is changed."

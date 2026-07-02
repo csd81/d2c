@@ -28,6 +28,14 @@ def test_categories_and_schemas():
     assert "patch" in ApplyPatchTool().input_schema["properties"]
 
 
+def test_apply_patch_description_guides_multifile_use():
+    # Phase 68: the description should steer the model toward ApplyPatch for
+    # coordinated multi-file edits and toward Edit for single edits.
+    desc = ApplyPatchTool().to_api_format()["description"].lower()
+    assert "multiple files" in desc
+    assert "prefer edit" in desc
+
+
 @pytest.mark.asyncio
 async def test_new_tools_registered_in_pool(trusted_gate):
     from d2c.tools.pool import Config, assembleToolPool

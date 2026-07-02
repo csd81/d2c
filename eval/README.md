@@ -12,8 +12,12 @@ line fix instead of a full `Read`?) with data instead of guesswork — see
 - `corpus.yaml` — the task list. Each task has a `prompt`, a `repo` (a
   fixture directory below, or `.` for the d2c repo itself), and an
   advisory `expect` block (`max_turns`, `tools_used`, `avoids`,
-  `preferred_tool`). `expect` never fails a task — it only produces a
-  `divergences` entry in the per-task report.
+  `preferred_tool`, `tolerate_verification_failure`). `expect` never fails
+  a task — it only produces a `divergences` entry in the per-task report.
+  `tolerate_verification_failure: true` (Phase 68) additionally lets a task
+  whose only failure is a trailing verification tool error (e.g. running a
+  whole suite that trips an unrelated known-failing fixture test) still
+  count as successful, recording the swallowed error as a `note`.
 - `fixtures/` — tiny throwaway repos the tasks run against:
   - `python-package/` — a package with a docstring-free function, an
     unused-but-correct helper, a renamed-function target, and a failing
@@ -21,8 +25,10 @@ line fix instead of a full `Read`?) with data instead of guesswork — see
   - `json-config/` — a JSON config file missing a `timeout` key.
   - `docs-site/` — markdown docs with a known typo on a known line.
   - `simple-cli/` — a small argparse CLI missing a flag.
-- `baseline.md` — the most recent baseline report (or instructions for
-  generating one, if no report has been run yet).
+- `baseline.md` — the Phase 67 baseline report (the "before" snapshot at
+  commit `41131a2`).
+- `phase68-results.md` — the Phase 68 before/after report (eval-guided
+  tool tuning: success semantics + `ApplyPatch` discoverability).
 
 Fixture edits made by a live eval run are **not** committed back — each
 run should start from a clean fixture tree (`git status` before/after,

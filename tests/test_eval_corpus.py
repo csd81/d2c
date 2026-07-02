@@ -18,7 +18,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CORPUS_PATH = PROJECT_ROOT / "eval" / "corpus.yaml"
 README_PATH = PROJECT_ROOT / "eval" / "README.md"
 
-_ALLOWED_EXPECT_KEYS = {"max_turns", "tools_used", "avoids", "preferred_tool"}
+_ALLOWED_EXPECT_KEYS = {
+    "max_turns",
+    "tools_used",
+    "avoids",
+    "preferred_tool",
+    "tolerate_verification_failure",
+}
 
 
 def test_corpus_parses_through_eval_corpus_loader():

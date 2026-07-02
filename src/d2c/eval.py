@@ -44,6 +44,14 @@ class EvalExpectation(BaseModel):
     tools_used: list[str] = Field(default_factory=list)
     avoids: list[str] = Field(default_factory=list)
     preferred_tool: str | None = None
+    # Phase 68: some tasks verify by running a broader check (e.g. the whole
+    # test suite) that can fail for reasons unrelated to the task — a fixture
+    # that ships a known-failing test, say. When set, a run whose *only*
+    # reason to be marked failed is that trailing verification tool error is
+    # instead counted as successful, and the swallowed error is surfaced as a
+    # note (never hidden). Real errors — exceptions, no model call, a
+    # mid-sequence tool error followed by more work — are unaffected.
+    tolerate_verification_failure: bool = False
 
 
 class EvalTask(BaseModel):
@@ -79,6 +87,10 @@ class EvalTaskResult(BaseModel):
     success: bool
     divergences: list[str]
     error: str | None = None
+    # Phase 68: non-fatal observations (e.g. a tolerated trailing verification
+    # failure). Unlike divergences, these are not expectation mismatches, so
+    # they are kept out of the divergence count.
+    notes: list[str] = Field(default_factory=list)
 
 
 class EvalSummary(BaseModel):
@@ -196,6 +208,8 @@ async def run_task(
     tool_sequence: list[str] = []
     tools: Counter[str] = Counter()
     last_tool_error = False
+    last_tool_error_name: str | None = None
+    last_tool_error_output: str = ""
     saw_tool = False
     error: str | None = None
 
@@ -210,6 +224,12 @@ async def run_task(
             if isinstance(event, ToolExecutionEvent):
                 saw_tool = True
                 last_tool_error = bool(event.result.error)
+                if last_tool_error:
+                    last_tool_error_name = event.tool_use.name
+                    last_tool_error_output = event.result.output or ""
+                else:
+                    last_tool_error_name = None
+                    last_tool_error_output = ""
                 tool_sequence.append(event.tool_use.name)
                 tools[event.tool_use.name] += 1
             elif isinstance(event, TextResponse):
@@ -246,6 +266,25 @@ async def run_task(
     # failed run even though there's no tool error to point to.
     success = error is None and turns > 0 and not (saw_tool and last_tool_error)
     divergences = _check_divergence(task, turns, tools)
+    notes: list[str] = []
+
+    # Phase 68: with error is None and turns > 0, the *only* thing that can
+    # make success False is a trailing tool error — so this branch is
+    # exactly the "verification failed" case and nothing else.
+    trailing_error_only = (
+        not success and error is None and turns > 0 and saw_tool and last_tool_error
+    )
+    if (
+        trailing_error_only
+        and task.expect is not None
+        and task.expect.tolerate_verification_failure
+    ):
+        success = True
+        snippet = " ".join(last_tool_error_output.split())[:200]
+        note = f"tolerated trailing {last_tool_error_name or 'tool'} verification failure"
+        if snippet:
+            note += f": {snippet}"
+        notes.append(note)
 
     return EvalTaskResult(
         id=task.id,
@@ -259,6 +298,7 @@ async def run_task(
         success=success,
         divergences=divergences,
         error=error,
+        notes=notes,
     )
 
 
