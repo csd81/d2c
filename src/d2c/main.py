@@ -33,6 +33,7 @@ from d2c.history import PromptHistory
 from d2c.hooks import HookDefinition, HookEvent, HookRegistry, HookType
 from d2c.loop import LoopConfig, StopEvent, TextDelta, ToolExecutionEvent, queryLoop
 from d2c.loop import TextResponse as LoopTextResponse
+from d2c.markdown_render import render_markdown
 from d2c.memory import LazyMemoryLoader
 from d2c.observability import AuditLogger, audit, set_audit_logger
 from d2c.permissions import PermissionEngine
@@ -1442,6 +1443,14 @@ async def run_headless(prompt: str, args: argparse.Namespace) -> None:
         )
 
 
+def _render_assistant(text: str) -> None:
+    """Phase 73: render a completed assistant text segment as Markdown in the
+    interactive REPL, with a leading blank line for separation. Interactive-only;
+    headless/SDK/MCP/eval paths stay plain."""
+    print()
+    print_formatted_text(render_markdown(text))
+
+
 async def run_interactive(args: argparse.Namespace) -> None:
     """Interactive REPL with prompt_toolkit rich console (Phase 31).
 
@@ -1629,15 +1638,27 @@ async def run_interactive(args: argparse.Namespace) -> None:
                 )
 
             assistant_text = ""
+            # Phase 73: buffer each assistant text segment and render it once as
+            # Markdown when the segment completes (a tool runs, the turn's final
+            # TextResponse arrives, or the loop ends) — rather than streaming raw
+            # tokens. This also removes the old double-print (streamed deltas plus
+            # a reprinted final block).
+            segment = ""
             try:
                 async for event in queryLoop(loop_config, messages):
                     if isinstance(event, TextDelta):
-                        print(event.text, end="", flush=True)
+                        segment += event.text
                         assistant_text += event.text
                     elif isinstance(event, LoopTextResponse):
-                        print(f"\n{event.text}\n")
+                        # Complete text of the final turn (supersedes its deltas).
                         assistant_text = event.text
+                        if event.text.strip():
+                            _render_assistant(event.text.strip())
+                        segment = ""
                     elif isinstance(event, ToolExecutionEvent):
+                        if segment.strip():
+                            _render_assistant(segment.strip())
+                        segment = ""
                         print(f"  [{event.tool_use.name}] {event.result.output[:200]}", end="")
                         if len(event.result.output) > 200:
                             print("...")
@@ -1646,6 +1667,8 @@ async def run_interactive(args: argparse.Namespace) -> None:
                     elif isinstance(event, StopEvent):
                         if event.reason not in ("model_finished",):
                             print(f"  [stopped: {event.reason}]")
+                if segment.strip():  # any trailing text not closed by a TextResponse
+                    _render_assistant(segment.strip())
             except Exception as e:
                 print(f"Error: {e}")
 

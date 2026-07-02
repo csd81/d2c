@@ -5,6 +5,15 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 73:** the interactive REPL now renders a pragmatic Markdown subset in assistant
+  responses — headings, bullet/numbered lists, fenced and inline code, links (as
+  `text (url)`), and blockquotes — via a small dependency-free renderer
+  (`d2c.markdown_render`) built on the `prompt_toolkit` primitives already in use. It is
+  display-only (never executes HTML, fetches links, or reads files) and fails open to plain
+  text on any parse error. Each assistant text segment is buffered and rendered once when it
+  completes, which also removes the old double-print (streamed tokens followed by a reprinted
+  final block). Headless/single-shot, SDK, MCP, and eval output paths are unchanged (still
+  plain text).
 - **Phase 72:** REPL command UX consolidation. Slash commands now come from one shared
   registry (`SlashCommandSpec`) that drives `/help`, autocomplete, and unknown-command
   handling so they can't drift apart. `/help` is grouped by workflow (Session / State /

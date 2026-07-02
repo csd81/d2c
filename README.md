@@ -124,6 +124,9 @@ counts and the storage path (counts/path only — never stored hashes or tool in
 summarized by length, never dumped) and `/profiles doctor` explains skipped or invalid profiles.
 `/help` groups these by workflow (Session / State / Safety / Help), autocomplete covers commands
 and common subcommands, and a mistyped command suggests the nearest match.
+Assistant responses in the REPL are rendered as Markdown (headings, lists, fenced/inline code,
+links, blockquotes) via a small dependency-free renderer that fails open to plain text; headless,
+SDK, MCP, and eval output stay plain.
 `/usage` shows session token totals (input/output/cache) and an estimated cost; the
 status bar shows a compact `133.4k in / 9.2k out | ~$0.42` summary once the model has been called.
 Token counts fall back to local estimation when the provider omits usage fields, and costs use a
