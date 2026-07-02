@@ -129,7 +129,12 @@ links, blockquotes) via a small dependency-free renderer that fails open to plai
 SDK, MCP, and eval output stay plain.
 
 An **experimental Textual UI** is available behind an opt-in: install the extra
-(`pip install "d2c[tui]"`) and run with `D2C_TUI=textual python -m d2c`. It reuses the same
+(`pip install "d2c[tui]"`) and select it with `python -m d2c --tui textual` (or
+`D2C_TUI=textual python -m d2c`). Selection precedence is `--tui` > `D2C_TUI` > the project
+default (`classic`); `--tui classic` forces prompt_toolkit and `--tui textual` falls back to
+classic with a note if the extra isn't installed. The default stays classic — see
+[`docs/textual-readiness.md`](./docs/textual-readiness.md) for the parity/readiness audit. It
+reuses the same
 slash commands, Markdown rendering (via Rich), and approval scopes as the default REPL, and adds
 a permission approval modal (`[y]`/`[a]`/`[A]`/`[n]`, deny by default, with redacted input/diff
 previews) and compact tool-progress timeline rows. Session ergonomics: predictable scrollback

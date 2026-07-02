@@ -26,7 +26,9 @@ __all__ = [
     "completion_candidates",
     "grouped_help_lines",
     "is_textual_available",
+    "resolve_ui",
     "run_textual_app",
+    "ui_decision",
     "status_line",
     "suggest_command",
     "to_renderable",
@@ -52,9 +54,47 @@ class InteractiveUI(Protocol):
     def render_status(self, state: Any) -> None: ...
 
 
+# The project default interactive UI. prompt_toolkit ("classic") until the
+# Textual readiness audit (docs/textual-readiness.md) says otherwise.
+DEFAULT_UI = "classic"
+
+
+def _env_ui() -> str | None:
+    """The UI requested via ``D2C_TUI`` (``textual``/``classic``), or None."""
+    value = os.environ.get("D2C_TUI", "").strip().lower()
+    if value in ("textual", "classic"):
+        return value
+    return None
+
+
 def use_textual_ui() -> bool:
     """Whether the user opted into the Textual UI via ``D2C_TUI=textual``."""
-    return os.environ.get("D2C_TUI", "").strip().lower() == "textual"
+    return _env_ui() == "textual"
+
+
+def resolve_ui(cli_choice: str | None = None) -> str:
+    """Resolve the interactive UI to ``"classic"`` or ``"textual"``.
+
+    Precedence (Phase 77): an explicit CLI ``--tui`` value wins; then
+    ``D2C_TUI``; then the project default. ``--tui auto`` (or None) defers to
+    the environment / default.
+    """
+    if cli_choice in ("classic", "textual"):
+        return cli_choice
+    return _env_ui() or DEFAULT_UI
+
+
+def ui_decision(cli_choice: str | None, *, available: bool) -> str:
+    """Resolve to a concrete launch decision (Phase 77):
+
+    - ``"textual"`` — launch the Textual app
+    - ``"classic-fallback"`` — Textual was requested but is unavailable; fall
+      back to classic and tell the user
+    - ``"classic"`` — launch the classic prompt_toolkit REPL
+    """
+    if resolve_ui(cli_choice) == "textual":
+        return "textual" if available else "classic-fallback"
+    return "classic"
 
 
 def is_textual_available() -> bool:

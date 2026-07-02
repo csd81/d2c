@@ -5,6 +5,15 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 77:** Textual default-readiness audit + a `--tui classic|textual|auto` selector.
+  Precedence is `--tui` > `D2C_TUI` > project default (still `classic`); `--tui textual`
+  falls back to classic with a clear message when the `[tui]` extra isn't installed, and an
+  invalid value errors via argparse. The resolution/fallback logic (`resolve_ui`,
+  `ui_decision`) is pure and unit-tested, and `run_headless` is guarded to contain no Textual
+  code path (headless never starts Textual even with `D2C_TUI=textual`). The audit report
+  `docs/textual-readiness.md` records the parity matrix, safety review, and non-interactive
+  boundary — decision: **NO-GO / keep opt-in**, with real-terminal dogfooding the one blocking
+  gap. No default flip; when ready it's a one-line `DEFAULT_UI` change.
 - **Phase 76:** session ergonomics for the experimental Textual UI (`D2C_TUI=textual`), to
   make it comfortable for real use. The transcript follows new output only when you're already
   at the bottom (scrolling up no longer yanks the viewport), with `PageUp`/`PageDown`/`Home`/

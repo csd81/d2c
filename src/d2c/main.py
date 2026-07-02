@@ -105,6 +105,16 @@ def parse_args() -> argparse.Namespace:
         help="Start the local HTTP server (health + session endpoints); localhost-only by default",
     )
     parser.add_argument(
+        "--tui",
+        choices=("auto", "classic", "textual"),
+        default="auto",
+        help=(
+            "Interactive UI: 'classic' (prompt_toolkit, current default), "
+            "'textual' (experimental, needs the [tui] extra), or 'auto' "
+            "(honor D2C_TUI, else classic). Overrides D2C_TUI."
+        ),
+    )
+    parser.add_argument(
         "--host",
         default="127.0.0.1",
         help="With --serve: bind host (default: 127.0.0.1, localhost-only)",
@@ -1576,11 +1586,13 @@ async def run_interactive(args: argparse.Namespace) -> None:
         )
 
     try:
-        # Phase 74: opt-in experimental Textual UI (default stays prompt_toolkit).
-        from d2c.tui import is_textual_available, run_textual_app, use_textual_ui
+        # Phase 74/77: opt-in experimental Textual UI. Selection precedence is
+        # CLI --tui > D2C_TUI > project default (classic); default stays classic.
+        from d2c.tui import is_textual_available, run_textual_app, ui_decision
 
-        if use_textual_ui():
-            if is_textual_available():
+        _ui_decision = ui_decision(getattr(args, "tui", "auto"), available=is_textual_available())
+        if _ui_decision in ("textual", "classic-fallback"):
+            if _ui_decision == "textual":
 
                 async def _textual_run_turn(prompt_text: str):  # type: ignore[no-untyped-def]
                     PromptHistory().append(prompt_text)
@@ -1634,9 +1646,9 @@ async def run_interactive(args: argparse.Namespace) -> None:
                 )
                 return  # the enclosing `finally` still flushes usage + SessionEnd
             print(
-                "D2C_TUI=textual is set but Textual isn't installed; "
-                'install it with `pip install "d2c[tui]"`. '
-                "Falling back to the standard REPL.\n"
+                "Textual UI requested (--tui textual / D2C_TUI=textual) but Textual "
+                'isn\'t installed; install it with `pip install "d2c[tui]"`. '
+                "Falling back to the classic prompt_toolkit REPL.\n"
             )
 
         while True:
