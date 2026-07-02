@@ -5,6 +5,14 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 72:** REPL command UX consolidation. Slash commands now come from one shared
+  registry (`SlashCommandSpec`) that drives `/help`, autocomplete, and unknown-command
+  handling so they can't drift apart. `/help` is grouped by workflow (Session / State /
+  Safety / Help) with the usage column aligned to the widest entry; autocomplete now
+  covers common subcommands (`/approvals clear-session|reset`, `/profiles show|doctor`)
+  as well as every top-level command; and an unknown command suggests the nearest match
+  (`difflib`, e.g. `/aprovals` → "Did you mean /approvals?") or points to `/help`. No
+  command semantics changed and no new feature commands were added.
 - **Phase 71:** subagent profile UX. A new `/profiles` REPL command makes the Phase 61
   YAML capability profiles observable: `/profiles` lists loaded profiles (model,
   permission mode, tool-boundary summary); `/profiles show <name>` prints a profile's

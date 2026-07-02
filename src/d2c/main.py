@@ -261,6 +261,63 @@ def _load_plugins(
     return plugin_skills, plugin_agents
 
 
+# ── Phase 72: REPL command registry ───────────────────────────────────
+
+
+@dataclass(frozen=True)
+class SlashCommandSpec:
+    """Metadata for one REPL slash command, shared by /help, autocomplete, and
+    unknown-command suggestions so the surface stays consistent."""
+
+    name: str
+    usage: str
+    summary: str
+    group: str
+    subcommands: tuple[str, ...] = ()
+
+
+# Grouped by workflow; order here is the order shown in /help.
+_COMMAND_SPECS: tuple[SlashCommandSpec, ...] = (
+    SlashCommandSpec("/clear", "/clear", "Start a fresh session", "Session"),
+    SlashCommandSpec("/resume", "/resume <id>", "Resume a saved session", "Session"),
+    SlashCommandSpec("/fork", "/fork <id>", "Fork a saved session", "Session"),
+    SlashCommandSpec("/exit", "/exit", "Exit the REPL (alias: /quit)", "Session"),
+    SlashCommandSpec("/settings", "/settings", "Show model, mode, cwd, trust, usage", "State"),
+    SlashCommandSpec("/usage", "/usage", "Show token and cost totals", "State"),
+    SlashCommandSpec(
+        "/approvals",
+        "/approvals [clear-session | reset]",
+        "Approval cache status; clear session or reset persistent",
+        "Safety",
+        ("clear-session", "reset"),
+    ),
+    SlashCommandSpec(
+        "/profiles",
+        "/profiles [show <name> | doctor]",
+        "List subagent profiles; show boundaries or diagnose",
+        "Safety",
+        ("show", "doctor"),
+    ),
+    SlashCommandSpec("/help", "/help", "Show this help", "Help"),
+)
+
+_GROUP_ORDER = ("Session", "State", "Safety", "Help")
+
+# Every invocable command name, including the /quit alias (not shown in /help).
+_KNOWN_COMMANDS: tuple[str, ...] = tuple(s.name for s in _COMMAND_SPECS) + ("/quit",)
+
+
+def _completion_candidates() -> list[str]:
+    """Top-level command names plus `name subcommand` combinations, for the
+    autocompleter."""
+    out: list[str] = [s.name for s in _COMMAND_SPECS]
+    out.append("/quit")
+    for spec in _COMMAND_SPECS:
+        for sub in spec.subcommands:
+            out.append(f"{spec.name} {sub}")
+    return out
+
+
 # ── Phase 31: Rich REPL components ────────────────────────────────────
 
 
@@ -294,18 +351,9 @@ class D2CCompleter(Completer):
     def __init__(self, cwd: Path, tools: list[str]):
         self.cwd = cwd
         self.tools = tools
-        self.commands = [
-            "/exit",
-            "/quit",
-            "/clear",
-            "/resume",
-            "/fork",
-            "/settings",
-            "/usage",
-            "/approvals",
-            "/profiles",
-            "/help",
-        ]
+        # Phase 72: derived from the shared command registry so top-level
+        # commands and common subcommands stay in sync with /help.
+        self.commands = _completion_candidates()
 
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
@@ -939,18 +987,22 @@ def make_interactive_approval(cache: "ApprovalCache"):
 
 
 def _print_help() -> None:
-    print(
-        "Commands:\n"
-        "  /help                 Show commands\n"
-        "  /settings             Show current model, mode, cwd, session\n"
-        "  /usage                Show session token usage and estimated cost\n"
-        "  /approvals            Show approval cache status (add clear-session | reset)\n"
-        "  /profiles             List subagent profiles (add show <name> | doctor)\n"
-        "  /clear                Start a fresh session\n"
-        "  /resume <session_id>  Resume an existing session\n"
-        "  /fork <session_id>    Fork an existing session into a new session\n"
-        "  /exit, /quit          Exit"
-    )
+    """Phase 72: help grouped by workflow, rendered from the shared registry.
+
+    The usage column is aligned to the widest usage string so summaries line up
+    across every group."""
+    width = max(len(s.usage) for s in _COMMAND_SPECS) + 2
+    lines: list[str] = []
+    for group in _GROUP_ORDER:
+        specs = [s for s in _COMMAND_SPECS if s.group == group]
+        if not specs:
+            continue
+        if lines:
+            lines.append("")
+        lines.append(group)
+        for spec in specs:
+            lines.append(f"  {spec.usage.ljust(width)}{spec.summary}")
+    print("\n".join(lines))
 
 
 def _print_settings(state: "ReplState") -> None:
@@ -1268,7 +1320,14 @@ async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
         print(f"Forked {cmd.args[0]} → new session {store.session_id}.")
         return True
 
+    import difflib
+
     print(f"Unknown command: {name}")
+    close = difflib.get_close_matches(name, _KNOWN_COMMANDS, n=1, cutoff=0.6)
+    if close:
+        print(f"Did you mean {close[0]}?")
+    else:
+        print("Run /help to see available commands.")
     return True
 
 
