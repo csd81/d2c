@@ -33,6 +33,12 @@ is protected, what is not, and what you should not rely on. The invariants below
   while leaving persisted (`[A]`) ones on disk and active; `/approvals reset` is the in-app "forget
   everything" — it empties the runtime set and deletes `~/.d2c/approvals.json`. Status is the default
   (non-destructive); destructive actions require the explicit subcommand.
+- **Inspecting subagent profiles from the REPL (Phase 71).** `/profiles` (list / `show <name>` /
+  `doctor`) is read-only and honors the workspace trust gate: in an untrusted workspace no project
+  profiles are loaded, and `/profiles doctor` reports each as "skipped because workspace is
+  untrusted". Output surfaces only a profile's effective boundaries (model, permission mode, worktree
+  flag, allowed/denied tools) — never environment variables and never the full instruction body
+  (instructions are summarized by length plus the first heading).
 - **Permission dialog rendering (Phase 65).** The styled dialog only ever displays what's already in
   the tool's `tool_input` — Edit/Write/ApplyPatch diff previews are computed from the stored
   old/new/patch text, never by reading the file from disk. Every interpolated value (command, URL,

@@ -5,6 +5,16 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 71:** subagent profile UX. A new `/profiles` REPL command makes the Phase 61
+  YAML capability profiles observable: `/profiles` lists loaded profiles (model,
+  permission mode, tool-boundary summary); `/profiles show <name>` prints a profile's
+  effective boundaries (model, permission mode, worktree isolation, allowed/denied
+  tools, max turns/background) with instructions summarized by length + first heading
+  rather than dumped; `/profiles doctor` reports loaded/skipped counts and the reason
+  each profile was skipped (invalid YAML/fields via the loader's existing diagnostics,
+  or "workspace is untrusted" for project profiles). Read-only and trust-aware —
+  untrusted workspaces load no project profiles, and no env vars or full instruction
+  bodies are ever printed. Unknown subcommands print usage and mutate nothing.
 - **Phase 70:** approval-management UX. A new `/approvals` REPL command reports the
   session-approval count, persistent-approval count, and storage path (counts and
   path only — never the stored SHA-256 hashes or any original tool input);

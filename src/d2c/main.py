@@ -303,6 +303,7 @@ class D2CCompleter(Completer):
             "/settings",
             "/usage",
             "/approvals",
+            "/profiles",
             "/help",
         ]
 
@@ -944,6 +945,7 @@ def _print_help() -> None:
         "  /settings             Show current model, mode, cwd, session\n"
         "  /usage                Show session token usage and estimated cost\n"
         "  /approvals            Show approval cache status (add clear-session | reset)\n"
+        "  /profiles             List subagent profiles (add show <name> | doctor)\n"
         "  /clear                Start a fresh session\n"
         "  /resume <session_id>  Resume an existing session\n"
         "  /fork <session_id>    Fork an existing session into a new session\n"
@@ -1037,6 +1039,123 @@ def _handle_approvals(cmd: "SlashCommand", state: "ReplState") -> None:
     print("Usage: /approvals [clear-session | reset]")
 
 
+def _profile_tools_summary(p: Any) -> str:
+    """One-line tool-boundary summary for the profile list view."""
+    if p.tools is not None:
+        return f"{len(p.tools)} allowed"
+    if p.disallowed_tools is not None:
+        return f"{len(p.disallowed_tools)} denied"
+    return "unrestricted"
+
+
+def _profile_files(cwd: Path) -> list[Path]:
+    """YAML profile files present under .d2c/agents/ (names only; not read)."""
+    from d2c.subagent_profiles import profiles_dir
+
+    directory = profiles_dir(cwd)
+    if not directory.is_dir():
+        return []
+    out: list[Path] = []
+    for glob in ("*.yaml", "*.yml"):
+        try:
+            out.extend(sorted(directory.glob(glob)))
+        except OSError:
+            pass
+    return out
+
+
+def _print_profile_detail(p: Any) -> None:
+    """Effective boundaries for one profile. Never prints env vars or the full
+    instruction body — instructions are summarized by length + first heading."""
+    allowed = ", ".join(p.tools) if p.tools else "(all)"
+    denied = ", ".join(p.disallowed_tools) if p.disallowed_tools else "(none)"
+    instr = p.system_prompt or ""
+    first_heading = ""
+    for line in instr.splitlines():
+        s = line.strip()
+        if s.startswith("#"):
+            first_heading = s.lstrip("#").strip()
+            break
+    instr_line = f"{len(instr)} chars"
+    if first_heading:
+        instr_line += f' (starts "{first_heading[:60]}")'
+    print(
+        f"  name:               {p.name}\n"
+        f"  model:              {p.model or '(default)'}\n"
+        f"  permission mode:    {p.permission_mode or '(default)'}\n"
+        f"  worktree isolation: {'enabled' if p.isolation == 'worktree' else 'disabled'}\n"
+        f"  max turns:          {p.max_turns}\n"
+        f"  background:          {'yes' if p.background else 'no'}\n"
+        f"  allowed tools:      {allowed}\n"
+        f"  denied tools:       {denied}\n"
+        f"  instructions:       {instr_line}"
+    )
+
+
+def _print_profiles_doctor(cwd: Path, trusted: bool, profiles: dict, errors: list[str]) -> None:
+    skipped: list[str] = list(errors)
+    if not trusted:
+        for path in _profile_files(cwd):
+            skipped.append(f"{path.stem}: project profile skipped because workspace is untrusted")
+    print(f"  loaded: {len(profiles)}\n  skipped: {len(skipped)}")
+    if skipped:
+        print("  skipped profiles:")
+        for note in skipped:
+            print(f"    {note}")
+
+
+def _handle_profiles(cmd: "SlashCommand", state: "ReplState") -> None:
+    """Phase 71: inspect trusted subagent capability profiles (Phase 61).
+
+    Read-only. Honors the workspace trust gate (project profiles load only when
+    trusted) and never prints env vars or full instruction bodies.
+    """
+    from d2c.subagent_profiles import load_profiles, profiles_dir
+    from d2c.trust import get_trust_gate
+
+    try:
+        trusted = get_trust_gate().is_project_trusted
+    except Exception:
+        trusted = False
+
+    cwd = state.config.cwd
+    profiles, errors = load_profiles(cwd, trusted=trusted)
+    sub = cmd.args[0].lower() if cmd.args else ""
+
+    if sub == "show":
+        if len(cmd.args) < 2:
+            print("Usage: /profiles show <name>")
+            return
+        target = cmd.args[1]
+        prof = profiles.get(target)
+        if prof is None:
+            print(f"Profile not found: {target}")
+            return
+        _print_profile_detail(prof)
+        return
+
+    if sub == "doctor":
+        _print_profiles_doctor(cwd, trusted, profiles, errors)
+        return
+
+    if sub != "":
+        print("Usage: /profiles [show <name> | doctor]")
+        return
+
+    if not profiles:
+        if not trusted:
+            print("No profiles loaded (workspace is untrusted; project profiles are skipped).")
+        else:
+            print(f"No subagent profiles found in {profiles_dir(cwd)}.")
+        return
+    for pname in sorted(profiles):
+        p = profiles[pname]
+        print(
+            f"  {pname:<14} model: {(p.model or 'default'):<16} "
+            f"mode: {(p.permission_mode or 'default'):<12} tools: {_profile_tools_summary(p)}"
+        )
+
+
 async def _switch_session(state: ReplState, new_store, event_verb: str) -> None:
     """Phase 40: fire SESSION_END for the outgoing session and SESSION_START
     for the incoming one on /clear, /resume, /fork."""
@@ -1107,6 +1226,10 @@ async def handle_slash_command(cmd: SlashCommand, state: ReplState) -> bool:
 
     if name == "/approvals":
         _handle_approvals(cmd, state)
+        return True
+
+    if name == "/profiles":
+        _handle_profiles(cmd, state)
         return True
 
     if name == "/clear":
