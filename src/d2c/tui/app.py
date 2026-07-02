@@ -13,7 +13,9 @@ import contextlib
 import io
 from typing import Any
 
+from rich.text import Text
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, RichLog, Static
@@ -22,9 +24,15 @@ from d2c.loop import StopEvent, TextDelta, ToolExecutionEvent
 from d2c.loop import TextResponse as LoopTextResponse
 from d2c.tui.approvals import ApprovalChoice, apply_choice, approval_view, choice_from_key
 from d2c.tui.markdown import to_renderable
-from d2c.tui.widgets import status_line, tool_row_from_event
+from d2c.tui.widgets import InputHistory, status_line, tool_row_from_event, tool_row_status
 
 _MODAL_DIFF_MAX_LINES = 8  # short inline diff preview in the approval modal
+
+# Phase 76: per-role transcript styling (restrained, terminal-friendly).
+_USER_STYLE = "bold cyan"
+_SYSTEM_STYLE = "dim"
+_ERROR_STYLE = "bold red"
+_TOOL_STATUS_STYLE = {"ok": "green", "error": "bold red", "denied": "bold yellow"}
 
 
 class ApprovalModal(ModalScreen):
@@ -72,9 +80,21 @@ class D2CApp(App):
 
     CSS = """
     #transcript { height: 1fr; border: round $panel; }
-    #status { height: 1; color: $text-muted; }
+    #status { height: 1; color: $text-muted; overflow-x: hidden; }
     #prompt { dock: bottom; }
     """
+
+    # Phase 76: keyboard ergonomics. Home/End collide with the Input's cursor
+    # keys, but the focused Input consumes them first, so these only fire when
+    # the transcript is focused — no conflict while typing.
+    BINDINGS = [
+        Binding("ctrl+c", "cancel", "Cancel/Quit", show=False, priority=True),
+        Binding("ctrl+l", "clear_transcript", "Clear view", show=False),
+        Binding("pageup", "scroll_up", "Scroll up", show=False),
+        Binding("pagedown", "scroll_down", "Scroll down", show=False),
+        Binding("end", "scroll_end", "To latest", show=False),
+        Binding("home", "scroll_home", "To top", show=False),
+    ]
 
     def __init__(
         self,
@@ -89,12 +109,94 @@ class D2CApp(App):
         self._run_turn = run_turn
         self._active_bg_tasks = active_bg_tasks
         self._approval_holder = approval_holder
+        self._history = InputHistory()
 
     def on_mount(self) -> None:
         # Phase 75: route the agent loop's approval requests to the Textual
         # modal (instead of the prompt_toolkit/stdin fallback).
         if self._approval_holder is not None:
             self._approval_holder.approval_cb = self.request_approval
+        with contextlib.suppress(Exception):
+            self.query_one("#prompt", Input).focus()
+
+    # ── scrollback + role-styled writes (Phase 76) ──────────────────
+    def _transcript(self) -> RichLog:
+        return self.query_one("#transcript", RichLog)
+
+    @staticmethod
+    def _at_bottom(log: RichLog) -> bool:
+        """Whether the transcript is scrolled to the latest output."""
+        try:
+            return bool(log.is_vertical_scroll_end)
+        except Exception:
+            try:
+                return log.scroll_offset.y >= log.max_scroll_y
+            except Exception:
+                return True
+
+    def _write(self, renderable: Any) -> None:
+        """Write to the transcript, following the tail only if the user was
+        already at the bottom (don't yank the viewport if they scrolled up)."""
+        log = self._transcript()
+        log.write(renderable, scroll_end=self._at_bottom(log))
+
+    def _write_user(self, text: str) -> None:
+        self._write(Text(f"› {text}", style=_USER_STYLE))
+
+    def _write_system(self, text: str, *, style: str = _SYSTEM_STYLE) -> None:
+        self._write(Text(text, style=style))
+
+    def _write_tool(self, event: Any) -> None:
+        style = _TOOL_STATUS_STYLE.get(tool_row_status(event), "")
+        self._write(Text(tool_row_from_event(event), style=style))
+
+    # ── keyboard actions (Phase 76) ─────────────────────────────────
+    def action_scroll_up(self) -> None:
+        self._transcript().scroll_page_up()
+
+    def action_scroll_down(self) -> None:
+        self._transcript().scroll_page_down()
+
+    def action_scroll_home(self) -> None:
+        self._transcript().scroll_home()
+
+    def action_scroll_end(self) -> None:
+        self._transcript().scroll_end()
+
+    def action_clear_transcript(self) -> None:
+        # Visual only — never touches session/conversation/history state.
+        self._transcript().clear()
+
+    def action_cancel(self) -> None:
+        # Conservative Ctrl+C: clear a non-empty input; otherwise exit. Never
+        # kills an in-flight tool/turn (no safe cancellation path for that yet).
+        inp = self.query_one("#prompt", Input)
+        if inp.value:
+            inp.value = ""
+        else:
+            self.exit()
+
+    def on_key(self, event: Any) -> None:
+        # Up/Down navigate prompt history when the input is focused. Up only
+        # starts recall on an empty line (don't clobber typed text); once
+        # navigating, both keys keep walking history.
+        inp = self.query_one("#prompt", Input)
+        if not getattr(inp, "has_focus", False):
+            return
+        if event.key == "up" and (inp.value == "" or self._history.navigating):
+            recalled = self._history.prev()
+            if recalled is not None:
+                inp.value = recalled
+                inp.cursor_position = len(recalled)
+                event.prevent_default()
+                event.stop()
+        elif event.key == "down" and self._history.navigating:
+            nxt = self._history.next()
+            if nxt is not None:
+                inp.value = nxt
+                inp.cursor_position = len(nxt)
+                event.prevent_default()
+                event.stop()
 
     async def request_approval(self, request: Any, result: Any) -> bool:
         """Approval callback for the loop: show the modal, then apply the chosen
@@ -146,8 +248,8 @@ class D2CApp(App):
         event.input.value = ""
         if not text:
             return
-        log = self.query_one("#transcript", RichLog)
-        log.write(f"> {text}")
+        self._history.add(text)
+        self._write_user(text)
 
         if text.lower() in ("exit", "quit", "q"):
             self.exit()
@@ -163,7 +265,7 @@ class D2CApp(App):
                 keep = await handle_slash_command(cmd, self._state)
             out = buf.getvalue().rstrip("\n")
             if out:
-                log.write(out)
+                self._write_system(out)
             self._refresh_status()
             if not keep:
                 self.exit()
@@ -172,7 +274,6 @@ class D2CApp(App):
         self.run_worker(self._consume_turn(text), exclusive=False)
 
     async def _consume_turn(self, text: str) -> None:
-        log = self.query_one("#transcript", RichLog)
         segment = ""
         try:
             async for ev in self._run_turn(text):
@@ -180,18 +281,18 @@ class D2CApp(App):
                     segment += ev.text
                 elif isinstance(ev, LoopTextResponse):
                     if ev.text.strip():
-                        log.write(to_renderable(ev.text.strip()))
+                        self._write(to_renderable(ev.text.strip()))
                     segment = ""
                 elif isinstance(ev, ToolExecutionEvent):
                     if segment.strip():
-                        log.write(to_renderable(segment.strip()))
+                        self._write(to_renderable(segment.strip()))
                     segment = ""
-                    log.write(tool_row_from_event(ev))
+                    self._write_tool(ev)
                 elif isinstance(ev, StopEvent):
                     if ev.reason not in ("model_finished",):
-                        log.write(f"  [stopped: {ev.reason}]")
+                        self._write_system(f"  [stopped: {ev.reason}]")
             if segment.strip():
-                log.write(to_renderable(segment.strip()))
+                self._write(to_renderable(segment.strip()))
         except Exception as e:  # noqa: BLE001 — a turn error must not kill the app
-            log.write(f"Error: {e}")
+            self._write_system(f"Error: {e}", style=_ERROR_STYLE)
         self._refresh_status()

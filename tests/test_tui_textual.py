@@ -139,18 +139,24 @@ def test_is_textual_available_returns_bool():
     assert isinstance(is_textual_available(), bool)
 
 
-def test_importing_tui_does_not_import_textual_app():
-    import d2c.tui  # noqa: F401
+def _asserts_app_not_imported(import_stmt: str) -> None:
+    # Checked in a fresh interpreter: within this process other tests import the
+    # Textual app via pilot, so sys.modules is shared and order-dependent. The
+    # invariant is that the import statement below does not, *by itself*, pull in
+    # the Textual-dependent module (only run_textual_app() does).
+    import subprocess
 
-    # The Textual-dependent module is only loaded by run_textual_app(), so
-    # merely importing the package (as helpers/tests do) must not pull it in.
-    assert "d2c.tui.app" not in sys.modules
+    code = f"{import_stmt}; import sys; assert 'd2c.tui.app' not in sys.modules"
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_importing_tui_does_not_import_textual_app():
+    _asserts_app_not_imported("import d2c.tui")
 
 
 def test_importing_main_does_not_import_textual_app():
-    import d2c.main  # noqa: F401
-
-    assert "d2c.tui.app" not in sys.modules
+    _asserts_app_not_imported("import d2c.main")
 
 
 # ── Textual app (only where textual is installed) ───────────────────

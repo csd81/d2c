@@ -61,25 +61,31 @@ def tool_row(*, name: str, target: str, status: str, detail: str = "") -> str:
     return row
 
 
+def tool_row_status(event: Any) -> str:
+    """Status bucket for a completed ToolExecutionEvent: ok / error / denied."""
+    result = getattr(event, "result", None)
+    if not bool(getattr(result, "error", False)):
+        return "ok"
+    low = str(getattr(result, "output", "") or "").lower()
+    return "denied" if ("denied" in low or "not permitted" in low) else "error"
+
+
 def tool_row_from_event(event: Any) -> str:
     """Build a timeline row from a completed ToolExecutionEvent."""
     name = getattr(getattr(event, "tool_use", None), "name", "?")
     tool_input = getattr(getattr(event, "tool_use", None), "input", {}) or {}
     result = getattr(event, "result", None)
     output = str(getattr(result, "output", "") or "")
-    errored = bool(getattr(result, "error", False))
     metadata = getattr(result, "metadata", {}) or {}
+    status = tool_row_status(event)
 
-    if errored:
-        low = output.lower()
-        status = "denied" if ("denied" in low or "not permitted" in low) else "error"
-        first_line = output.strip().splitlines()[0] if output.strip() else ""
-        detail = first_line[:60]
-    else:
-        status = "ok"
+    if status == "ok":
         detail = ""
         if isinstance(metadata, dict) and metadata.get("file_count"):
             detail = f"{metadata['file_count']} file(s)"
+    else:
+        first_line = output.strip().splitlines()[0] if output.strip() else ""
+        detail = first_line[:60]
 
     return tool_row(
         name=str(name),
@@ -87,3 +93,55 @@ def tool_row_from_event(event: Any) -> str:
         status=status,
         detail=detail,
     )
+
+
+# ── Phase 76: prompt input history ──────────────────────────────────
+
+
+class InputHistory:
+    """Small, Textual-free prompt history for the Textual input box.
+
+    ``add`` records a submitted prompt (deduping consecutive repeats) and
+    resets the navigation cursor. ``prev``/``next`` walk the history like a
+    shell: ``prev`` returns older entries, ``next`` returns newer ones and
+    finally an empty string when walked past the newest. Navigation is only
+    "active" once ``prev`` has been called.
+    """
+
+    def __init__(self) -> None:
+        self._items: list[str] = []
+        self._pos: int | None = None
+
+    @property
+    def navigating(self) -> bool:
+        return self._pos is not None
+
+    def add(self, text: str) -> None:
+        text = text.strip()
+        if text and (not self._items or self._items[-1] != text):
+            self._items.append(text)
+        self._pos = None
+
+    def prev(self) -> str | None:
+        """The previous (older) entry, or None if there is no history."""
+        if not self._items:
+            return None
+        if self._pos is None:
+            self._pos = len(self._items) - 1
+        elif self._pos > 0:
+            self._pos -= 1
+        return self._items[self._pos]
+
+    def next(self) -> str | None:
+        """The next (newer) entry, an empty string past the newest, or None if
+        not currently navigating."""
+        if self._pos is None:
+            return None
+        if self._pos < len(self._items) - 1:
+            self._pos += 1
+            return self._items[self._pos]
+        self._pos = None
+        return ""
+
+    def reset(self) -> None:
+        self._pos = None

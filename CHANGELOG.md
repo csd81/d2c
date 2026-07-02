@@ -5,6 +5,16 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 76:** session ergonomics for the experimental Textual UI (`D2C_TUI=textual`), to
+  make it comfortable for real use. The transcript follows new output only when you're already
+  at the bottom (scrolling up no longer yanks the viewport), with `PageUp`/`PageDown`/`Home`/
+  `End` navigation; `Up`/`Down` walk prompt history (a small unit-tested `InputHistory` helper,
+  starting recall only on an empty line so typed text isn't clobbered); `Ctrl+L` clears the
+  view only (never session/history state); `Ctrl+C` clears a non-empty input else exits
+  (conservative — it never kills an in-flight tool). Transcript blocks are visually distinct by
+  role (user / assistant Markdown / tool row / error), tool rows color by ok/error/denied
+  status, and the status footer truncates instead of overlapping on small terminals. Textual
+  stays opt-in; the prompt_toolkit REPL is unchanged.
 - **Phase 75:** the experimental Textual UI (opt-in, `D2C_TUI=textual`) gains the two core
   live-workflow surfaces. A **permission approval modal** shows the tool, category, reason,
   a redacted input preview (Bash commands with a shell-classifier risk label; Edit/Write/
