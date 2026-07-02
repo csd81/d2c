@@ -179,3 +179,102 @@ def test_textual_app_instantiates():
 
     app = D2CApp(state=state, run_turn=_noop_turn, active_bg_tasks=lambda: 0)
     assert app is not None
+
+
+# ── Phase 75: approval modal view + tool timeline rows ──────────────
+
+
+def _approval_req(*, tool_name, category, tool_input):
+    return SimpleNamespace(
+        tool_name=tool_name,
+        tool_category=SimpleNamespace(value=category),
+        tool_input=tool_input,
+    )
+
+
+def test_approval_view_bash_is_redacted_and_risk_labeled():
+    from d2c.tui.approvals import approval_view
+
+    req = _approval_req(tool_name="Bash", category="shell", tool_input={"command": "git status"})
+    view = approval_view(req, SimpleNamespace(reason="needs approval"))
+    assert view["tool"] == "Bash"
+    assert view["category"] == "shell"
+    assert "git status" in view["preview"]
+    assert view["risk"] in ("allow", "ask", "deny")  # from the shell classifier
+
+
+def test_approval_view_edit_shows_diff_summary_and_path():
+    from d2c.tui.approvals import approval_view
+
+    req = _approval_req(
+        tool_name="Edit",
+        category="write",
+        tool_input={"file_path": "/proj/a.py", "old_string": "a\n", "new_string": "b\nc\n"},
+    )
+    view = approval_view(req, SimpleNamespace(reason="edit"))
+    assert view["preview"] == "/proj/a.py"
+    assert view["diff_summary"].startswith("+")  # e.g. "+2 / -1"
+    assert view["diff_lines"]  # concrete diff lines present
+
+
+def test_approval_view_generic_uses_input_preview():
+    from d2c.tui.approvals import approval_view
+
+    req = _approval_req(tool_name="Grep", category="read", tool_input={"pattern": "TODO"})
+    view = approval_view(req, SimpleNamespace(reason="read"))
+    assert "TODO" in view["preview"]
+
+
+def test_tool_row_ok_error_denied():
+    from d2c.tui.widgets import tool_row_from_event
+
+    ok = SimpleNamespace(
+        tool_use=SimpleNamespace(name="Read", input={"file_path": "src/x.py"}),
+        result=SimpleNamespace(output="contents", error=False, metadata={}),
+    )
+    row = tool_row_from_event(ok)
+    assert "Read" in row and "src/x.py" in row and "ok" in row
+
+    denied = SimpleNamespace(
+        tool_use=SimpleNamespace(name="Bash", input={"command": "rm -rf /"}),
+        result=SimpleNamespace(output="Permission denied by rule", error=True, metadata={}),
+    )
+    assert "denied" in tool_row_from_event(denied)
+
+    errored = SimpleNamespace(
+        tool_use=SimpleNamespace(name="Bash", input={"command": "false"}),
+        result=SimpleNamespace(output="boom: exit 1", error=True, metadata={}),
+    )
+    row = tool_row_from_event(errored)
+    assert "error" in row and "boom" in row
+
+
+def test_tool_row_shows_file_count_detail():
+    from d2c.tui.widgets import tool_row_from_event
+
+    ev = SimpleNamespace(
+        tool_use=SimpleNamespace(name="ApplyPatch", input={}),
+        result=SimpleNamespace(output="applied", error=False, metadata={"file_count": 3}),
+    )
+    assert "3 file(s)" in tool_row_from_event(ev)
+
+
+def test_approval_modal_keys_map_to_scopes():
+    pytest.importorskip("textual")
+    from d2c.tui.app import ApprovalModal
+    from d2c.tui.approvals import ApprovalChoice
+
+    modal = ApprovalModal({"tool": "Bash", "category": "shell", "reason": "r"})
+    captured: dict[str, object] = {}
+    modal.dismiss = lambda value=None: captured.__setitem__("v", value)  # type: ignore[method-assign]
+
+    def press(key, char):
+        modal.on_key(SimpleNamespace(key=key, character=char))
+        return captured["v"]
+
+    assert press("escape", None) is ApprovalChoice.DENY  # default deny
+    assert press("y", "y") is ApprovalChoice.ONCE
+    assert press("a", "a") is ApprovalChoice.SESSION  # lowercase = session
+    assert press("A", "A") is ApprovalChoice.ALWAYS  # uppercase = persistent
+    assert press("n", "n") is ApprovalChoice.DENY
+    assert press("enter", None) is ApprovalChoice.DENY  # unknown → deny

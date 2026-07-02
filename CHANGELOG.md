@@ -5,6 +5,16 @@ All notable changes to d2c are documented here. This project follows a simple
 
 ## Unreleased
 
+- **Phase 75:** the experimental Textual UI (opt-in, `D2C_TUI=textual`) gains the two core
+  live-workflow surfaces. A **permission approval modal** shows the tool, category, reason,
+  a redacted input preview (Bash commands with a shell-classifier risk label; Edit/Write/
+  ApplyPatch with a `+N / -M` diff summary and a short inline diff), and maps `[y]`/`[a]`/
+  `[A]`/`[n]` to the exact Phase 52/64/65 scopes — deny is the default (Escape/Enter/unknown).
+  The modal only *collects* a choice; the existing `ApprovalCache` applies it, so approval
+  semantics aren't duplicated, redaction goes through `observability.redact`, and nothing is
+  read from disk speculatively. Tool executions now render as **compact timeline rows**
+  (name, target preview, ok/error/denied status, file-count/error detail) reusing the same
+  preview/diff helpers. Textual stays opt-in; the prompt_toolkit REPL is unchanged.
 - **Phase 74:** experimental Textual TUI (opt-in), the first stage of a staged migration
   off the organically-grown prompt_toolkit REPL. Set `D2C_TUI=textual` (with the new
   optional extra: `pip install "d2c[tui]"`) to launch a Textual app shell — transcript +

@@ -1551,6 +1551,12 @@ async def run_interactive(args: argparse.Namespace) -> None:
         except Exception:
             return 0
 
+    # Phase 75: a holder so the Textual app can swap in its modal-based approval
+    # callback for the loop; the default prompt_toolkit path keeps _approval_cb.
+    from types import SimpleNamespace
+
+    approval_holder = SimpleNamespace(approval_cb=_approval_cb)
+
     def _build_loop_config() -> LoopConfig:
         return LoopConfig(
             system_prompt=system_prompt,
@@ -1566,7 +1572,7 @@ async def run_interactive(args: argparse.Namespace) -> None:
             session_store=state.session_store,
             compact_config=compact_config,
             stream=state.stream,
-            approval_callback=_approval_cb,
+            approval_callback=approval_holder.approval_cb,
         )
 
     try:
@@ -1624,6 +1630,7 @@ async def run_interactive(args: argparse.Namespace) -> None:
                     state=state,
                     run_turn=_textual_run_turn,
                     active_bg_tasks=_active_bg_tasks,
+                    approval_holder=approval_holder,
                 )
                 return  # the enclosing `finally` still flushes usage + SessionEnd
             print(

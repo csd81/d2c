@@ -130,9 +130,10 @@ SDK, MCP, and eval output stay plain.
 
 An **experimental Textual UI** is available behind an opt-in: install the extra
 (`pip install "d2c[tui]"`) and run with `D2C_TUI=textual python -m d2c`. It reuses the same
-slash commands, Markdown rendering (via Rich), and approval scopes as the default REPL. The
-default interactive UI remains prompt_toolkit; without the flag (or without Textual installed)
-nothing changes.
+slash commands, Markdown rendering (via Rich), and approval scopes as the default REPL, and adds
+a permission approval modal (`[y]`/`[a]`/`[A]`/`[n]`, deny by default, with redacted input/diff
+previews) and compact tool-progress timeline rows. The default interactive UI remains
+prompt_toolkit; without the flag (or without Textual installed) nothing changes.
 `/usage` shows session token totals (input/output/cache) and an estimated cost; the
 status bar shows a compact `133.4k in / 9.2k out | ~$0.42` summary once the model has been called.
 Token counts fall back to local estimation when the provider omits usage fields, and costs use a

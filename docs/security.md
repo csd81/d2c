@@ -39,6 +39,13 @@ is protected, what is not, and what you should not rely on. The invariants below
   untrusted". Output surfaces only a profile's effective boundaries (model, permission mode, worktree
   flag, allowed/denied tools) — never environment variables and never the full instruction body
   (instructions are summarized by length plus the first heading).
+- **Textual approval modal (Phase 75).** The experimental Textual UI's approval modal reuses the
+  same decision code as the prompt_toolkit dialog: it only *collects* a choice, and the existing
+  `ApprovalCache` applies it, so the `[y]`/`[a]`/`[A]`/`[n]` scopes and deny-by-default are
+  identical. Its previews are built from the tool input already provided — Bash risk via the
+  `acceptEdits` classifier, Edit/Write/ApplyPatch diffs computed from `old_string`/`new_string`/
+  `patch` — never a speculative disk read, and every value is routed through `observability.redact`.
+  It never displays persistent approval hashes.
 - **Permission dialog rendering (Phase 65).** The styled dialog only ever displays what's already in
   the tool's `tool_input` — Edit/Write/ApplyPatch diff previews are computed from the stored
   old/new/patch text, never by reading the file from disk. Every interpolated value (command, URL,

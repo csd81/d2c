@@ -14,12 +14,57 @@ import io
 from typing import Any
 
 from textual.app import App, ComposeResult
+from textual.containers import Vertical
+from textual.screen import ModalScreen
 from textual.widgets import Input, RichLog, Static
 
 from d2c.loop import StopEvent, TextDelta, ToolExecutionEvent
 from d2c.loop import TextResponse as LoopTextResponse
+from d2c.tui.approvals import ApprovalChoice, apply_choice, approval_view, choice_from_key
 from d2c.tui.markdown import to_renderable
-from d2c.tui.widgets import status_line
+from d2c.tui.widgets import status_line, tool_row_from_event
+
+_MODAL_DIFF_MAX_LINES = 8  # short inline diff preview in the approval modal
+
+
+class ApprovalModal(ModalScreen):
+    """Phase 75: permission approval modal. Collects a choice only; the caller
+    (D2CApp.request_approval) applies it via the existing approval cache, so
+    approval semantics live in one place. Deny is the default (Escape/Enter/
+    unknown key)."""
+
+    CSS = """
+    ApprovalModal { align: center middle; }
+    #approval-box { width: 80%; max-width: 100; padding: 1 2; border: thick $warning; background: $surface; }
+    """
+
+    def __init__(self, view: dict[str, Any]) -> None:
+        super().__init__()
+        self._view = view
+
+    def compose(self) -> ComposeResult:
+        v = self._view
+        lines = [
+            f"Permission required: {v['tool']} [{v['category']}]",
+            f"Reason: {v['reason']}",
+        ]
+        if v.get("preview"):
+            lines.append(f"Input:  {v['preview']}")
+        if v.get("risk"):
+            lines.append(f"Risk:   {v['risk']}")
+        if v.get("diff_summary"):
+            lines.append(f"Diff:   {v['diff_summary']}")
+            for dl in list(v.get("diff_lines") or [])[:_MODAL_DIFF_MAX_LINES]:
+                lines.append(f"  {dl}")
+        lines.append("")
+        lines.append("[y] once    [a] session    [A] always    [n] deny")
+        yield Vertical(Static("\n".join(lines)), id="approval-box")
+
+    def on_key(self, event: Any) -> None:
+        if event.key == "escape":
+            self.dismiss(ApprovalChoice.DENY)
+            return
+        self.dismiss(choice_from_key(event.character or event.key))
 
 
 class D2CApp(App):
@@ -31,11 +76,36 @@ class D2CApp(App):
     #prompt { dock: bottom; }
     """
 
-    def __init__(self, *, state: Any, run_turn: Any, active_bg_tasks: Any) -> None:
+    def __init__(
+        self,
+        *,
+        state: Any,
+        run_turn: Any,
+        active_bg_tasks: Any,
+        approval_holder: Any = None,
+    ) -> None:
         super().__init__()
         self._state = state
         self._run_turn = run_turn
         self._active_bg_tasks = active_bg_tasks
+        self._approval_holder = approval_holder
+
+    def on_mount(self) -> None:
+        # Phase 75: route the agent loop's approval requests to the Textual
+        # modal (instead of the prompt_toolkit/stdin fallback).
+        if self._approval_holder is not None:
+            self._approval_holder.approval_cb = self.request_approval
+
+    async def request_approval(self, request: Any, result: Any) -> bool:
+        """Approval callback for the loop: show the modal, then apply the chosen
+        scope via the existing ApprovalCache. Deny on any error."""
+        try:
+            choice = await self.push_screen_wait(ApprovalModal(approval_view(request, result)))
+        except Exception:
+            return False
+        if not isinstance(choice, ApprovalChoice):
+            choice = ApprovalChoice.DENY
+        return apply_choice(choice, self._state.approvals, request)
 
     # ── layout ──────────────────────────────────────────────────────
     def compose(self) -> ComposeResult:
@@ -116,9 +186,7 @@ class D2CApp(App):
                     if segment.strip():
                         log.write(to_renderable(segment.strip()))
                     segment = ""
-                    out = ev.result.output or ""
-                    suffix = "…" if len(out) > 200 else ""
-                    log.write(f"  [{ev.tool_use.name}] {out[:200]}{suffix}")
+                    log.write(tool_row_from_event(ev))
                 elif isinstance(ev, StopEvent):
                     if ev.reason not in ("model_finished",):
                         log.write(f"  [stopped: {ev.reason}]")

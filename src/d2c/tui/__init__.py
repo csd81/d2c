@@ -67,10 +67,19 @@ def is_textual_available() -> bool:
         return False
 
 
-async def run_textual_app(*, state: Any, run_turn: Any, active_bg_tasks: Any) -> None:
+async def run_textual_app(
+    *, state: Any, run_turn: Any, active_bg_tasks: Any, approval_holder: Any = None
+) -> None:
     """Launch the Textual app. Imports Textual lazily (callers must ensure
-    :func:`is_textual_available`)."""
+    :func:`is_textual_available`). ``approval_holder`` (if given) has its
+    ``approval_cb`` set to the app's modal so the loop's ASK prompts render as a
+    Textual modal instead of the stdin fallback."""
     from d2c.tui.app import D2CApp
 
-    app = D2CApp(state=state, run_turn=run_turn, active_bg_tasks=active_bg_tasks)
+    app = D2CApp(
+        state=state,
+        run_turn=run_turn,
+        active_bg_tasks=active_bg_tasks,
+        approval_holder=approval_holder,
+    )
     await app.run_async()
